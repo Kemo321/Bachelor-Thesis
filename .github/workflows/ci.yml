@@ -1,0 +1,48 @@
+name: MiniC CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  format-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-format
+        run: |
+          sudo apt update
+          sudo apt install -y clang-format
+      - name: Run clang-format
+        run: |
+          find . \( -name "*.cpp" -o -name "*.hpp" -o -name "*.cc" \) -not -path "*/build/*" | xargs clang-format -style=file --dry-run --Werror
+
+  build-and-test:
+    needs: format-check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler_ver: [14, 15]
+    
+    container: gcc:${{ matrix.compiler_ver }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt update
+          apt install -y cmake clang-tidy
+
+      - name: Configure and Build
+        run: |
+          cmake -B build -S . -DBUILD_TESTS=ON -DPRODUCTION=ON
+          cmake --build build --config Release -j $(nproc)
+
+      - name: Run unit tests
+        run: |
+          cd build
+          ctest --output-on-failure
