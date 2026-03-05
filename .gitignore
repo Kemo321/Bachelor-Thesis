@@ -1,41 +1,31 @@
-# Prerequisites
-*.d
-
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
+build/                  # Wszystkie pliki CMake, pliki .o, .a, .so i binaria
+bin/                    # Czasami binaria lądują tutaj
+lib/                    # Skompilowane biblioteki statyczne
+*.out                   # Domyślne pliki wyjściowe kompilatora
 *.exe
-*.out
 *.app
 
-# debug information files
-*.dwo
+*.i                     # Pliki pośrednie CUDA
+*.ii
+*.gpu
+*.ptx                   # Wygenerowany kod asemblera GPU
+*.fatbin
+*.d                     # Pliki zależności (dependency files)
+compute_prof_log.txt    # Logi profilera NVIDIA
+
+.vscode/                # Ustawienia lokalne edytora
+.idea/                  # Jeśli używasz CLion / IntelliJ
+*.swp                   # Pliki tymczasowe Vima
+.DS_Store               # Macowe śmieci
+
+extern/*/.build/
+
+data/                   # Tutaj trzymaj zbiory danych (MNIST, CIFAR itp.)
+models/*.pth            # Wagi modeli (PyTorch)
+models/*.onnx           # Modele wyeksportowane
+*.log                   # Logi z treningu
+node_modules/           # Jeśli użyjesz jakichś narzędzi JS do wizualizacji
+
+__pycache__/
+*.pyc
+.ipynb_checkpoints/     # Notatniki Jupyter
