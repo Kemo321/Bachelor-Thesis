@@ -1,4 +1,5 @@
 build/                  # Wszystkie pliki CMake, pliki .o, .a, .so i binaria
+build
 bin/                    # Czasami binaria lądują tutaj
 lib/                    # Skompilowane biblioteki statyczne
 *.out                   # Domyślne pliki wyjściowe kompilatora
