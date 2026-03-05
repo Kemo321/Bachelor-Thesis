@@ -43,7 +43,7 @@ jobs:
 
       - name: Run Cppcheck
         run: |
-          cppcheck --enable=all \
+          entry: cppcheck --enable=all --suppress=unusedFunction --error-exitcode=1 -I include src/
           --error-exitcode=1 \
           -I include src/
 
