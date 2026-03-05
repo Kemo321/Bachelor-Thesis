@@ -5,7 +5,7 @@ Tensor::Tensor(int size)
     : m_size(size)
 {
 }
-int Tensor::getSize() const
+auto Tensor::get_size() const -> int
 {
     return m_size;
 }

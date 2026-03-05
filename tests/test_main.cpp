@@ -4,7 +4,7 @@
 int main()
 {
     dl::Tensor t(10);
-    if (t.getSize() == 10)
+    if (t.get_size() == 10)
     {
         std::cout << "Test Passed!" << std::endl;
         return 0;

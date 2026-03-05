@@ -6,7 +6,7 @@ class Tensor
 {
 public:
     explicit Tensor(int size);
-    int getSize() const;
+    auto get_size() const -> int;
 
 private:
     int m_size = 0;
