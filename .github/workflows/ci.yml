@@ -1,4 +1,4 @@
-name: MiniC CI
+name: Deep Learning Framework CI
 
 on:
   push:
@@ -30,6 +30,11 @@ jobs:
     container: nvidia/cuda:${{ matrix.cuda_ver }}
 
     steps:
+      - name: Install Git
+        run: |
+          apt update
+          apt install -y git
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
