@@ -1,9 +1,11 @@
-#include <iostream>
 #include "DeepLearnLib/tensor.hpp"
+#include <iostream>
 
-int main() {
+int main()
+{
     dl::Tensor t(10);
-    if (t.getSize() == 10) {
+    if (t.getSize() == 10)
+    {
         std::cout << "Test Passed!" << std::endl;
         return 0;
     }
