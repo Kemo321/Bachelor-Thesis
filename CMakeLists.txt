@@ -1,9 +1,17 @@
-cmake_minimum_required(VERSION 3.10)
-project(DeepLearnLib VERSION 1.0.0 LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.18)
+project(MiniC_DL LANGUAGES CXX CUDA)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# SIMD flags (AVX2)
+if(NOT MSVC)
+    add_compile_options(-mavx2 -mfma -O3)
+endif()
 
-# Include the library and tests
+# CUDA architecture (adjust to your GPU, e.g. 75 for RTX 2060)
+set(CMAKE_CUDA_ARCHITECTURES 75)
+
+# Add GoogleTest from extern
+add_subdirectory(extern/googletest)
+
+# Add subfolders
 add_subdirectory(src)
 add_subdirectory(tests)

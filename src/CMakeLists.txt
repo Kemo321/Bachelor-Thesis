@@ -1,10 +1,14 @@
-file(GLOB SOURCES "*.cpp")
+# Create a library from C++ and CUDA files
+add_library(DeepLearnLib
+    tensor.cpp
+    cuda_kernels.cu
+)
 
-# Define the library target
-add_library(${PROJECT_NAME} ${SOURCES})
-
-# Specify where headers are located
-target_include_directories(${PROJECT_NAME} PUBLIC 
+# Define header paths
+target_include_directories(DeepLearnLib PUBLIC 
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
     $<INSTALL_INTERFACE:include>
 )
+
+# If you use special CUDA libraries (e.g., cuBLAS)
+target_link_libraries(DeepLearnLib PRIVATE cudart)
