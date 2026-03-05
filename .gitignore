@@ -1,32 +1,36 @@
-build/                  # Wszystkie pliki CMake, pliki .o, .a, .so i binaria
+build/
 build
-bin/                    # Czasami binaria lądują tutaj
-lib/                    # Skompilowane biblioteki statyczne
-*.out                   # Domyślne pliki wyjściowe kompilatora
+bin/
+lib/
+*.out
 *.exe
 *.app
 
-*.i                     # Pliki pośrednie CUDA
+*.i
 *.ii
 *.gpu
-*.ptx                   # Wygenerowany kod asemblera GPU
+*.ptx
 *.fatbin
-*.d                     # Pliki zależności (dependency files)
-compute_prof_log.txt    # Logi profilera NVIDIA
+*.d
+compute_prof_log.txt
 
-.vscode/                # Ustawienia lokalne edytora
-.idea/                  # Jeśli używasz CLion / IntelliJ
-*.swp                   # Pliki tymczasowe Vima
-.DS_Store               # Macowe śmieci
+.vscode/
+.idea/
+*.swp
+.DS_Store
 
 extern/*/.build/
 
-data/                   # Tutaj trzymaj zbiory danych (MNIST, CIFAR itp.)
-models/*.pth            # Wagi modeli (PyTorch)
-models/*.onnx           # Modele wyeksportowane
-*.log                   # Logi z treningu
-node_modules/           # Jeśli użyjesz jakichś narzędzi JS do wizualizacji
+data/
+models/*.pth
+models/*.onnx
+*.log
+node_modules/
 
 __pycache__/
 *.pyc
-.ipynb_checkpoints/     # Notatniki Jupyter
+.ipynb_checkpoints/
+
+docs/html/
+docs/latex/
+doxygen_sqlite3.db
