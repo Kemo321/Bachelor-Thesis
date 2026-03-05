@@ -12,12 +12,20 @@ repos:
     hooks:
       - id: clang-format
         types_or: [c++, cuda]
+        args: ["-style=file"]
 
   - repo: local
     hooks:
-      - id: doxygen-check
-        name: Doxygen Check
-        entry: doxygen Doxyfile
+      - id: cppcheck
+        name: cppcheck
+        entry: cppcheck --enable=all --suppress=noConstructor --error-exitcode=1 -I include src
         language: system
+        types: [c++]
         pass_filenames: false
-        always_run: true
+
+      - id: cmake-format
+        name: cmake-format
+        entry: cmake-format -i
+        language: python
+        additional_dependencies: [cmakelang]
+        files: (CMakeLists\.txt|.*\.cmake)$
