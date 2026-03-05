@@ -25,17 +25,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compiler_ver: [14, 15]
+        cuda_ver: ["12.4.1-devel-ubuntu22.04"] 
     
-    container: gcc:${{ matrix.compiler_ver }}
+    container: nvidia/cuda:${{ matrix.cuda_ver }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-      - name: Install dependencies
+      - name: Install build tools
         run: |
           apt update
-          apt install -y cmake clang-tidy
+          apt install -y cmake clang-tidy g++
 
       - name: Configure and Build
         run: |
