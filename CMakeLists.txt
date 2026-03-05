@@ -1,42 +1,59 @@
 cmake_minimum_required(VERSION 3.18)
 
-# --- 1. C++ STANDARD SETTINGS BEFORE PROJECT() ---
-# This helps CMake properly initialize CXX compiler features
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(MiniC_DL LANGUAGES CXX CUDA)
 
-# --- 2. CUDA SETTINGS ---
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-
-# Add architecture 100 for RTX 5080 (Blackwell)
-# 89 (Lovelace/40-series), 90 (Hopper), 100 (Blackwell)
 set(CMAKE_CUDA_ARCHITECTURES 89 90 100) 
 
-# --- 3. EXTERNAL LIBRARIES CONFIGURATION ---
-
-# GoogleTest
 add_subdirectory(extern/googletest)
 
-# Highway (SIMD)
-# Disable tests and problematic vqsort module (contrib)
 set(HWY_ENABLE_TESTS OFF CACHE BOOL "Disable Highway tests")
-set(HWY_ENABLE_CONTRIB OFF CACHE BOOL "Disable Highway contrib (fixes vqsort C++17 error)")
+set(HWY_ENABLE_CONTRIB OFF CACHE BOOL "Disable Highway contrib")
 set(HWY_ENABLE_EXAMPLES OFF CACHE BOOL "Disable Highway examples")
-
 add_subdirectory(extern/highway)
 
-# CUTLASS (Header-only)
+set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "")
+add_subdirectory(extern/benchmark)
+
 set(CUTLASS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extern/cutlass")
 
 add_subdirectory(src)
 add_subdirectory(tests)
+add_subdirectory(benchmarks)
+
+option(USE_SANITIZERS "Enable ASan and UBSan" ON)
+if(USE_SANITIZERS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_options(DeepLearnLib PUBLIC -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_link_options(DeepLearnLib PUBLIC -fsanitize=address,undefined)
+    message(STATUS "Sanitizers enabled for DeepLearnLib")
+endif()
+
+find_program(CLANG_TIDY_EXE NAMES "clang-tidy")
+if(CLANG_TIDY_EXE)
+    set(CLANG_TIDY_COMMAND 
+        ${CLANG_TIDY_EXE}
+        "-checks=-*,bugprone-*,performance-*,modernize-*,readability-*,cppcoreguidelines-*"
+        "-warnings-as-errors=*"
+    )
+    set_target_properties(DeepLearnLib PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_COMMAND}")
+endif()
+
+find_program(CPPCHECK_EXE NAMES "cppcheck")
+if(CPPCHECK_EXE)
+    add_custom_target(cppcheck
+        COMMAND ${CPPCHECK_EXE} --enable=all --suppress=missingIncludeSystem 
+                --project=${CMAKE_BINARY_DIR}/compile_commands.json
+        COMMENT "Running cppcheck analysis..."
+    )
+endif()
 
 find_package(Doxygen)
-
 if(DOXYGEN_FOUND)
     add_custom_target(docs
         COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile

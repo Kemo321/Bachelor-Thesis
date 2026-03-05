@@ -7,3 +7,6 @@
 [submodule "extern/cutlass"]
 	path = extern/cutlass
 	url = https://github.com/NVIDIA/cutlass.git
+[submodule "extern/benchmark"]
+	path = extern/benchmark
+	url = https://github.com/google/benchmark.git

@@ -1,0 +1,9 @@
+add_executable(bench_tensor bench_tensor.cpp)
+
+target_link_libraries(bench_tensor 
+    PRIVATE 
+    DeepLearnLib 
+    benchmark::benchmark
+)
+
+target_compile_definitions(bench_tensor PRIVATE BENCHMARK_STATIC_DEFINE)
