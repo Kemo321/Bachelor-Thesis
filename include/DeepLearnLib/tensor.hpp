@@ -1,8 +1,10 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cuda_runtime.h>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 namespace dl
@@ -36,7 +38,7 @@ struct CpuDeleter
 class Tensor
 {
 public:
-    explicit Tensor(std::vector<int> shape, Device device = Device::CPU);
+    explicit Tensor(std::vector<int> shape, auto device = Device::CPU);
 
     Tensor(std::vector<int> shape, std::vector<int> strides, std::shared_ptr<float> data, Device device);
 
