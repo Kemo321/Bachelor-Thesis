@@ -16,6 +16,12 @@ repos:
 
   - repo: local
     hooks:
+      - id: clang-format
+        name: clang-format
+        entry: clang-format -i --style=file
+        language: system
+        types_or: [c++, c, cuda]
+
       - id: cppcheck
         name: cppcheck
         entry: cppcheck --enable=all --suppress=missingIncludeSystem --error-exitcode=1 -I include src/
