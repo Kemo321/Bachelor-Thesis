@@ -19,3 +19,6 @@
 [submodule "extern/stb"]
 	path = extern/stb
 	url = https://github.com/nothings/stb.git
+[submodule "extern/gsl"]
+	path = extern/gsl
+	url = https://github.com/microsoft/GSL.git

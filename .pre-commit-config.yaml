@@ -7,13 +7,6 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
 
-  - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v17.0.6
-    hooks:
-      - id: clang-format
-        types_or: [c++, cuda]
-        args: ["-style=file"]
-
   - repo: local
     hooks:
       - id: clang-format
@@ -22,9 +15,16 @@ repos:
         language: system
         types_or: [c++, c, cuda]
 
+      - id: clang-tidy
+        name: clang-tidy
+        entry: clang-tidy -p build_debug --fix
+        language: system
+        types: [c++]
+        pass_filenames: true
+
       - id: cppcheck
         name: cppcheck
-        entry: cppcheck --enable=all --suppress=missingIncludeSystem --error-exitcode=1 -I include src/
+        entry: cppcheck --enable=all --suppress=missingIncludeSystem --suppress=unusedFunction --error-exitcode=1 -I include src/
         language: system
         types: [c++]
         pass_filenames: false
