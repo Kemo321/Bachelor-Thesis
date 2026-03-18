@@ -13,3 +13,9 @@
 [submodule "extern/pytorch"]
 	path = extern/pytorch
 	url = https://github.com/pytorch/pytorch.git
+[submodule "extern/pugixml"]
+	path = extern/pugixml
+	url = https://github.com/zeux/pugixml.git
+[submodule "extern/stb"]
+	path = extern/stb
+	url = https://github.com/nothings/stb.git
