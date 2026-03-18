@@ -4,14 +4,16 @@
 namespace dl
 {
 
-static int calculate_size(const std::vector<int>& shape)
+static auto calculate_size(const std::vector<int>& shape) -> int
 {
     return std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int>());
 }
 
 Tensor::Tensor(std::vector<int> shape, Device device)
     : shape_(std::move(shape))
+    , strides_()
     , device_(device)
+    , size_(0)
 {
     compute_strides();
     size_ = std::accumulate(shape_.begin(), shape_.end(), 1, std::multiplies<int>());
@@ -23,13 +25,13 @@ Tensor::Tensor(std::vector<int> shape, Device device)
         {
             throw std::runtime_error("No CUDA-capable devices found");
         }
-        float* gpu_data;
+        auto gpu_data = static_cast<gsl::owner<float*>>(nullptr);
         cudaMalloc(&gpu_data, size_ * sizeof(float));
         data_ = std::shared_ptr<float>(gpu_data, CudaDeleter());
     }
     else
     {
-        float* cpu_data = new float[size_]();
+        auto cpu_data = static_cast<gsl::owner<float*>>(new float[size_]());
         data_ = std::shared_ptr<float>(cpu_data, CpuDeleter());
     }
 }
