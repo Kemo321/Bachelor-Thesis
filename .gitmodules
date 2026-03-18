@@ -10,3 +10,6 @@
 [submodule "extern/benchmark"]
 	path = extern/benchmark
 	url = https://github.com/google/benchmark.git
+[submodule "extern/pytorch"]
+	path = extern/pytorch
+	url = https://github.com/pytorch/pytorch.git
