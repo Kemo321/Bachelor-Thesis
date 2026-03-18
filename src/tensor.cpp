@@ -16,7 +16,7 @@ Tensor::Tensor(std::vector<int> shape, Device device)
     , size_(calculate_size(shape_))
 {
     compute_strides();
-
+#if DEEPLEARNLIB_ENABLE_CUDA
     if (device_ == Device::GPU)
     {
         int device_count { 0 };
@@ -30,8 +30,6 @@ Tensor::Tensor(std::vector<int> shape, Device device)
 
         float* gpu_ptr { nullptr };
 
-        // 1. Usunięto redundantny static_cast (size_ to już size_t)
-        // 2. Dodano NOLINT, aby linter nie czepiał się reinterpret_cast wymaganego przez CUDA
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         err = cudaMalloc(reinterpret_cast<void**>(&gpu_ptr), size_ * sizeof(float));
 
@@ -46,6 +44,9 @@ Tensor::Tensor(std::vector<int> shape, Device device)
     {
         data_ = std::shared_ptr<float>(new float[size_](), CpuDeleter());
     }
+#else
+    data_ = std::shared_ptr<float>(new float[size_](), CpuDeleter());
+#endif
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)

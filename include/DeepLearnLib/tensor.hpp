@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cstddef>
+#if DEEPLEARNLIB_ENABLE_CUDA
 #include <cuda_runtime.h>
+#endif
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -16,6 +18,7 @@ enum class Device
     GPU
 };
 
+#if DEEPLEARNLIB_ENABLE_CUDA
 struct CudaDeleter
 {
     void operator()(float* ptr) const
@@ -27,13 +30,18 @@ struct CudaDeleter
     }
 };
 
+#else
 struct CpuDeleter
 {
     void operator()(float* ptr) const
     {
-        delete[] ptr;
+        if (ptr)
+        {
+            delete[] ptr;
+        }
     }
 };
+#endif
 
 class Tensor
 {
