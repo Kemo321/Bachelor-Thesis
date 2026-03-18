@@ -43,7 +43,7 @@ jobs:
 
       - name: Run Cppcheck
         run: |
-          cppcheck --enable=all --error-exitcode=1 -I include src/ \
+          cppcheck --enable=all --suppressions-list=.cppcheck_suppressions --error-exitcode=1 -I include src/ \
           --error-exitcode=1 \
           -I include src/
 

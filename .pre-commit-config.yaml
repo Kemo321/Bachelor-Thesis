@@ -24,7 +24,7 @@ repos:
 
       - id: cppcheck
         name: cppcheck
-        entry: cppcheck --enable=all --suppress=missingIncludeSystem --suppress=unusedFunction --error-exitcode=1 -I include src/
+        entry: cppcheck --enable=all --suppressions-list=.cppcheck_suppressions --error-exitcode=1 -I include src/
         language: system
         types: [c++]
         pass_filenames: false
