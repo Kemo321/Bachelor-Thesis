@@ -58,10 +58,7 @@ TEST_F(TensorConstructorTest, GpuAllocationBehavior)
     }
     else
     {
-        EXPECT_THROW({
-            Tensor t(shape, Device::GPU);
-        },
-            std::runtime_error);
+        EXPECT_THROW({ Tensor t(shape, Device::GPU); }, std::runtime_error);
     }
 }
 
