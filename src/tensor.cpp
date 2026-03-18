@@ -3,11 +3,17 @@
 
 namespace dl
 {
+
+static int calculate_size(const std::vector<int>& shape)
+{
+    return std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int>());
+}
+
 Tensor::Tensor(std::vector<int> shape, Device device)
     : shape_(std::move(shape))
     , device_(device)
 {
-    // compute_strides();
+    compute_strides();
     size_ = std::accumulate(shape_.begin(), shape_.end(), 1, std::multiplies<int>());
     if (device_ == Device::GPU)
     {
@@ -33,8 +39,8 @@ Tensor::Tensor(std::vector<int> shape, std::vector<int> strides, std::shared_ptr
     , strides_(std::move(strides))
     , data_(std::move(data))
     , device_(device)
+    , size_(calculate_size(shape_))
 {
-    size_ = std::accumulate(shape_.begin(), shape_.end(), 1, std::multiplies<int>());
 }
 
 // auto Tensor::get_shape() const -> const std::vector<int>&
@@ -103,17 +109,17 @@ Tensor::Tensor(std::vector<int> shape, std::vector<int> strides, std::shared_ptr
 // static auto ones(const std::vector<int>& shape, Device device = Device::CPU) -> Tensor;
 // static auto random(const std::vector<int>& shape, Device device = Device::CPU) -> Tensor;
 
-// auto Tensor::compute_strides() -> void
-// {
-//     strides_.resize(shape_.size());
-//     if (shape_.empty())
-//     {
-//         return;
-//     }
-//     strides_.back() = 1;
-//     for (int i = static_cast<int>(shape_.size()) - 2; i >= 0; --i)
-//     {
-//         strides_[i] = strides_[i + 1] * shape_[i + 1];
-//     }
-// }
+auto Tensor::compute_strides() -> void
+{
+    strides_.resize(shape_.size());
+    if (shape_.empty())
+    {
+        return;
+    }
+    strides_.back() = 1;
+    for (int i = static_cast<int>(shape_.size()) - 2; i >= 0; --i)
+    {
+        strides_[i] = strides_[i + 1] * shape_[i + 1];
+    }
+}
 } // namespace dl
