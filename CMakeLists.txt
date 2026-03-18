@@ -6,10 +6,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(MiniC_DL LANGUAGES CXX CUDA)
+find_package(CUDAToolkit REQUIRED)
 
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-set(CMAKE_CUDA_ARCHITECTURES 89 90 100)
+set(CMAKE_CUDA_ARCHITECTURES 75 80 86 89)
 
 add_subdirectory(extern/googletest)
 
@@ -37,9 +38,14 @@ add_subdirectory(benchmarks)
 
 option(USE_SANITIZERS "Enable ASan and UBSan" ON)
 if(USE_SANITIZERS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
-  target_compile_options(DeepLearnLib PUBLIC -fsanitize=address,undefined
-                                             -fno-omit-frame-pointer)
-  target_link_options(DeepLearnLib PUBLIC -fsanitize=address,undefined)
+  target_compile_options(
+    DeepLearnLib PUBLIC $<$<COMPILE_LANGUAGE:CXX>:-fsanitize=address
+                        -fsanitize=undefined -fno-omit-frame-pointer>)
+
+  target_link_options(
+    DeepLearnLib PUBLIC $<$<LINK_LANGUAGE:CXX>:-fsanitize=address
+    -fsanitize=undefined>)
+
   message(STATUS "Sanitizers enabled for DeepLearnLib")
 endif()
 

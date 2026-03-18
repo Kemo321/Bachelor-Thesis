@@ -10,3 +10,15 @@
 [submodule "extern/benchmark"]
 	path = extern/benchmark
 	url = https://github.com/google/benchmark.git
+[submodule "extern/pytorch"]
+	path = extern/pytorch
+	url = https://github.com/pytorch/pytorch.git
+[submodule "extern/pugixml"]
+	path = extern/pugixml
+	url = https://github.com/zeux/pugixml.git
+[submodule "extern/stb"]
+	path = extern/stb
+	url = https://github.com/nothings/stb.git
+[submodule "extern/gsl"]
+	path = extern/gsl
+	url = https://github.com/microsoft/GSL.git

@@ -1,8 +1,12 @@
-add_executable(minic_tests test_main.cpp)
+find_package(CUDAToolkit QUIET)
 
-# Link your library and GoogleTest
-target_link_libraries(minic_tests PRIVATE DeepLearnLib gtest_main)
+add_executable(dllib_tests test_main.cpp test_tensor.cpp)
 
-# Register tests in the CTest system
+target_link_libraries(dllib_tests PRIVATE DeepLearnLib GTest::gtest_main)
+
+if(CUDAToolkit_FOUND)
+  target_link_libraries(dllib_tests PRIVATE CUDA::cudart)
+endif()
+
 include(GoogleTest)
-gtest_discover_tests(minic_tests)
+gtest_discover_tests(dllib_tests)

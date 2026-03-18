@@ -34,3 +34,8 @@ __pycache__/
 docs/html/
 docs/latex/
 doxygen_sqlite3.db
+
+
+data/
+build_debug/
+build_release/

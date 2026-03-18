@@ -7,67 +7,98 @@ on:
     branches: [ main ]
 
 jobs:
-  format-check:
+  static-analysis:
+    name: Static Analysis (Format & Lint)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Install clang-format
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install tools
         run: |
-          sudo apt update
-          sudo apt install -y clang-format
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-format cppcheck
+
       - name: Run clang-format
         run: |
           find . \( -name "*.cpp" -o -name "*.hpp" -o -name "*.cu" -o -name "*.cuh" -o -name "*.cc" \) \
           -not -path "*/build/*" -not -path "*/extern/*" | xargs clang-format -style=file --dry-run --Werror
 
-  build-and-test:
-    needs: format-check
+      - name: Run Cppcheck
+        run: |
+          cppcheck --enable=all --suppressions-list=.cppcheck_suppressions --error-exitcode=1 -I include src/
+
+  build-debug:
+    name: Build & Test (Debug)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        cuda_ver: ["12.4.1-devel-ubuntu22.04"]
-
-    container: nvidia/cuda:${{ matrix.cuda_ver }}
-
+    container: nvidia/cuda:12.4.1-devel-ubuntu22.04
     steps:
       - name: Install System Dependencies
         run: |
-          apt update
-          apt install -y git cmake clang-tidy cppcheck g++
+          apt-get update
+          apt-get install -y --no-install-recommends git cmake g++ ninja-build ca-certificates
 
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Run Cppcheck
-        run: |
-          cppcheck --enable=all --suppress=unusedFunction --error-exitcode=1 -I include src/ \
-          --error-exitcode=1 \
-          -I include src/
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-debug-cuda12.4
 
-      - name: Configure and Build (Debug + Sanitizers)
+      - name: Configure CMake (Debug)
         run: |
-          cmake -B build_debug -S . \
+          cmake -B build_debug -S . -G Ninja \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
             -DCMAKE_BUILD_TYPE=Debug \
             -DUSE_SANITIZERS=ON \
             -DBUILD_TESTS=ON \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          cmake --build build_debug -j $(nproc)
 
-      - name: Run unit tests (Sanitizers active)
+      - name: Build (Debug)
+        run: cmake --build build_debug
+
+      - name: Run unit tests
         run: |
           cd build_debug
-          ctest --output-on-failure
+          ctest --output-on-failure -j $(nproc)
 
-      - name: Configure and Build (Release + Benchmarks)
+  build-release:
+    name: Build & Benchmark (Release)
+    runs-on: ubuntu-latest
+    container: nvidia/cuda:12.4.1-devel-ubuntu22.04
+    steps:
+      - name: Install System Dependencies
         run: |
-          cmake -B build_release -S . \
+          apt-get update
+          apt-get install -y --no-install-recommends git cmake g++ ninja-build ca-certificates
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-release-cuda12.4
+
+      - name: Configure CMake (Release)
+        run: |
+          cmake -B build_release -S . -G Ninja \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_BENCHMARKS=ON \
             -DPRODUCTION=ON
-          cmake --build build_release -j $(nproc)
+
+      - name: Build (Release)
+        run: cmake --build build_release
 
       - name: Check Benchmarks
         run: |

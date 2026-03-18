@@ -8,7 +8,7 @@ static void BM_SimpleVectorAdd(benchmark::State& state)
     std::vector<float> b(state.range(0), 2.0f);
     std::vector<float> res(state.range(0));
 
-    for (auto _ : state)
+    for (auto _ [[maybe_unused]] : state)
     {
         for (size_t i = 0; i < a.size(); ++i)
         {

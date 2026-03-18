@@ -1,14 +1,7 @@
-#include "DeepLearnLib/tensor.hpp"
-#include <iostream>
+#include <gtest/gtest.h>
 
-int main()
+int main(int argc, char** argv)
 {
-    dl::Tensor t(10);
-    if (t.get_size() == 10)
-    {
-        std::cout << "Test Passed!" << std::endl;
-        return 0;
-    }
-    std::cout << "Test Failed!" << std::endl;
-    return 1;
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
 }
