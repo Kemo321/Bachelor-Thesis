@@ -17,10 +17,9 @@ repos:
 
       - id: clang-tidy
         name: clang-tidy
-        entry: clang-tidy -p build_debug --fix
+        entry: clang-tidy -p build
         language: system
         types: [c++]
-        pass_filenames: true
 
       - id: cppcheck
         name: cppcheck
