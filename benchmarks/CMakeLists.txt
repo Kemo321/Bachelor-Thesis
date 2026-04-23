@@ -1,8 +1,17 @@
-add_executable(bench_tensor bench_tensor.cpp)
+set(Torch_DIR "${CMAKE_SOURCE_DIR}/extern/pytorch/libtorch/share/cmake/Torch")
+find_package(Torch REQUIRED)
+find_package(pugixml REQUIRED)
 
-target_link_libraries(bench_tensor PRIVATE DeepLearnLib benchmark::benchmark)
+add_executable(bench_torch bench_torch.cpp)
 
-target_compile_definitions(bench_tensor PRIVATE BENCHMARK_STATIC_DEFINE)
-target_compile_features(bench_tensor PRIVATE cxx_std_17)
+target_link_libraries(
+  bench_torch
+  PRIVATE ${TORCH_LIBRARIES} benchmark::benchmark benchmark::benchmark_main
+          Threads::Threads pugixml::pugixml)
 
-set_property(TARGET bench_tensor PROPERTY CXX_STANDARD 17)
+set_target_properties(bench_torch PROPERTIES CXX_STANDARD 17
+                                             CXX_STANDARD_REQUIRED ON)
+
+target_include_directories(bench_torch SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})
+target_include_directories(bench_torch PRIVATE "${CMAKE_SOURCE_DIR}/extern/stb")
+target_compile_definitions(bench_torch PRIVATE _GLIBCXX_USE_CXX11_ABI=1)

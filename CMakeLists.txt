@@ -48,32 +48,3 @@ if(USE_SANITIZERS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
 
   message(STATUS "Sanitizers enabled for DeepLearnLib")
 endif()
-
-find_program(CLANG_TIDY_EXE NAMES "clang-tidy")
-if(CLANG_TIDY_EXE)
-  set(CLANG_TIDY_COMMAND
-      ${CLANG_TIDY_EXE}
-      "-checks=-*,bugprone-*,performance-*,modernize-*,readability-*,cppcoreguidelines-*"
-      "-warnings-as-errors=*")
-  set_target_properties(DeepLearnLib PROPERTIES CXX_CLANG_TIDY
-                                                "${CLANG_TIDY_COMMAND}")
-endif()
-
-find_program(CPPCHECK_EXE NAMES "cppcheck")
-if(CPPCHECK_EXE)
-  add_custom_target(
-    cppcheck
-    COMMAND ${CPPCHECK_EXE} --enable=all --suppress=missingIncludeSystem
-            --project=${CMAKE_BINARY_DIR}/compile_commands.json
-    COMMENT "Running cppcheck analysis...")
-endif()
-
-find_package(Doxygen)
-if(DOXYGEN_FOUND)
-  add_custom_target(
-    docs
-    COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    COMMENT "Generating documentation with Doxygen"
-    VERBATIM)
-endif()
