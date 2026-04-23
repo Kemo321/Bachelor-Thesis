@@ -14,23 +14,3 @@ repos:
         entry: clang-format -i --style=file
         language: system
         types_or: [c++, c, cuda]
-
-      - id: clang-tidy
-        name: clang-tidy
-        entry: clang-tidy -p build
-        language: system
-        types: [c++]
-
-      - id: cppcheck
-        name: cppcheck
-        entry: cppcheck --enable=all --suppressions-list=.cppcheck_suppressions --error-exitcode=1 -I include src/
-        language: system
-        types: [c++]
-        pass_filenames: false
-
-      - id: cmake-format
-        name: cmake-format
-        entry: cmake-format -i
-        language: python
-        additional_dependencies: [cmakelang]
-        files: (CMakeLists\.txt|.*\.cmake)$

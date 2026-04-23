@@ -1,4 +1,4 @@
-#include "DeepLearnLib/tensor.hpp"
+#include "DeepLearnLib/Tensor.hpp"
 #include <numeric>
 #include <stdexcept>
 

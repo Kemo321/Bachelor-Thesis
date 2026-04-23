@@ -365,13 +365,13 @@ static void BM_YOLOv1_Full_Training(benchmark::State& state)
 
     for (auto _ : state)
     {
-        std::cout << "[INFO] Iteracja " << state.iterations() + 1 << " rozpoczęta\n";
+        std::cout << "[INFO] Iteracja " << state.iterations() + 1 << "z:" << state.range(0) << " rozpoczęta\n";
         float epoch_loss = 0.0F;
         model->train();
 
         for (auto& batch : *train_loader)
         {
-            std::cout << "[INFO] Przetwarzanie batcha " << batch.data.size(0) << " obrazow\n";
+            std::cout << "[INFO] Przetwarzanie batcha " << batch.data.size(0) << "z: " << state.range(0) << " obrazow\n";
             auto data = batch.data.to(device, true);
             auto target = batch.target.to(device, true);
 
