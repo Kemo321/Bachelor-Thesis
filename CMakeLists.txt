@@ -57,3 +57,16 @@ set(CUTLASS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extern/cutlass")
 add_subdirectory(src)
 add_subdirectory(tests)
 add_subdirectory(benchmarks)
+
+option(USE_SANITIZERS "Enable ASan and UBSan" ON)
+if(USE_SANITIZERS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+  target_compile_options(
+    DeepLearnLib PUBLIC $<$<COMPILE_LANGUAGE:CXX>:-fsanitize=address
+                        -fsanitize=undefined -fno-omit-frame-pointer>)
+
+  target_link_options(
+    DeepLearnLib PUBLIC $<$<LINK_LANGUAGE:CXX>:-fsanitize=address
+    -fsanitize=undefined>)
+
+  message(STATUS "Sanitizers enabled for DeepLearnLib")
+endif()

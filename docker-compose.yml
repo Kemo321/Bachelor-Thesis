@@ -19,6 +19,7 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
+      - TORCH_CUDA_ARCH_LIST=Auto 
 
     volumes:
       - .:/app
@@ -30,12 +31,19 @@ services:
     
     command: >
       /bin/bash -c "
+      set -e &&
       export PATH=/usr/local/cuda/bin:$$PATH &&
       export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$$LD_LIBRARY_PATH &&
       mkdir -p build && cd build && 
       cmake .. -DUSE_CUDA=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc && 
       make -j$$(nproc) && 
-      ./benchmarks/train_pipeline
+      echo '--- URUCHAMIANIE POTOKÓW ---' &&
+      ./benchmarks/short_pipeline_torch &&
+      ./benchmarks/short_pipeline_custom &&
+      ./benchmarks/train_pipeline_torch &&
+      ./benchmarks/train_pipeline_custom &&
+      ./benchmarks/bench_torch &&
+      ./benchmarks/bench_custom
       "
 
 volumes:
