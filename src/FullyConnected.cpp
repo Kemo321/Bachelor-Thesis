@@ -4,9 +4,14 @@
 FullyConnected::FullyConnected(int input_size, int output_size, float inertia_val)
     : inertia_(inertia_val)
 {
-    const float std_dev = std::sqrt(2.0F / static_cast<float>(input_size));
-    weights_ = torch::randn({ input_size, output_size }) * std_dev;
-    biases_ = torch::zeros({ 1, output_size });
+    weights_ = torch::empty({ input_size, output_size });
+    biases_ = torch::empty({ 1, output_size });
+
+    float k = 1.0F / static_cast<float>(input_size);
+    float bound = std::sqrt(k);
+
+    torch::nn::init::uniform_(weights_, -bound, bound);
+    torch::nn::init::uniform_(biases_, -bound, bound);
     
     weights_gradient_ = torch::zeros_like(weights_);
     biases_gradient_ = torch::zeros_like(biases_);
@@ -28,10 +33,14 @@ auto FullyConnected::backward(const torch::Tensor& output_error_derivative) -> t
     weights_gradient_ = cur_weights_grad + inertia_ * weights_gradient_;
     biases_gradient_ = cur_biases_grad + inertia_ * biases_gradient_;
 
+    auto grad_input = torch::matmul(output_error_derivative, weights_.t());
+    input_cache_ = torch::Tensor();
+    return grad_input;
+}
+
+void FullyConnected::step() {
     weights_ -= learning_rate * weights_gradient_;
     biases_ -= learning_rate * biases_gradient_; 
-    
-    return torch::matmul(output_error_derivative, weights_.t());
 }
 
 auto FullyConnected::to(torch::Device device) -> void {

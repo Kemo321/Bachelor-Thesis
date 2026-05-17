@@ -1,6 +1,6 @@
 #include "DeepLearnLib/TorchYOLO.hpp"
 
-YOLOv1Impl::YOLOv1Impl()
+YOLOv1Impl::YOLOv1Impl(int num_classes) : num_classes_(num_classes)
 {
     using namespace torch::nn;
 
@@ -48,7 +48,7 @@ YOLOv1Impl::YOLOv1Impl()
         Linear(1024 * 7 * 7, 4096),
         LeakyReLU(LeakyReLUOptions().negative_slope(0.1)),
         Dropout(0.5),
-        Linear(4096, 7 * 7 * 30)
+        Linear(4096, 7 * 7 * (10 + num_classes))
     ));
 }
 
@@ -57,5 +57,5 @@ auto YOLOv1Impl::forward(torch::Tensor input_tensor) -> torch::Tensor
     auto x = backbone->forward(input_tensor);
     x = x.view({ x.size(0), -1 });
     x = head->forward(x);
-    return x.view({ -1, 7, 7, 30 });
+    return x.view({ -1, 7, 7, 10 + num_classes_ });
 }

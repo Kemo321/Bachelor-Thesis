@@ -1,3 +1,4 @@
+
 services:
   yolo-app:
     build:
@@ -5,8 +6,8 @@ services:
       dockerfile: Dockerfile
     image: yolo-bachelor-thesis:latest
     container_name: yolo_dev_container
-    
-    shm_size: '8gb' 
+
+    shm_size: '32gb' 
     
     deploy:
       resources:
@@ -19,32 +20,50 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
-      - TORCH_CUDA_ARCH_LIST=Auto 
+      - TORCH_CUDA_ARCH_LIST=100
 
     volumes:
       - .:/app
       - build_cache:/app/build 
+      - ccache_data:/ccache
 
     working_dir: /app
     tty: true
     stdin_open: true
     
-    command: >
-      /bin/bash -c "
-      set -e &&
-      export PATH=/usr/local/cuda/bin:$$PATH &&
-      export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$$LD_LIBRARY_PATH &&
-      mkdir -p build && cd build && 
-      cmake .. -DUSE_CUDA=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc && 
-      make -j$$(nproc) && 
-      echo '--- URUCHAMIANIE POTOKÓW ---' &&
-      ./benchmarks/short_pipeline_torch &&
-      ./benchmarks/short_pipeline_custom &&
-      ./benchmarks/train_pipeline_torch &&
-      ./benchmarks/train_pipeline_custom &&
-      ./benchmarks/bench_torch &&
-      ./benchmarks/bench_custom
-      "
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        # Kluczowa poprawka dla kontenerów NVIDIA i brakujących symboli UCC/UCX
+        export LD_LIBRARY_PATH=/opt/hpcx/ucx/lib:/opt/hpcx/ucc/lib:$$LD_LIBRARY_PATH
+        
+        # Przygotowanie struktury folderów wyjściowych na poziomie projektu
+        mkdir -p results/predictions_torch results/predictions_custom
+        mkdir -p build && cd build
+        
+        # BEZPIECZEŃSTWO: Jeśli cache istnieje i nie należy do Ninja, czyścimy wolumen
+        if [ -f CMakeCache.txt ] && ! grep -q "Ninja" CMakeCache.txt; then
+          echo "[DEBUG] Wykryto stary cache innego generatora - czyszczenie wolumenu build..."
+          rm -rf *
+        fi
+        
+        cmake -G Ninja .. \
+          -DUSE_CUDA=ON \
+          -DCMAKE_BUILD_TYPE=Release
+        
+        ninja
+        
+        echo "=========================================================="
+        echo "Kompilacja zakonczona sukcesem!"
+        echo "Wszystkie wyniki (modele, CSV, obrazy) znajda sie w folderze 'results'."
+        echo "Uruchom potok Torch:  ./benchmarks/train_pipeline_torch"
+        echo "Uruchom potok Custom: ./benchmarks/train_pipeline_custom"
+        echo "=========================================================="
+        
+        /bin/bash
 
 volumes:
   build_cache:
+  ccache_data:

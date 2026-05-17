@@ -42,3 +42,5 @@ build_release/
 extern/libtorch/
 extern/
 combined.cpp
+
+results/

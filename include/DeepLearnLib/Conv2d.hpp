@@ -14,6 +14,7 @@ public:
 
     [[nodiscard]] auto forward(const torch::Tensor& input_tensor) -> torch::Tensor override;
     [[nodiscard]] auto backward(const torch::Tensor& output_error_derivative) -> torch::Tensor override;
+    void step() override;
 
     auto get_parameters() -> std::map<std::string, torch::Tensor> override;
     void set_parameters(const std::map<std::string, torch::Tensor>& params) override;

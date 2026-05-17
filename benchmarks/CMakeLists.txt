@@ -1,5 +1,7 @@
 find_package(pugixml REQUIRED)
 find_package(Threads REQUIRED)
+find_package(OpenCV REQUIRED)
+include_directories(${OpenCV_INCLUDE_DIRS})
 
 set(BENCH_TARGETS 
     train_pipeline_torch 
@@ -8,6 +10,14 @@ set(BENCH_TARGETS
     short_pipeline_custom
     bench_torch 
     bench_custom
+    inference
+    overfit_test
+    train_pipeline_custom_BCCD
+    train_pipeline_torch_BCCD
+    inference_bccd
+    train_pipeline_custom_synthetic
+    train_pipeline_torch_synthetic
+    inference_synthetic
 )
 
 add_executable(train_pipeline_torch train_pipeline_torch.cpp)
@@ -16,6 +26,14 @@ add_executable(bench_torch bench_torch.cpp)
 add_executable(bench_custom bench_custom.cpp)
 add_executable(short_pipeline_torch short_pipeline_torch.cpp)
 add_executable(short_pipeline_custom short_pipeline_custom.cpp)
+add_executable(inference inference.cpp)
+add_executable(overfit_test overfit_test.cpp)
+add_executable(train_pipeline_custom_BCCD train_pipeline_custom_BCCD.cpp)
+add_executable(train_pipeline_torch_BCCD train_pipeline_torch_BCCD.cpp)
+add_executable(inference_bccd inference_bccd.cpp)
+add_executable(train_pipeline_custom_synthetic train_pipeline_custom_synthetic.cpp)
+add_executable(train_pipeline_torch_synthetic train_pipeline_torch_synthetic.cpp)
+add_executable(inference_synthetic inference_synthetic.cpp)
 
 foreach(target ${BENCH_TARGETS})
     target_link_libraries(${target} PRIVATE 
@@ -23,6 +41,7 @@ foreach(target ${BENCH_TARGETS})
         ${TORCH_LIBRARIES}
         Threads::Threads 
         pugixml
+        ${OpenCV_LIBS}
     )
 
     target_include_directories(${target} PRIVATE 
@@ -53,4 +72,5 @@ target_link_libraries(bench_custom PRIVATE
 if(TORCH_CUDA_AVAILABLE)
     target_link_libraries(train_pipeline_custom PRIVATE torch_cuda)
     target_link_libraries(bench_custom PRIVATE torch_cuda)
+    target_link_libraries(inference_bccd PRIVATE torch_cuda)
 endif()

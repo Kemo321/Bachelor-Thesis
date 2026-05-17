@@ -1,7 +1,7 @@
 #include "DeepLearnLib/YOLO.hpp"
 #include "DeepLearnLib/BatchNorm2d.hpp"
 
-YOLOImpl::YOLOImpl() {
+YOLOImpl::YOLOImpl(int num_classes) {
     auto add_block = [&](int in, int out, int k, int s, int p) {
         backbone_layers.push_back(std::make_shared<Conv2d>(in, out, k, s, p));
         backbone_layers.push_back(std::make_shared<BatchNorm2d>(out));
@@ -41,7 +41,7 @@ YOLOImpl::YOLOImpl() {
     head_layers.push_back(std::make_shared<FullyConnected>(7 * 7 * 1024, 4096, 0.9F));
     head_layers.push_back(std::make_shared<LeakyReLU>(0.1F));
     head_layers.push_back(std::make_shared<Dropout>(0.5F));
-    head_layers.push_back(std::make_shared<FullyConnected>(4096, 7 * 7 * 30, 0.9F));
+    head_layers.push_back(std::make_shared<FullyConnected>(4096, 7 * 7 * (10 + num_classes), 0.9F));
 }
 
 auto YOLOImpl::forward(torch::Tensor x) -> torch::Tensor {

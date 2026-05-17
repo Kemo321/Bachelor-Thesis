@@ -23,9 +23,12 @@ auto YOLOLoss::calculate_iou(const torch::Tensor& box1, const torch::Tensor& box
     return inter_area / (area1 + area2 - inter_area + 1e-6F);
 }
 
-auto YOLOLoss::loss(const torch::Tensor& target, const torch::Tensor& prediction) -> torch::Tensor {
-    auto pred = (prediction.dim() == 2) ? prediction.view({-1, 7, 7, 30}) : prediction;
-    auto tgt  = (target.dim() == 2)     ? target.view({-1, 7, 7, 30})     : target;
+// ZMIANA: Dodano parametr num_classes do naglowka
+auto YOLOLoss::loss(const torch::Tensor& target, const torch::Tensor& prediction, int num_classes) -> torch::Tensor {
+    int final_dim = 10 + num_classes; // Dynamiczny rozmiar wyjsciowy (BCCD=13, VOC=30)
+    
+    auto pred = (prediction.dim() == 2) ? prediction.view({-1, 7, 7, final_dim}) : prediction;
+    auto tgt  = (target.dim() == 2)     ? target.view({-1, 7, 7, final_dim})     : target;
 
     int64_t batch_size = pred.size(0);
 
@@ -77,14 +80,18 @@ auto YOLOLoss::loss(const torch::Tensor& target, const torch::Tensor& prediction
         lambda_noobj * pred.slice(3, 9, 10).squeeze(-1).pow(2).mul(noobj_mask_b2).sum()
     );
 
-    auto l_class = (pred.slice(3, 10, 30) - tgt.slice(3, 10, 30)).pow(2).sum({3}).mul(obj_mask).sum();
+    // ZMIANA: Ciecicie tensora teraz zalezy od num_classes (zamiast do indeksu 30, tniemy do 10 + num_classes)
+    auto l_class = (pred.slice(3, 10, final_dim) - tgt.slice(3, 10, final_dim)).pow(2).sum({3}).mul(obj_mask).sum();
 
     return (l_coord + l_conf + l_class) / static_cast<float>(batch_size);
 }
 
-auto YOLOLoss::loss_derivative(const torch::Tensor& target, const torch::Tensor& prediction) -> torch::Tensor {
-    auto pred = (prediction.dim() == 2) ? prediction.view({-1, 7, 7, 30}) : prediction;
-    auto tgt  = (target.dim() == 2)     ? target.view({-1, 7, 7, 30})     : target;
+// ZMIANA: Dodano parametr num_classes do naglowka
+auto YOLOLoss::loss_derivative(const torch::Tensor& target, const torch::Tensor& prediction, int num_classes) -> torch::Tensor {
+    int final_dim = 10 + num_classes;
+    
+    auto pred = (prediction.dim() == 2) ? prediction.view({-1, 7, 7, final_dim}) : prediction;
+    auto tgt  = (target.dim() == 2)     ? target.view({-1, 7, 7, final_dim})     : target;
 
     auto grad = torch::zeros_like(pred);
 
@@ -142,7 +149,8 @@ auto YOLOLoss::loss_derivative(const torch::Tensor& target, const torch::Tensor&
     grad.slice(3, 9, 10) = 2.0F * (pred.slice(3, 9, 10).squeeze(-1) - iou2).unsqueeze(-1) * resp_b2.unsqueeze(-1);
     grad.slice(3, 9, 10) += 2.0F * lambda_noobj * pred.slice(3, 9, 10) * noobj_mask_b2.unsqueeze(-1);
 
-    grad.slice(3, 10, 30) = 2.0F * (pred.slice(3, 10, 30) - tgt.slice(3, 10, 30)) * obj_mask.unsqueeze(-1);
+    // ZMIANA: Podmiana indeksu 30 na dynamiczny final_dim
+    grad.slice(3, 10, final_dim) = 2.0F * (pred.slice(3, 10, final_dim) - tgt.slice(3, 10, final_dim)) * obj_mask.unsqueeze(-1);
 
     auto final_grad = grad / static_cast<float>(batch_size);
 

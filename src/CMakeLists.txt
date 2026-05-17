@@ -1,11 +1,5 @@
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "*.cpp" "*.cu")
 
-set(Torch_DIR "${CMAKE_SOURCE_DIR}/extern/pytorch/libtorch/share/cmake/Torch")
-find_package(Torch REQUIRED)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
-
-file(GLOB_RECURSE SOURCES "*.cpp" "*.cu")
-
 add_library(DeepLearnLib ${SOURCES})
 
 set_target_properties(
@@ -24,10 +18,10 @@ target_include_directories(DeepLearnLib PUBLIC
 )
 
 target_compile_options(DeepLearnLib PRIVATE -mavx2 -mfma)
-target_link_libraries(DeepLearnLib PUBLIC hwy CUDA::cudart "${TORCH_LIBRARIES}")
 
 target_link_libraries(DeepLearnLib PUBLIC 
     torch
     hwy 
     CUDA::cudart
+    ${TORCH_LIBRARIES}
 )

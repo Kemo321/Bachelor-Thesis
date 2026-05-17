@@ -15,45 +15,42 @@
 
 namespace fs = std::filesystem;
 
-const std::vector<std::string> VOC_CLASSES = {
-    "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow",
-    "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"
-};
+const std::vector<std::string> BCCD_CLASSES = { "RBC", "WBC", "Platelets" };
 
 int main() {
     std::srand(std::time(nullptr)); // Unikalne losowanie augmentacji
 
     const int batch_size = 16;   
-    const int total_epochs = 150; 
-    const std::string data_root = "../../data/VOCdevkit";
-    const std::string results_dir = "../../results/voc";
+    const int total_epochs = 500; 
+    const std::string data_root = "../../data/BCCD_Dataset/BCCD";
+    const std::string results_dir = "../../results/bccd";
 
     torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
-    std::cout << "[VOC TORCH PIPELINE] Start na urzadzeniu: " << (device.is_cuda() ? "GPU" : "CPU") << "\n";
+    std::cout << "[BCCD TORCH PIPELINE] Start na urzadzeniu: " << (device.is_cuda() ? "GPU" : "CPU") << "\n";
 
     if (device.is_cuda()) {
         at::globalContext().setBenchmarkCuDNN(true);
     }
 
     DataPaths train_paths, val_paths, test_paths;
-    split_dataset(data_root + "/VOC2012", train_paths, val_paths, test_paths, VOC_CLASSES);
+    split_dataset(data_root, train_paths, val_paths, test_paths, BCCD_CLASSES);
 
     auto train_loader = torch::data::make_data_loader(
-        VOCYoloDataset(train_paths, true, VOC_CLASSES).map(torch::data::transforms::Stack<>()), 
+        VOCYoloDataset(train_paths, true, BCCD_CLASSES).map(torch::data::transforms::Stack<>()), 
         torch::data::samplers::RandomSampler(train_paths.images.size()),
         torch::data::DataLoaderOptions().batch_size(batch_size).workers(4));
 
     auto test_loader = torch::data::make_data_loader(
-        VOCYoloDataset(test_paths, false, VOC_CLASSES).map(torch::data::transforms::Stack<>()), 
+        VOCYoloDataset(test_paths, false, BCCD_CLASSES).map(torch::data::transforms::Stack<>()), 
         torch::data::DataLoaderOptions().batch_size(batch_size).workers(4));
 
-    YOLOv1 model(20); 
+    YOLOv1 model(3); 
     model->to(device);
 
     auto get_lr = [](int ep) -> float {
-        if (ep <= 20) return 1e-5F;
-        if (ep <= 100) return 5e-5F;
-        if (ep <= 120) return 3e-5F;
+        if (ep <= 30) return 1e-5F;
+        if (ep <= 300) return 5e-5F;
+        if (ep <= 400) return 1e-5F;
         return 1e-5F;
     };
 
@@ -80,7 +77,7 @@ int main() {
 
             optimizer.zero_grad();
             auto pred = model->forward(data);
-            auto loss = YOLOLoss::loss(target, pred, 20);
+            auto loss = YOLOLoss::loss(target, pred, 3);
             
             loss.backward();
             optimizer.step();
@@ -100,7 +97,7 @@ int main() {
                 auto data = batch.data.to(device, true);
                 auto target = batch.target.to(device, true);
                 auto pred = model->forward(data);
-                epoch_test_loss += YOLOLoss::loss(target, pred, 20).item().toFloat();
+                epoch_test_loss += YOLOLoss::loss(target, pred, 3).item().toFloat();
                 test_batches++;
             }
         }
@@ -109,7 +106,7 @@ int main() {
         auto epoch_end_time = std::chrono::steady_clock::now();
         auto epoch_duration = std::chrono::duration_cast<std::chrono::seconds>(epoch_end_time - epoch_start_time).count();
 
-        std::cout << "VOC Torch | Epoka [" << std::setw(3) << epoch << "/" << total_epochs << "] | Train Loss: " 
+        std::cout << "BCCD Torch | Epoka [" << std::setw(3) << epoch << "/" << total_epochs << "] | Train Loss: " 
                   << std::fixed << std::setprecision(4) << avg_train_loss << " | Test Loss: " << avg_test_loss 
                   << " | Czas: " << epoch_duration << "s\n";
 
@@ -117,7 +114,7 @@ int main() {
         csv_file.flush();
     }
 
-    std::string save_path = results_dir + "/yolov1_voc_torch_final.pt";
+    std::string save_path = results_dir + "/yolov1_bccd_torch_final.pt";
     torch::save(model, save_path);
     std::cout << "[INFO] Zapisano ostateczny model: " << save_path << "\n";
     return 0;

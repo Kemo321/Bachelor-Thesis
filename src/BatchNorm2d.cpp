@@ -36,8 +36,7 @@ auto BatchNorm2d::forward(const torch::Tensor& input_tensor) -> torch::Tensor
     return gamma_ * x_hat + beta_;
 }
 
-auto BatchNorm2d::backward(const torch::Tensor& output_error_derivative) -> torch::Tensor
-{
+auto BatchNorm2d::backward(const torch::Tensor& output_error_derivative) -> torch::Tensor {
     if (!is_training || !x_hat_.defined()) {
         return output_error_derivative; 
     }
@@ -49,17 +48,19 @@ auto BatchNorm2d::backward(const torch::Tensor& output_error_derivative) -> torc
     gamma_grad_ += weight_decay * gamma_;
     beta_grad_  += weight_decay * beta_;
 
-    gamma_ -= learning_rate * gamma_grad_;
-    beta_  -= learning_rate * beta_grad_;
-
     auto dx_hat = output_error_derivative * gamma_;
-
     auto mean_dx = dx_hat.mean({0,2,3}, true);
     auto var_term = (dx_hat * x_hat_).mean({0,2,3}, true);
-
     auto dx = std_inv_ * (dx_hat - mean_dx - x_hat_ * var_term);
 
+    x_hat_ = torch::Tensor();
+    std_inv_ = torch::Tensor();
     return dx;
+}
+
+void BatchNorm2d::step() {
+    gamma_ -= learning_rate * gamma_grad_;
+    beta_  -= learning_rate * beta_grad_;
 }
 
 auto BatchNorm2d::to(torch::Device target_device) -> void

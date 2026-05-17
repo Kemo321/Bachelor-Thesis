@@ -4,12 +4,17 @@
 Conv2d::Conv2d(int in_channels, int out_channels, int kernel_size, int stride_val, int padding_val, float inertia_val)
     : stride_(stride_val), padding_(padding_val), inertia_(inertia_val), kernel_size_(kernel_size)
 {
-    const float std_dev = std::sqrt(2.0F / static_cast<float>(in_channels * kernel_size * kernel_size));
-    weights_ = torch::randn({ out_channels, in_channels, kernel_size, kernel_size }) * std_dev;
-    biases_ = torch::zeros({ out_channels });
+    weights_ = torch::empty({ out_channels, in_channels, kernel_size, kernel_size });
+    biases_ = torch::empty({ out_channels });
+    
+    float k = 1.0F / static_cast<float>(in_channels * kernel_size * kernel_size);
+    float bound = std::sqrt(k);
+
+    torch::nn::init::uniform_(weights_, -bound, bound);
+    torch::nn::init::uniform_(biases_, -bound, bound);
     
     weights_gradient_ = torch::zeros_like(weights_);
-    biases_gradient_ = torch::zeros_like(biases_); // Bufor momentum
+    biases_gradient_ = torch::zeros_like(biases_);
 }
 
 auto Conv2d::forward(const torch::Tensor& input_tensor) -> torch::Tensor {
@@ -35,15 +40,20 @@ auto Conv2d::backward(const torch::Tensor& output_error_derivative) -> torch::Te
     weights_gradient_ = cur_weights_grad + inertia_ * weights_gradient_;
     biases_gradient_ = cur_biases_grad + inertia_ * biases_gradient_;
     
-    weights_ -= learning_rate * weights_gradient_;
-    biases_ -= learning_rate * biases_gradient_;
-    
     auto reshaped_weights = weights_.view({weights_.size(0), -1});
     auto grad_input_unfolded = torch::matmul(reshaped_weights.t(), reshaped_error);
     
-    return torch::nn::functional::fold(grad_input_unfolded,
+    auto grad_input = torch::nn::functional::fold(grad_input_unfolded,
         torch::nn::functional::FoldFuncOptions({input_shape_cache_[2], input_shape_cache_[3]}, {kernel_size_, kernel_size_})
         .stride({stride_, stride_}).padding({padding_, padding_}));
+
+    input_cache_ = torch::Tensor();
+    return grad_input;
+}
+
+void Conv2d::step() {
+    weights_ -= learning_rate * weights_gradient_;
+    biases_ -= learning_rate * biases_gradient_;
 }
 
 auto Conv2d::to(torch::Device device) -> void {

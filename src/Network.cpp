@@ -33,11 +33,16 @@ auto Network::fit(const torch::Tensor& x_train, const torch::Tensor& y_train, in
 
         torch::Tensor gradient_error = YOLOLoss::loss_derivative(y_train, current_prediction);
 
-        gradient_error = gradient_error.clamp(-1.0, 1.0);
+        gradient_error = gradient_error.clamp(-5.0, 5.0);
 
         for (auto iterator = layers_.rbegin(); iterator != layers_.rend(); ++iterator)
         {
             gradient_error = (*iterator)->backward(gradient_error);
+        }
+
+        for (auto& layer : layers_)
+        {
+            layer->step();
         }
 
         constexpr int log_interval = 10;

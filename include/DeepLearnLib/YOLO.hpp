@@ -18,7 +18,7 @@ struct YOLOImpl : torch::nn::Module
     std::vector<std::shared_ptr<Layer>> backbone_layers;
     std::vector<std::shared_ptr<Layer>> head_layers;
 
-    YOLOImpl();
+    YOLOImpl(int num_classes = 20);
 
     [[nodiscard]] auto forward(torch::Tensor input_tensor) -> torch::Tensor;
     [[nodiscard]] auto get_all_layers() -> std::vector<std::shared_ptr<Layer>>;

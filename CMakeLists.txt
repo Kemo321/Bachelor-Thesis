@@ -27,9 +27,17 @@ execute_process(
     COMMAND python3 -c "import torch; print(torch.utils.cmake_prefix_path)"
     OUTPUT_VARIABLE TORCH_CMAKE_PATH
     OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
 )
-list(APPEND CMAKE_PREFIX_PATH "${TORCH_CMAKE_PATH}")
-message(STATUS "Szukanie LibTorch w środowisku: ${TORCH_CMAKE_PATH}")
+
+if(TORCH_CMAKE_PATH)
+    list(APPEND CMAKE_PREFIX_PATH "${TORCH_CMAKE_PATH}")
+    message(STATUS "Szukanie LibTorch (Python): ${TORCH_CMAKE_PATH}")
+else()
+    file(GLOB FALLBACK_TORCH_PATH "/usr/local/lib/python3.*/dist-packages/torch/share/cmake/Torch")
+    list(APPEND CMAKE_PREFIX_PATH ${FALLBACK_TORCH_PATH})
+    message(STATUS "Szukanie LibTorch (Fallback ścieżka): ${FALLBACK_TORCH_PATH}")
+endif()
 
 set(CAFFE2_USE_KINETO OFF CACHE BOOL "" FORCE)
 set(kineto_LIBRARIES "")

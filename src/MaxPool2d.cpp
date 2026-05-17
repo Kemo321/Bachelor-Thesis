@@ -59,8 +59,12 @@ auto MaxPool2d::backward(const torch::Tensor& output_error_derivative) -> torch:
 
     gradient_unfolded = gradient_unfolded.view({ batch_size, channels_count * patch_area, patches_count });
 
-    return torch::nn::functional::fold(
+    auto folded_grad = torch::nn::functional::fold(
         gradient_unfolded,
         torch::nn::functional::FoldFuncOptions({ input_shape_cache_[2], input_shape_cache_[3] }, { kernel_size_, kernel_size_ })
             .stride({ stride_, stride_ }));
+
+    indices_cache_ = torch::Tensor();
+
+    return folded_grad;
 }

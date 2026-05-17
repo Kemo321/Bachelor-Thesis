@@ -12,10 +12,15 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+const std::vector<std::string> VOC_CLASSES_DEFAULT = {
+    "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow",
+    "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"
+};
+
 namespace
 {
 constexpr int GRID_SIZE = 7;
-constexpr int BBOX_OUTPUT_SIZE = 30;
+// USUNIETO: constexpr int BBOX_OUTPUT_SIZE = 30; // Wielkosc jest teraz liczona dynamicznie
 constexpr int BOXES_PER_CELL = 2;
 constexpr int BOX_PARAMS = 5;
 constexpr int CLASS_OFFSET = 10;
@@ -23,21 +28,14 @@ constexpr float NORMALIZATION_FACTOR = 255.0F;
 constexpr float CENTER_DIVISOR = 2.0F;
 constexpr int IMAGE_CHANNELS = 3;
 
-auto voc_class_to_id(const std::string& class_name) -> int
+// Zmodyfikowana funkcja: przyjmuje teraz wektor klas i buduje mape dynamicznie
+auto convert_voc_to_yolo(const std::string& annot_dir, const std::string& label_dir, const std::string& jpeg_dir, const std::vector<std::string>& class_names) -> void
 {
-    static const std::unordered_map<std::string, int> voc_classes = {
-        { "aeroplane", 0 }, { "bicycle", 1 }, { "bird", 2 }, { "boat", 3 }, { "bottle", 4 },
-        { "bus", 5 }, { "car", 6 }, { "cat", 7 }, { "chair", 8 }, { "cow", 9 },
-        { "diningtable", 10 }, { "dog", 11 }, { "horse", 12 }, { "motorbike", 13 },
-        { "person", 14 }, { "pottedplant", 15 }, { "sheep", 16 }, { "sofa", 17 },
-        { "train", 18 }, { "tvmonitor", 19 }
-    };
-    auto iterator = voc_classes.find(class_name);
-    return (iterator != voc_classes.end()) ? iterator->second : -1;
-}
+    std::unordered_map<std::string, int> class_map;
+    for (size_t i = 0; i < class_names.size(); ++i) {
+        class_map[class_names[i]] = static_cast<int>(i);
+    }
 
-auto convert_voc_to_yolo(const std::string& annot_dir, const std::string& label_dir, const std::string& jpeg_dir) -> void
-{
     int converted_count = 0;
     for (const auto& directory_entry : std::filesystem::directory_iterator(annot_dir))
     {
@@ -81,7 +79,12 @@ auto convert_voc_to_yolo(const std::string& annot_dir, const std::string& label_
                 continue;
             }
 
-            int class_id = voc_class_to_id(class_name);
+            int class_id = -1;
+            auto it = class_map.find(class_name);
+            if (it != class_map.end()) {
+                class_id = it->second;
+            }
+
             if (class_id >= 0)
             {
                 float x_min = bound_box.child("xmin").text().as_float();
@@ -106,13 +109,13 @@ auto convert_voc_to_yolo(const std::string& annot_dir, const std::string& label_
 }
 }
 
-auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths& val_data, DataPaths& test_data, float train_ratio, float val_ratio) -> void
+auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths& val_data, DataPaths& test_data, const std::vector<std::string>& class_names, float train_ratio, float val_ratio) -> void
 {
     std::string jpeg_dir = voc_root + "/JPEGImages";
     std::string annot_dir = voc_root + "/Annotations";
     std::string label_dir = voc_root + "/labels";
 
-    std::cout << "[INFO] Szukam danych VOC w: " << voc_root << "\n";
+    std::cout << "[INFO] Szukam danych w: " << voc_root << "\n";
 
     if (!std::filesystem::exists(jpeg_dir) || !std::filesystem::exists(annot_dir))
     {
@@ -133,7 +136,7 @@ auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths
     }
     if (conversion_needed)
     {
-        convert_voc_to_yolo(annot_dir, label_dir, jpeg_dir);
+        convert_voc_to_yolo(annot_dir, label_dir, jpeg_dir, class_names);
     }
 
     std::vector<std::pair<std::string, std::string>> all_pairs;
@@ -189,20 +192,22 @@ auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths
               << " | Test: " << test_data.images.size() << "\n\n";
 }
 
-VOCYoloDataset::VOCYoloDataset(const DataPaths& paths_param, bool is_train)
-    : paths(paths_param), is_train_(is_train)
+VOCYoloDataset::VOCYoloDataset(const DataPaths& paths_param, bool is_train, const std::vector<std::string>& class_names)
+    : paths(paths_param), is_train_(is_train), num_classes_(static_cast<int>(class_names.size()))
 {
 }
 
 auto VOCYoloDataset::get(size_t index) -> torch::data::Example<>
 {
+    int bbox_output_size = BOXES_PER_CELL * BOX_PARAMS + num_classes_;
+
     int image_width{};
     int image_height{};
     int image_channels{};
     unsigned char* image_data = stbi_load(paths.images[index].c_str(), &image_width, &image_height, &image_channels, IMAGE_CHANNELS);
     if (image_data == nullptr)
     {
-        return { torch::zeros({ IMAGE_CHANNELS, img_size, img_size }), torch::zeros({ GRID_SIZE, GRID_SIZE, BBOX_OUTPUT_SIZE }) };
+        return { torch::zeros({ IMAGE_CHANNELS, img_size, img_size }), torch::zeros({ GRID_SIZE, GRID_SIZE, bbox_output_size }) };
     }
 
     auto image_tensor = torch::from_blob(image_data, { image_height, image_width, IMAGE_CHANNELS }, torch::kUInt8).clone();
@@ -240,7 +245,7 @@ auto VOCYoloDataset::get(size_t index) -> torch::data::Example<>
         image_tensor = torch::clamp(grayscale + saturation_factor * (image_tensor - grayscale), 0.0F, 1.0F);
     }
 
-    torch::Tensor target_tensor = torch::zeros({ GRID_SIZE, GRID_SIZE, BBOX_OUTPUT_SIZE });
+    torch::Tensor target_tensor = torch::zeros({ GRID_SIZE, GRID_SIZE, bbox_output_size });
 
     std::ifstream label_file(paths.labels[index]);
     int class_id{};
