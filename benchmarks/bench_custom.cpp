@@ -1,20 +1,18 @@
 #include <benchmark/benchmark.h>
 #include <iostream>
-#include <limits>
 #include <filesystem>
 #include <torch/torch.h>
 
-#include "DeepLearnLib/TorchYOLO.hpp"
+#include "DeepLearnLib/Network.hpp"
+#include "DeepLearnLib/YOLO.hpp"
 #include "DeepLearnLib/dataset.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 
-namespace fs = std::filesystem;
-
-static void BM_YOLOv1_SingleEpochTraining(benchmark::State& state)
+static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
 {
     const int batch_size = state.range(0);
     const std::string data_root = "../../data/VOCdevkit";
-    const std::string results_dir = "../../results";
+    const float learning_rate = 1e-4F;
 
     torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
 
@@ -31,43 +29,43 @@ static void BM_YOLOv1_SingleEpochTraining(benchmark::State& state)
         VOCYoloDataset(train_paths, false).map(torch::data::transforms::Stack<>()),
         torch::data::DataLoaderOptions().batch_size(batch_size).workers(4));
 
-    YOLOv1 model;
-    model->to(device);
-    torch::optim::Adam optimizer(model->parameters(), torch::optim::AdamOptions(1e-4));
+    YOLO custom_model;
+    for (auto& layer : custom_model->get_all_layers()) {
+        layer->to(device);
+    }
 
+    Network trainer(custom_model->get_all_layers(), learning_rate);
     int64_t total_processed = 0;
 
     for (auto _ : state)
     {
-        float epoch_loss = 0.0F;
-        model->train();
-
+        torch::NoGradGuard no_grad;
         for (auto& batch : *train_loader)
         {
-            auto data = batch.data.to(device, true);
-            auto target = batch.target.to(device, true);
+            auto data = batch.data.to(device);
+            auto target = batch.target.to(device);
 
-            optimizer.zero_grad();
-            auto pred = model->forward(data);
-            auto loss = YOLOLoss::loss(target, pred);
+            auto pred = custom_model->forward(data);
 
-            loss.backward();
-            optimizer.step();
+            float loss_val = YOLOLoss::loss(target, pred).item().toFloat();
+            auto grad_error = YOLOLoss::loss_derivative(target, pred);
+            grad_error = grad_error.clamp(-5.0, 5.0);
 
-            if (device.is_cuda())
+            auto layers = custom_model->get_all_layers();
+            for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator)
             {
-                torch::cuda::synchronize();
+                grad_error = (*iterator)->backward(grad_error);
             }
 
-            epoch_loss += loss.item().toFloat();
+            for (auto& layer : layers)
+            {
+                layer->step();
+            }
+
+            if (device.is_cuda()) { torch::cuda::synchronize(); }
             total_processed += data.size(0);
         }
-
-        benchmark::DoNotOptimize(epoch_loss);
     }
-
-    fs::create_directories(results_dir);
-    torch::save(model, results_dir + "/yolov1_bench_epoch.pt");
 
     state.SetItemsProcessed(total_processed);
     state.counters["Img/Sec"] = benchmark::Counter(
@@ -75,5 +73,5 @@ static void BM_YOLOv1_SingleEpochTraining(benchmark::State& state)
         benchmark::Counter::kIsRate);
 }
 
-BENCHMARK(BM_YOLOv1_SingleEpochTraining)->Arg(8)->Arg(16)->UseRealTime();
+BENCHMARK(BM_CustomYOLO_ManualTraining)->Arg(8)->Arg(16)->UseRealTime();
 BENCHMARK_MAIN();

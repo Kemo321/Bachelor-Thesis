@@ -1,0 +1,14 @@
+data/
+
+build/
+bin/
+obj/
+
+.git
+.github
+.vscode
+.idea
+
+_deps/
+
+extern/libtorch

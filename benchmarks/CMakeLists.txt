@@ -1,17 +1,74 @@
-set(Torch_DIR "${CMAKE_SOURCE_DIR}/extern/pytorch/libtorch/share/cmake/Torch")
-find_package(Torch REQUIRED)
 find_package(pugixml REQUIRED)
+find_package(Threads REQUIRED)
 
+set(BENCH_TARGETS 
+    train_pipeline_torch 
+    train_pipeline_custom
+    short_pipeline_torch
+    short_pipeline_custom
+    bench_torch 
+    bench_custom
+    inference
+    overfit_test
+    train_pipeline_custom_BCCD
+    train_pipeline_torch_BCCD
+    inference_bccd
+    train_pipeline_custom_synthetic
+    train_pipeline_torch_synthetic
+    inference_synthetic
+)
+
+add_executable(train_pipeline_torch train_pipeline_torch.cpp)
+add_executable(train_pipeline_custom train_pipeline_custom.cpp)
 add_executable(bench_torch bench_torch.cpp)
+add_executable(bench_custom bench_custom.cpp)
+add_executable(short_pipeline_torch short_pipeline_torch.cpp)
+add_executable(short_pipeline_custom short_pipeline_custom.cpp)
+add_executable(inference inference.cpp)
+add_executable(overfit_test overfit_test.cpp)
+add_executable(train_pipeline_custom_BCCD train_pipeline_custom_BCCD.cpp)
+add_executable(train_pipeline_torch_BCCD train_pipeline_torch_BCCD.cpp)
+add_executable(inference_bccd inference_bccd.cpp)
+add_executable(train_pipeline_custom_synthetic train_pipeline_custom_synthetic.cpp)
+add_executable(train_pipeline_torch_synthetic train_pipeline_torch_synthetic.cpp)
+add_executable(inference_synthetic inference_synthetic.cpp)
 
-target_link_libraries(
-  bench_torch
-  PRIVATE ${TORCH_LIBRARIES} benchmark::benchmark benchmark::benchmark_main
-          Threads::Threads pugixml::pugixml)
+foreach(target ${BENCH_TARGETS})
+    target_link_libraries(${target} PRIVATE 
+        DeepLearnLib 
+        ${TORCH_LIBRARIES}
+        Threads::Threads 
+        pugixml
+        ${OpenCV_LIBS}
+    )
 
-set_target_properties(bench_torch PROPERTIES CXX_STANDARD 17
-                                             CXX_STANDARD_REQUIRED ON)
+    target_include_directories(${target} PRIVATE 
+        "${CMAKE_SOURCE_DIR}/src"
+        "${CMAKE_SOURCE_DIR}/include"
+        "${CMAKE_SOURCE_DIR}/extern/stb"
+    )
+    
+    target_include_directories(${target} SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})
+    
+    target_compile_definitions(${target} PRIVATE _GLIBCXX_USE_CXX11_ABI=1)
+    set_target_properties(${target} PROPERTIES 
+        CXX_STANDARD 17 
+        CXX_STANDARD_REQUIRED ON
+    )
+endforeach()
 
-target_include_directories(bench_torch SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})
-target_include_directories(bench_torch PRIVATE "${CMAKE_SOURCE_DIR}/extern/stb")
-target_compile_definitions(bench_torch PRIVATE _GLIBCXX_USE_CXX11_ABI=1)
+target_link_libraries(bench_torch PRIVATE 
+    benchmark::benchmark 
+    benchmark::benchmark_main
+)
+
+target_link_libraries(bench_custom PRIVATE 
+    benchmark::benchmark 
+    benchmark::benchmark_main
+)
+
+if(TORCH_CUDA_AVAILABLE)
+    target_link_libraries(train_pipeline_custom PRIVATE torch_cuda)
+    target_link_libraries(bench_custom PRIVATE torch_cuda)
+    target_link_libraries(inference_bccd PRIVATE torch_cuda)
+endif()
