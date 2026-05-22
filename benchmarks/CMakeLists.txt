@@ -1,7 +1,5 @@
 find_package(pugixml REQUIRED)
 find_package(Threads REQUIRED)
-find_package(OpenCV REQUIRED)
-include_directories(${OpenCV_INCLUDE_DIRS})
 
 set(BENCH_TARGETS 
     train_pipeline_torch 

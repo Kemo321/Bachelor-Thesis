@@ -1,4 +1,3 @@
-
 services:
   yolo-app:
     build:
@@ -36,16 +35,13 @@ services:
       - -c
       - |
         set -e
-        # Kluczowa poprawka dla kontenerów NVIDIA i brakujących symboli UCC/UCX
         export LD_LIBRARY_PATH=/opt/hpcx/ucx/lib:/opt/hpcx/ucc/lib:$$LD_LIBRARY_PATH
         
-        # Przygotowanie struktury folderów wyjściowych na poziomie projektu
         mkdir -p results/predictions_torch results/predictions_custom
         mkdir -p build && cd build
         
-        # BEZPIECZEŃSTWO: Jeśli cache istnieje i nie należy do Ninja, czyścimy wolumen
         if [ -f CMakeCache.txt ] && ! grep -q "Ninja" CMakeCache.txt; then
-          echo "[DEBUG] Wykryto stary cache innego generatora - czyszczenie wolumenu build..."
+          echo "[DEBUG] Detected old cache from another generator - clearing build volume..."
           rm -rf *
         fi
         
@@ -56,10 +52,10 @@ services:
         ninja
         
         echo "=========================================================="
-        echo "Kompilacja zakonczona sukcesem!"
-        echo "Wszystkie wyniki (modele, CSV, obrazy) znajda sie w folderze 'results'."
-        echo "Uruchom potok Torch:  ./benchmarks/train_pipeline_torch"
-        echo "Uruchom potok Custom: ./benchmarks/train_pipeline_custom"
+        echo "Compilation completed successfully!"
+        echo "All results (models, CSV, images) will be in the 'results' folder."
+        echo "Run Torch pipeline:  ./benchmarks/train_pipeline_torch"
+        echo "Run Custom pipeline: ./benchmarks/train_pipeline_custom"
         echo "=========================================================="
         
         /bin/bash

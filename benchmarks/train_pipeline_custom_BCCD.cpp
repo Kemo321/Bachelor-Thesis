@@ -19,15 +19,15 @@ namespace fs = std::filesystem;
 const std::vector<std::string> BCCD_CLASSES = { "RBC", "WBC", "Platelets" };
 
 int main() {
-    std::srand(std::time(nullptr)); // Unikalne losowanie augmentacji
+    std::srand(std::time(nullptr));
 
     const int batch_size = 16;   
-    const int total_epochs = 500; 
+    const int total_epochs = 800; 
     const std::string data_root = "../../data/BCCD_Dataset/BCCD";
     const std::string results_dir = "../../results/bccd";
 
     torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
-    std::cout << "[BCCD CUSTOM PIPELINE] Start na urzadzeniu: " << (device.is_cuda() ? "GPU" : "CPU") << "\n";
+    std::cout << "[BCCD CUSTOM PIPELINE] Starting on device: " << (device.is_cuda() ? "GPU" : "CPU") << "\n";
 
     if (device.is_cuda()) {
         at::globalContext().setBenchmarkCuDNN(true);
@@ -55,7 +55,8 @@ int main() {
     auto get_lr = [](int ep) -> float {
         if (ep <= 30) return 1e-5F;
         if (ep <= 300) return 5e-5F;
-        if (ep <= 400) return 1e-5F;
+        if (ep <= 400) return 4e-5F;
+        if (ep <= 800) return 1e-5F;
         return 1e-5F;
     };
 
@@ -83,7 +84,7 @@ int main() {
             float batch_loss = YOLOLoss::loss(target, pred, 3).item().toFloat();
             
             auto grad_error = YOLOLoss::loss_derivative(target, pred, 3);
-            grad_error = grad_error.clamp(-10.0, 10.0); // Zwiekszony clamp dla lepszej dynamiki
+            grad_error = grad_error.clamp(-10.0, 10.0);
 
             auto layers = custom_model->get_all_layers();
             for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator) {
@@ -121,9 +122,9 @@ int main() {
         auto epoch_end_time = std::chrono::steady_clock::now();
         auto epoch_duration = std::chrono::duration_cast<std::chrono::seconds>(epoch_end_time - epoch_start_time).count();
 
-        std::cout << "BCCD Custom | Epoka [" << std::setw(3) << epoch << "/" << total_epochs << "] | Train Loss: " 
+        std::cout << "BCCD Custom | Epoch [" << std::setw(3) << epoch << "/" << total_epochs << "] | Train Loss: " 
                   << std::fixed << std::setprecision(4) << avg_train_loss << " | Test Loss: " << avg_test_loss 
-                  << " | Czas: " << epoch_duration << "s\n";
+                  << " | Time: " << epoch_duration << "s\n";
 
         csv_file << epoch << ";" << avg_train_loss << ";" << avg_test_loss << ";" << epoch_duration << "\n";
         csv_file.flush();
@@ -131,6 +132,6 @@ int main() {
 
     std::string save_path = results_dir + "/yolov1_bccd_custom_final.pt";
     trainer.save(save_path);
-    std::cout << "[INFO] Zapisano ostateczny model: " << save_path << "\n";
+    std::cout << "[INFO] Final model saved: " << save_path << "\n";
     return 0;
 }

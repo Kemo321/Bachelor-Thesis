@@ -18,15 +18,15 @@ namespace fs = std::filesystem;
 const std::vector<std::string> BCCD_CLASSES = { "RBC", "WBC", "Platelets" };
 
 int main() {
-    std::srand(std::time(nullptr)); // Unikalne losowanie augmentacji
+    std::srand(std::time(nullptr));
 
     const int batch_size = 16;   
-    const int total_epochs = 500; 
+    const int total_epochs = 800; 
     const std::string data_root = "../../data/BCCD_Dataset/BCCD";
     const std::string results_dir = "../../results/bccd";
 
     torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
-    std::cout << "[BCCD TORCH PIPELINE] Start na urzadzeniu: " << (device.is_cuda() ? "GPU" : "CPU") << "\n";
+    std::cout << "[BCCD TORCH PIPELINE] Starting on device: " << (device.is_cuda() ? "GPU" : "CPU") << "\n";
 
     if (device.is_cuda()) {
         at::globalContext().setBenchmarkCuDNN(true);
@@ -50,12 +50,13 @@ int main() {
     auto get_lr = [](int ep) -> float {
         if (ep <= 30) return 1e-5F;
         if (ep <= 300) return 5e-5F;
-        if (ep <= 400) return 1e-5F;
+        if (ep <= 400) return 4e-5F;
+        if (ep <= 800) return 1e-5F;
         return 1e-5F;
     };
 
     torch::optim::SGD optimizer(model->parameters(), torch::optim::SGDOptions(get_lr(1)).momentum(0.9).weight_decay(0.0005));
-    
+
     fs::create_directories(results_dir);
     std::ofstream csv_file(results_dir + "/metrics_torch.csv");
     csv_file << "Epoch;TrainLoss;TestLoss;Time(s)\n"; 
@@ -106,9 +107,9 @@ int main() {
         auto epoch_end_time = std::chrono::steady_clock::now();
         auto epoch_duration = std::chrono::duration_cast<std::chrono::seconds>(epoch_end_time - epoch_start_time).count();
 
-        std::cout << "BCCD Torch | Epoka [" << std::setw(3) << epoch << "/" << total_epochs << "] | Train Loss: " 
+        std::cout << "BCCD Torch | Epoch [" << std::setw(3) << epoch << "/" << total_epochs << "] | Train Loss: " 
                   << std::fixed << std::setprecision(4) << avg_train_loss << " | Test Loss: " << avg_test_loss 
-                  << " | Czas: " << epoch_duration << "s\n";
+                  << " | Time: " << epoch_duration << "s\n";
 
         csv_file << epoch << ";" << avg_train_loss << ";" << avg_test_loss << ";" << epoch_duration << "\n";
         csv_file.flush();
@@ -116,6 +117,6 @@ int main() {
 
     std::string save_path = results_dir + "/yolov1_bccd_torch_final.pt";
     torch::save(model, save_path);
-    std::cout << "[INFO] Zapisano ostateczny model: " << save_path << "\n";
+    std::cout << "[INFO] Final model saved: " << save_path << "\n";
     return 0;
 }

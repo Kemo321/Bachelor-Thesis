@@ -20,7 +20,6 @@ const std::vector<std::string> VOC_CLASSES_DEFAULT = {
 namespace
 {
 constexpr int GRID_SIZE = 7;
-// USUNIETO: constexpr int BBOX_OUTPUT_SIZE = 30; // Wielkosc jest teraz liczona dynamicznie
 constexpr int BOXES_PER_CELL = 2;
 constexpr int BOX_PARAMS = 5;
 constexpr int CLASS_OFFSET = 10;
@@ -28,7 +27,13 @@ constexpr float NORMALIZATION_FACTOR = 255.0F;
 constexpr float CENTER_DIVISOR = 2.0F;
 constexpr int IMAGE_CHANNELS = 3;
 
-// Zmodyfikowana funkcja: przyjmuje teraz wektor klas i buduje mape dynamicznie
+/**
+ * @brief Converts VOC XML annotations to YOLO text format.
+ * @param annot_dir Directory containing VOC XML annotations.
+ * @param label_dir Directory to output YOLO txt labels.
+ * @param jpeg_dir Directory containing JPEG images.
+ * @param class_names Vector of class names.
+ */
 auto convert_voc_to_yolo(const std::string& annot_dir, const std::string& label_dir, const std::string& jpeg_dir, const std::vector<std::string>& class_names) -> void
 {
     std::unordered_map<std::string, int> class_map;
@@ -197,6 +202,11 @@ VOCYoloDataset::VOCYoloDataset(const DataPaths& paths_param, bool is_train, cons
 {
 }
 
+/**
+ * @brief Retrieves a single image and its corresponding YOLO target tensor.
+ * @param index The index of the image in the dataset.
+ * @return An example containing the image tensor [IMAGE_CHANNELS, img_size, img_size] and the target tensor [GRID_SIZE, GRID_SIZE, bbox_output_size].
+ */
 auto VOCYoloDataset::get(size_t index) -> torch::data::Example<>
 {
     int bbox_output_size = BOXES_PER_CELL * BOX_PARAMS + num_classes_;
@@ -213,7 +223,7 @@ auto VOCYoloDataset::get(size_t index) -> torch::data::Example<>
     auto image_tensor = torch::from_blob(image_data, { image_height, image_width, IMAGE_CHANNELS }, torch::kUInt8).clone();
     stbi_image_free(image_data);
 
-    image_tensor = image_tensor.to(torch::kFloat32).div_(NORMALIZATION_FACTOR).permute({ 2, 0, 1 });
+    image_tensor = image_tensor.to(torch::kFloat32).div_(NORMALIZATION_FACTOR).permute({ 2, 0, 1 }).contiguous();
     
     image_tensor = torch::nn::functional::interpolate(
         image_tensor.unsqueeze(0),
@@ -235,13 +245,13 @@ auto VOCYoloDataset::get(size_t index) -> torch::data::Example<>
         torch::Tensor theta = torch::tensor({{{scale, 0.0F, dx}, {0.0F, scale, dy}}}, torch::kFloat32);
         auto grid = torch::nn::functional::affine_grid(theta, {1, IMAGE_CHANNELS, img_size, img_size}, false);
         image_tensor = torch::nn::functional::grid_sample(image_tensor.unsqueeze(0), grid, 
-            torch::nn::functional::GridSampleFuncOptions().mode(torch::kBilinear).padding_mode(torch::kZeros).align_corners(false)).squeeze(0);
+            torch::nn::functional::GridSampleFuncOptions().mode(torch::kBilinear).padding_mode(torch::kZeros).align_corners(false)).squeeze(0).contiguous();
 
         float saturation_factor = 0.66F + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / 0.84F));
         float exposure_factor = 0.66F + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / 0.84F));
 
         image_tensor = torch::clamp(image_tensor * exposure_factor, 0.0F, 1.0F);
-        auto grayscale = image_tensor.mean(0, true).expand_as(image_tensor);
+        auto grayscale = image_tensor.mean(0, true).expand_as(image_tensor).contiguous();
         image_tensor = torch::clamp(grayscale + saturation_factor * (image_tensor - grayscale), 0.0F, 1.0F);
     }
 

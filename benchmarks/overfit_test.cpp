@@ -12,7 +12,7 @@
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/dataset.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
-#include "DeepLearnLib/utils.hpp" // <-- NASZ NOWY MODUŁ NARZĘDZIOWY
+#include "DeepLearnLib/utils.hpp"
 
 namespace fs = std::filesystem;
 
@@ -23,13 +23,13 @@ const std::vector<std::string> VOC_CLASSES = {
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Uzycie: ./overfit_test <--torch|--custom>\n";
+        std::cerr << "Usage: ./overfit_test <--torch|--custom>\n";
         return -1;
     }
 
     std::string mode = argv[1];
     if (mode != "--torch" && mode != "--custom") {
-        std::cerr << "[BLAD] Nieznany tryb: " << mode << "\n";
+        std::cerr << "[ERROR] Unknown mode: " << mode << "\n";
         return -1;
     }
 
@@ -40,7 +40,7 @@ int main(int argc, char* argv[]) {
     const float learning_rate = 2e-5F;
 
     std::cout << "========================================\n";
-    std::cout << "[OVERFIT TEST] Tryb: " << mode << " | Batch: " << batch_size << "\n";
+    std::cout << "[OVERFIT TEST] Mode: " << mode << " | Batch: " << batch_size << "\n";
     std::cout << "========================================\n";
 
     torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
@@ -49,7 +49,7 @@ int main(int argc, char* argv[]) {
     split_dataset(data_root + "/VOC2012", train_paths, val_paths, test_paths, VOC_CLASSES);
 
     if (train_paths.images.empty()) {
-        std::cerr << "[BLAD] Brak danych w folderze data!\n"; return -1;
+        std::cerr << "[ERROR] No data in the data folder!\n"; return -1;
     }
 
     DataPaths tiny_paths;
@@ -85,14 +85,13 @@ int main(int argc, char* argv[]) {
                 epoch_loss += loss.item().toFloat();
             }
             if (epoch % 10 == 0 || epoch == 1) {
-                std::cout << "Epoka [" << std::setw(3) << epoch << "/" << total_epochs << "] Loss: " << epoch_loss << "\n";
+                std::cout << "Epoch [" << std::setw(3) << epoch << "/" << total_epochs << "] Loss: " << epoch_loss << "\n";
             }
         }
         std::string save_path = results_dir + "/yolov1_torch_overfitted.pt";
         torch::save(model, save_path);
-        std::cout << "\n[INFO] Zapisano model Torch: " << save_path << "\n";
+        std::cout << "\n[INFO] Torch model saved: " << save_path << "\n";
 
-        // --- Automatyczne Rysowanie (Torch) ---
         model->eval();
         std::string drawn_dir = results_dir + "/overfit_drawn_torch";
         fs::create_directories(drawn_dir);
@@ -115,9 +114,9 @@ int main(int argc, char* argv[]) {
             fs::path p(img_path);
             cv::imwrite(drawn_dir + "/" + p.filename().string(), img);
         }
-        std::cout << "[SUKCES] Wygenerowane obrazy Torch zapisanio w: " << drawn_dir << "\n";
+        std::cout << "[SUCCESS] Torch-generated images saved in: " << drawn_dir << "\n";
 
-    } else { // TRYB CUSTOM
+    } else {
         YOLO custom_model(20);
         for (auto& l : custom_model->get_all_layers()) { 
             l->to(device); l->train(); l->learning_rate = learning_rate; 
@@ -142,15 +141,14 @@ int main(int argc, char* argv[]) {
                 for (auto& l : layers) l->step();
             }
             if (epoch % 10 == 0 || epoch == 1) {
-                std::cout << "Epoka [" << std::setw(3) << epoch << "/" << total_epochs << "] Loss: " << epoch_loss << "\n";
+                std::cout << "Epoch [" << std::setw(3) << epoch << "/" << total_epochs << "] Loss: " << epoch_loss << "\n";
             }
         }
         Network trainer(custom_model->get_all_layers(), learning_rate);
         std::string save_path = results_dir + "/yolov1_custom_overfitted.pt";
         trainer.save(save_path);
-        std::cout << "\n[INFO] Zapisano autorski model (Custom): " << save_path << "\n";
+        std::cout << "\n[INFO] Custom model saved: " << save_path << "\n";
 
-        // --- Automatyczne Rysowanie (Custom) ---
         for (auto& l : custom_model->get_all_layers()) { l->eval(); }
         std::string drawn_dir = results_dir + "/overfit_drawn_custom";
         fs::create_directories(drawn_dir);
@@ -173,7 +171,7 @@ int main(int argc, char* argv[]) {
             fs::path p(img_path);
             cv::imwrite(drawn_dir + "/" + p.filename().string(), img);
         }
-        std::cout << "[SUKCES] Wygenerowane obrazy Custom zapisano w: " << drawn_dir << "\n";
+        std::cout << "[SUCCESS] Custom-generated images saved in: " << drawn_dir << "\n";
     }
 
     return 0;

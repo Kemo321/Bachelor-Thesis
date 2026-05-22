@@ -13,7 +13,6 @@ namespace fs = std::filesystem;
 static void BM_YOLOv1_SingleEpochTraining(benchmark::State& state)
 {
     const int batch_size = state.range(0);
-    // Ujednolicona sciezka wsadowa wychodzaca z build/benchmarks
     const std::string data_root = "../../data/VOCdevkit";
     const std::string results_dir = "../../results";
 
@@ -24,7 +23,7 @@ static void BM_YOLOv1_SingleEpochTraining(benchmark::State& state)
 
     if (train_paths.images.empty())
     {
-        state.SkipWithError("Brak danych w JPEGImages/Annotations!");
+        state.SkipWithError("No data in JPEGImages/Annotations!");
         return;
     }
 
@@ -60,7 +59,6 @@ static void BM_YOLOv1_SingleEpochTraining(benchmark::State& state)
                 torch::cuda::synchronize();
             }
 
-            // POPRAWKA: .item().toFloat() zamiast .item<float>()
             epoch_loss += loss.item().toFloat();
             total_processed += data.size(0);
         }

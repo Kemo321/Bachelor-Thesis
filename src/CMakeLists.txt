@@ -24,4 +24,5 @@ target_link_libraries(DeepLearnLib PUBLIC
     hwy 
     CUDA::cudart
     ${TORCH_LIBRARIES}
+    ${OpenCV_LIBS}
 )

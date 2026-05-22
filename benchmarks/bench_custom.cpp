@@ -11,7 +11,6 @@
 static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
 {
     const int batch_size = state.range(0);
-    // Ujednolicona sciezka wsadowa wychodzaca z build/benchmarks
     const std::string data_root = "../../data/VOCdevkit";
     const float learning_rate = 1e-4F;
 
@@ -22,7 +21,7 @@ static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
 
     if (train_paths.images.empty())
     {
-        state.SkipWithError("Brak danych w JPEGImages/Annotations!");
+        state.SkipWithError("No data in JPEGImages/Annotations!");
         return;
     }
 
@@ -48,7 +47,6 @@ static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
 
             auto pred = custom_model->forward(data);
 
-            // POPRAWKA: .item().toFloat() zamiast .item<float>()
             float loss_val = YOLOLoss::loss(target, pred).item().toFloat();
             auto grad_error = YOLOLoss::loss_derivative(target, pred);
             grad_error = grad_error.clamp(-5.0, 5.0);

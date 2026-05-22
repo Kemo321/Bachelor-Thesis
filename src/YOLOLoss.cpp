@@ -1,31 +1,51 @@
 #include "DeepLearnLib/YOLOLoss.hpp"
 
+/**
+ * @brief Calculates Intersection over Union (IoU) between two bounding boxes.
+ * 
+ * Computes the IoU metric used to measure overlap between predicted and ground-truth
+ * bounding boxes. Higher IoU indicates better localization accuracy.
+ * 
+ * @param box1 Predicted bounding box tensor. Expected shape: [Batch, 4] where 
+ *             coordinates are [center_x, center_y, width, height] (normalized).
+ * @param box2 Target bounding box tensor. Expected shape: [Batch, 4] with same format as box1.
+ * 
+ * @return IoU tensor with shape [Batch] containing values in range [0, 1].
+ * 
+ * @note Epsilon value (1e-6) is added to prevent division by zero.
+ */
 auto YOLOLoss::calculate_iou(const torch::Tensor& box1, const torch::Tensor& box2) -> torch::Tensor {
-    auto b1_x1 = box1.select(-1, 0) - box1.select(-1, 2) / 2;
-    auto b1_y1 = box1.select(-1, 1) - box1.select(-1, 3) / 2;
-    auto b1_x2 = box1.select(-1, 0) + box1.select(-1, 2) / 2;
-    auto b1_y2 = box1.select(-1, 1) + box1.select(-1, 3) / 2;
+    // Convert center coordinates to corner format (x1, y1, x2, y2)
+    auto b1_x1 = box1.select(-1, 0) - box1.select(-1, 2) / 2.0F;
+    auto b1_y1 = box1.select(-1, 1) - box1.select(-1, 3) / 2.0F;
+    auto b1_x2 = box1.select(-1, 0) + box1.select(-1, 2) / 2.0F;
+    auto b1_y2 = box1.select(-1, 1) + box1.select(-1, 3) / 2.0F;
 
-    auto b2_x1 = box2.select(-1, 0) - box2.select(-1, 2) / 2;
-    auto b2_y1 = box2.select(-1, 1) - box2.select(-1, 3) / 2;
-    auto b2_x2 = box2.select(-1, 0) + box2.select(-1, 2) / 2;
-    auto b2_y2 = box2.select(-1, 1) + box2.select(-1, 3) / 2;
+    auto b2_x1 = box2.select(-1, 0) - box2.select(-1, 2) / 2.0F;
+    auto b2_y1 = box2.select(-1, 1) - box2.select(-1, 3) / 2.0F;
+    auto b2_x2 = box2.select(-1, 0) + box2.select(-1, 2) / 2.0F;
+    auto b2_y2 = box2.select(-1, 1) + box2.select(-1, 3) / 2.0F;
 
+    // Compute intersection coordinates
     auto inter_x1 = torch::max(b1_x1, b2_x1);
     auto inter_y1 = torch::max(b1_y1, b2_y1);
     auto inter_x2 = torch::min(b1_x2, b2_x2);
     auto inter_y2 = torch::min(b1_y2, b2_y2);
 
-    auto inter_area = torch::clamp(inter_x2 - inter_x1, 0) * torch::clamp(inter_y2 - inter_y1, 0);
-    auto area1 = torch::clamp(box1.select(-1, 2) * box1.select(-1, 3), 1e-6F);
-    auto area2 = torch::clamp(box2.select(-1, 2) * box2.select(-1, 3), 1e-6F);
+    // Calculate intersection area with ReLU-like clamping to ensure non-negative area
+    auto inter_area = torch::clamp(inter_x2 - inter_x1, 0.0F) * torch::clamp(inter_y2 - inter_y1, 0.0F);
+    
+    // Calculate individual box areas with epsilon to prevent numerical instability
+    constexpr float epsilon = 1e-6F;
+    auto area1 = torch::clamp(box1.select(-1, 2) * box1.select(-1, 3), epsilon);
+    auto area2 = torch::clamp(box2.select(-1, 2) * box2.select(-1, 3), epsilon);
 
-    return inter_area / (area1 + area2 - inter_area + 1e-6F);
+    // IoU = Intersection / (Area1 + Area2 - Intersection)
+    return inter_area / (area1 + area2 - inter_area + epsilon);
 }
 
-// ZMIANA: Dodano parametr num_classes do naglowka
 auto YOLOLoss::loss(const torch::Tensor& target, const torch::Tensor& prediction, int num_classes) -> torch::Tensor {
-    int final_dim = 10 + num_classes; // Dynamiczny rozmiar wyjsciowy (BCCD=13, VOC=30)
+    int final_dim = 10 + num_classes;
     
     auto pred = (prediction.dim() == 2) ? prediction.view({-1, 7, 7, final_dim}) : prediction;
     auto tgt  = (target.dim() == 2)     ? target.view({-1, 7, 7, final_dim})     : target;
@@ -80,13 +100,11 @@ auto YOLOLoss::loss(const torch::Tensor& target, const torch::Tensor& prediction
         lambda_noobj * pred.slice(3, 9, 10).squeeze(-1).pow(2).mul(noobj_mask_b2).sum()
     );
 
-    // ZMIANA: Ciecicie tensora teraz zalezy od num_classes (zamiast do indeksu 30, tniemy do 10 + num_classes)
     auto l_class = (pred.slice(3, 10, final_dim) - tgt.slice(3, 10, final_dim)).pow(2).sum({3}).mul(obj_mask).sum();
 
     return (l_coord + l_conf + l_class) / static_cast<float>(batch_size);
 }
 
-// ZMIANA: Dodano parametr num_classes do naglowka
 auto YOLOLoss::loss_derivative(const torch::Tensor& target, const torch::Tensor& prediction, int num_classes) -> torch::Tensor {
     int final_dim = 10 + num_classes;
     
@@ -149,7 +167,6 @@ auto YOLOLoss::loss_derivative(const torch::Tensor& target, const torch::Tensor&
     grad.slice(3, 9, 10) = 2.0F * (pred.slice(3, 9, 10).squeeze(-1) - iou2).unsqueeze(-1) * resp_b2.unsqueeze(-1);
     grad.slice(3, 9, 10) += 2.0F * lambda_noobj * pred.slice(3, 9, 10) * noobj_mask_b2.unsqueeze(-1);
 
-    // ZMIANA: Podmiana indeksu 30 na dynamiczny final_dim
     grad.slice(3, 10, final_dim) = 2.0F * (pred.slice(3, 10, final_dim) - tgt.slice(3, 10, final_dim)) * obj_mask.unsqueeze(-1);
 
     auto final_grad = grad / static_cast<float>(batch_size);

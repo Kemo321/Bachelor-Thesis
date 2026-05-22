@@ -21,7 +21,7 @@ const std::vector<std::string> VOC_CLASSES = {
 };
 
 int main() {
-    std::srand(std::time(nullptr)); // Unikalne losowanie augmentacji
+    std::srand(std::time(nullptr));
 
     const int batch_size = 16;   
     const int total_epochs = 150; 
@@ -29,7 +29,7 @@ int main() {
     const std::string results_dir = "../../results/voc";
 
     torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
-    std::cout << "[VOC TORCH PIPELINE] Start na urzadzeniu: " << (device.is_cuda() ? "GPU" : "CPU") << "\n";
+    std::cout << "[VOC TORCH PIPELINE] Starting on device: " << (device.is_cuda() ? "GPU" : "CPU") << "\n";
 
     if (device.is_cuda()) {
         at::globalContext().setBenchmarkCuDNN(true);
@@ -51,10 +51,10 @@ int main() {
     model->to(device);
 
     auto get_lr = [](int ep) -> float {
-        if (ep <= 20) return 1e-5F;
-        if (ep <= 100) return 5e-5F;
-        if (ep <= 120) return 3e-5F;
-        return 1e-5F;
+        if (ep <= 5) return 1e-5F;   
+        if (ep <= 80) return 1e-5F;  
+        if (ep <= 120) return 1e-6F; 
+        return 1e-6F;                
     };
 
     torch::optim::SGD optimizer(model->parameters(), torch::optim::SGDOptions(get_lr(1)).momentum(0.9).weight_decay(0.0005));
@@ -109,9 +109,9 @@ int main() {
         auto epoch_end_time = std::chrono::steady_clock::now();
         auto epoch_duration = std::chrono::duration_cast<std::chrono::seconds>(epoch_end_time - epoch_start_time).count();
 
-        std::cout << "VOC Torch | Epoka [" << std::setw(3) << epoch << "/" << total_epochs << "] | Train Loss: " 
+        std::cout << "VOC Torch | Epoch [" << std::setw(3) << epoch << "/" << total_epochs << "] | Train Loss: " 
                   << std::fixed << std::setprecision(4) << avg_train_loss << " | Test Loss: " << avg_test_loss 
-                  << " | Czas: " << epoch_duration << "s\n";
+                  << " | Time: " << epoch_duration << "s\n";
 
         csv_file << epoch << ";" << avg_train_loss << ";" << avg_test_loss << ";" << epoch_duration << "\n";
         csv_file.flush();
@@ -119,6 +119,6 @@ int main() {
 
     std::string save_path = results_dir + "/yolov1_voc_torch_final.pt";
     torch::save(model, save_path);
-    std::cout << "[INFO] Zapisano ostateczny model: " << save_path << "\n";
+    std::cout << "[INFO] Final model saved: " << save_path << "\n";
     return 0;
 }

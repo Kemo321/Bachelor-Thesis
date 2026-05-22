@@ -1,6 +1,16 @@
 #include "DeepLearnLib/Conv2d.hpp"
 #include <cmath>
 
+/**
+ * @brief Constructs a Conv2d layer.
+ * 
+ * @param in_channels Number of channels in the input image.
+ * @param out_channels Number of channels produced by the convolution.
+ * @param kernel_size Size of the convolving kernel.
+ * @param stride_val Stride of the convolution.
+ * @param padding_val Zero-padding added to both sides of the input.
+ * @param inertia_val Inertia for gradient momentum.
+ */
 Conv2d::Conv2d(int in_channels, int out_channels, int kernel_size, int stride_val, int padding_val, float inertia_val)
     : stride_(stride_val), padding_(padding_val), inertia_(inertia_val), kernel_size_(kernel_size)
 {
@@ -17,20 +27,34 @@ Conv2d::Conv2d(int in_channels, int out_channels, int kernel_size, int stride_va
     biases_gradient_ = torch::zeros_like(biases_);
 }
 
+/**
+ * @brief Forward pass of the 2D convolution.
+ * 
+ * @param input_tensor Input tensor of shape [Batch, Channels, Height, Width].
+ * @return Output tensor of shape [Batch, OutChannels, OutHeight, OutWidth].
+ */
 auto Conv2d::forward(const torch::Tensor& input_tensor) -> torch::Tensor {
     input_shape_cache_ = input_tensor.sizes().vec();
     input_cache_ = torch::nn::functional::unfold(input_tensor, 
         torch::nn::functional::UnfoldFuncOptions({kernel_size_, kernel_size_}).stride({stride_, stride_}).padding({padding_, padding_}));
     
-    auto reshaped_weights = weights_.view({weights_.size(0), -1});
+    auto reshaped_weights = weights_.view({weights_.size(0), -1}).contiguous();
     auto output = torch::matmul(reshaped_weights, input_cache_);
-    output += biases_.view({1, -1, 1});
+    output += biases_.view({1, -1, 1}).contiguous();
 
     int h_out = (input_shape_cache_[2] + 2 * padding_ - kernel_size_) / stride_ + 1;
     int w_out = (input_shape_cache_[3] + 2 * padding_ - kernel_size_) / stride_ + 1;
-    return output.view({input_shape_cache_[0], weights_.size(0), h_out, w_out});
+    return output.view({input_shape_cache_[0], weights_.size(0), h_out, w_out}).contiguous();
 }
 
+/**
+ * @brief Backward pass calculating gradients of the 2D convolution.
+ * 
+ * @note Applies chain rule derivative to compute input gradient and weights/biases gradients.
+ * 
+ * @param output_error_derivative Gradient of the loss with respect to the output, shape [Batch, OutChannels, OutHeight, OutWidth].
+ * @return Gradient of the loss with respect to the input, shape [Batch, InChannels, InHeight, InWidth].
+ */
 auto Conv2d::backward(const torch::Tensor& output_error_derivative) -> torch::Tensor {
     auto reshaped_error = output_error_derivative.view({output_error_derivative.size(0), output_error_derivative.size(1), -1});
     
