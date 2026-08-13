@@ -1,0 +1,14 @@
+# Project Role
+You are an expert C++ CUDA and HPC Engineer. We are building a custom Deep Learning framework from scratch to replace LibTorch in a YOLO object detection project.
+
+# Project Goal
+Completely REMOVE LibTorch (`torch::Tensor`, `<torch/torch.h>`) and replace it with a custom `dl::Tensor` using NVIDIA's stack: CUDA, cuBLAS, cuDNN, and Thrust.
+
+# Strict Rules for Code Generation
+1. ABSOLUTE BAN ON TORCH: Never include `<torch/torch.h>` or use `torch::` namespaces.
+2. TENSOR ARCHITECTURE: `dl::Tensor` allocates memory via `cudaMalloc` (managed by `CudaDeleter`). Tensors must manage GPU memory strictly and avoid unnecessary device-to-host (D2H) or host-to-device (H2D) transfers.
+3. USE cuDNN: Implement `Conv2d`, `MaxPool2d`, and `BatchNorm2d` layers using the cuDNN C API (e.g., `cudnnConvolutionForward`, `cudnnPoolingForward`). You must handle descriptor setups (`cudnnTensorDescriptor_t`, etc.) safely.
+4. USE cuBLAS: Implement `FullyConnected` layer forward and backward passes using `cublasSgemm`. 
+5. USE THRUST: Implement element-wise operations (`LeakyReLU`, `Dropout`, and custom loss masking in `YOLOLoss`) using NVIDIA Thrust (`thrust::device_ptr`, `thrust::transform`, `thrust::for_each`) or write simple custom CUDA kernels (`__global__`) if Thrust is too complex for specific IoU math.
+6. NO CPU BOTTLENECKS: Operations should remain on the GPU. Avoid syncing with the CPU unless explicitly needed for logging or saving weights.
+7. ERROR HANDLING: Always wrap CUDA, cuBLAS, and cuDNN calls in error-checking macros (e.g., `CHECK_CUDA`, `CHECK_CUDNN`).

@@ -1,4 +1,4 @@
-#include "DeepLearnLib/tensor.hpp"
+#include "DeepLearnLib/Tensor.hpp"
 #include <cuda_runtime.h>
 #include <gtest/gtest.h>
 #include <memory>
