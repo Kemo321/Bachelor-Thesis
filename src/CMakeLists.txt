@@ -9,6 +9,7 @@ set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/LeakyReLU.cpp PROPERTIES
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/Dropout.cpp PROPERTIES LANGUAGE CUDA)
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/FullyConnected.cpp PROPERTIES LANGUAGE CUDA)
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/Network.cpp PROPERTIES LANGUAGE CUDA)
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/YOLOLoss.cpp PROPERTIES LANGUAGE CUDA)
 
 set_target_properties(
   DeepLearnLib

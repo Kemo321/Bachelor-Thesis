@@ -3,44 +3,39 @@
 #include "DeepLearnLib/Tensor.hpp"
 
 /**
- * @class YOLOLoss
- * @brief Computes the loss and its derivative for YOLO-based object detection models.
+ * @brief YOLOv1 localization, confidence, and classification loss on the GPU.
  *
- * The implementation is still being migrated off LibTorch; these signatures already
- * accept dl::Tensor so Network can compile against the new tensor type.
+ * Predictions and targets are NCHW-style grids [Batch, 7, 7, 10 + num_classes]
+ * (or the equivalent flattened [Batch, 7*7*(10 + num_classes)] layout).
  */
 class YOLOLoss
 {
 public:
     /**
-     * @brief Computes the YOLO loss.
+     * @brief Computes the mean YOLOv1 loss.
      *
-     * @param target Ground truth tensor. Shape: [Batch, Grid, Grid, Attributes].
-     * @param prediction Predicted tensor. Shape: [Batch, Grid, Grid, Attributes].
-     * @param num_classes Number of classes in the dataset. Default is 20.
-     * @return Scalar tensor representing the computed loss. Shape: [1].
+     * @param target Ground truth tensor.
+     * @param prediction Predicted tensor.
+     * @param num_classes Number of classes. Default is 20.
+     * @return Scalar GPU tensor of shape [1].
      */
     [[nodiscard]] static auto loss(const dl::Tensor& target, const dl::Tensor& prediction, int num_classes = 20)
         -> dl::Tensor;
 
     /**
-     * @brief Computes the derivative of the YOLO loss.
+     * @brief Computes dL/d(prediction) for the YOLOv1 loss.
      *
-     * @param target Ground truth tensor. Shape: [Batch, Grid, Grid, Attributes].
-     * @param prediction Predicted tensor. Shape: [Batch, Grid, Grid, Attributes].
-     * @param num_classes Number of classes in the dataset. Default is 20.
-     * @return Gradient tensor. Shape: [Batch, Grid, Grid, Attributes].
+     * @param target Ground truth tensor.
+     * @param prediction Predicted tensor.
+     * @param num_classes Number of classes. Default is 20.
+     * @return Gradient with the same layout as prediction.
      */
     [[nodiscard]] static auto loss_derivative(const dl::Tensor& target, const dl::Tensor& prediction,
                                               int num_classes = 20) -> dl::Tensor;
 
 private:
     /**
-     * @brief Calculates the Intersection over Union (IoU) between two bounding boxes.
-     *
-     * @param box1 First bounding box tensor. Shape: [Batch, 4].
-     * @param box2 Second bounding box tensor. Shape: [Batch, 4].
-     * @return IoU for each pair of bounding boxes. Shape: [Batch].
+     * @brief Pairwise IoU for packed [N, 4] boxes in [cx, cy, w, h] format.
      */
     static auto calculate_iou(const dl::Tensor& box1, const dl::Tensor& box2) -> dl::Tensor;
 };

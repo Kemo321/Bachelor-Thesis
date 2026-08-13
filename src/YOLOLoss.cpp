@@ -1,175 +1,357 @@
 #include "DeepLearnLib/YOLOLoss.hpp"
 
-/**
- * @brief Calculates Intersection over Union (IoU) between two bounding boxes.
- * 
- * Computes the IoU metric used to measure overlap between predicted and ground-truth
- * bounding boxes. Higher IoU indicates better localization accuracy.
- * 
- * @param box1 Predicted bounding box tensor. Expected shape: [Batch, 4] where 
- *             coordinates are [center_x, center_y, width, height] (normalized).
- * @param box2 Target bounding box tensor. Expected shape: [Batch, 4] with same format as box1.
- * 
- * @return IoU tensor with shape [Batch] containing values in range [0, 1].
- * 
- * @note Epsilon value (1e-6) is added to prevent division by zero.
- */
-auto YOLOLoss::calculate_iou(const torch::Tensor& box1, const torch::Tensor& box2) -> torch::Tensor {
-    // Convert center coordinates to corner format (x1, y1, x2, y2)
-    auto b1_x1 = box1.select(-1, 0) - box1.select(-1, 2) / 2.0F;
-    auto b1_y1 = box1.select(-1, 1) - box1.select(-1, 3) / 2.0F;
-    auto b1_x2 = box1.select(-1, 0) + box1.select(-1, 2) / 2.0F;
-    auto b1_y2 = box1.select(-1, 1) + box1.select(-1, 3) / 2.0F;
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
-    auto b2_x1 = box2.select(-1, 0) - box2.select(-1, 2) / 2.0F;
-    auto b2_y1 = box2.select(-1, 1) - box2.select(-1, 3) / 2.0F;
-    auto b2_x2 = box2.select(-1, 0) + box2.select(-1, 2) / 2.0F;
-    auto b2_y2 = box2.select(-1, 1) + box2.select(-1, 3) / 2.0F;
+#include <thrust/device_ptr.h>
+#include <thrust/execution_policy.h>
+#include <thrust/functional.h>
+#include <thrust/reduce.h>
 
-    // Compute intersection coordinates
-    auto inter_x1 = torch::max(b1_x1, b2_x1);
-    auto inter_y1 = torch::max(b1_y1, b2_y1);
-    auto inter_x2 = torch::min(b1_x2, b2_x2);
-    auto inter_y2 = torch::min(b1_y2, b2_y2);
+namespace
+{
 
-    // Calculate intersection area with ReLU-like clamping to ensure non-negative area
-    auto inter_area = torch::clamp(inter_x2 - inter_x1, 0.0F) * torch::clamp(inter_y2 - inter_y1, 0.0F);
-    
-    // Calculate individual box areas with epsilon to prevent numerical instability
-    constexpr float epsilon = 1e-6F;
-    auto area1 = torch::clamp(box1.select(-1, 2) * box1.select(-1, 3), epsilon);
-    auto area2 = torch::clamp(box2.select(-1, 2) * box2.select(-1, 3), epsilon);
+constexpr int kGridSize = 7;
+constexpr int kCellsPerImage = kGridSize * kGridSize;
+constexpr int kBoxAttrs = 4;
+constexpr int kThreads = 256;
+constexpr float kLambdaCoord = 5.0F;
+constexpr float kLambdaNoobj = 0.5F;
+constexpr float kEps = 1e-6F;
+constexpr float kSafeEps = 1e-8F;
 
-    // IoU = Intersection / (Area1 + Area2 - Intersection)
-    return inter_area / (area1 + area2 - inter_area + epsilon);
+__host__ __device__ auto ceil_div(int value, int divisor) -> int
+{
+    return (value + divisor - 1) / divisor;
 }
 
-auto YOLOLoss::loss(const torch::Tensor& target, const torch::Tensor& prediction, int num_classes) -> torch::Tensor {
-    int final_dim = 10 + num_classes;
-    
-    auto pred = (prediction.dim() == 2) ? prediction.view({-1, 7, 7, final_dim}) : prediction;
-    auto tgt  = (target.dim() == 2)     ? target.view({-1, 7, 7, final_dim})     : target;
-
-    int64_t batch_size = pred.size(0);
-
-    constexpr float lambda_coord = 5.0F;
-    constexpr float lambda_noobj = 0.5F;
-    constexpr float eps = 1e-6F;
-    constexpr float safe_eps = 1e-8F;
-
-    auto grid = torch::meshgrid({torch::arange(7, pred.options()), torch::arange(7, pred.options())}, "ij");
-    auto grid_y = grid[0].view({1, 7, 7, 1}).expand({batch_size, 7, 7, 1});
-    auto grid_x = grid[1].view({1, 7, 7, 1}).expand({batch_size, 7, 7, 1});
-
-    auto p_box1 = pred.slice(3, 0, 4).clone();
-    p_box1.select(3, 0) = (p_box1.select(3, 0).unsqueeze(-1) + grid_x).squeeze(-1) / 7.0F;
-    p_box1.select(3, 1) = (p_box1.select(3, 1).unsqueeze(-1) + grid_y).squeeze(-1) / 7.0F;
-
-    auto p_box2 = pred.slice(3, 5, 9).clone();
-    p_box2.select(3, 0) = (p_box2.select(3, 0).unsqueeze(-1) + grid_x).squeeze(-1) / 7.0F;
-    p_box2.select(3, 1) = (p_box2.select(3, 1).unsqueeze(-1) + grid_y).squeeze(-1) / 7.0F;
-
-    auto t_box = tgt.slice(3, 0, 4).clone();
-    t_box.select(3, 0) = (t_box.select(3, 0).unsqueeze(-1) + grid_x).squeeze(-1) / 7.0F;
-    t_box.select(3, 1) = (t_box.select(3, 1).unsqueeze(-1) + grid_y).squeeze(-1) / 7.0F;
-
-    auto iou1 = calculate_iou(p_box1, t_box);
-    auto iou2 = calculate_iou(p_box2, t_box);
-
-    auto obj_mask = tgt.slice(3, 4, 5).squeeze(-1);
-    auto box2_better = (iou2 > iou1).to(torch::kFloat32);
-    auto resp_b1 = (1.0F - box2_better) * obj_mask;
-    auto resp_b2 = box2_better * obj_mask;
-
-    auto l_coord = lambda_coord * (
-        (pred.slice(3, 0, 2) - tgt.slice(3, 0, 2)).pow(2).sum({3}).mul(resp_b1).sum() +
-        (pred.slice(3, 5, 7) - tgt.slice(3, 0, 2)).pow(2).sum({3}).mul(resp_b2).sum() +
-        (torch::sqrt(torch::clamp(pred.slice(3, 2, 4), eps)) - torch::sqrt(torch::clamp(tgt.slice(3, 2, 4), eps)))
-            .pow(2).sum({3}).mul(resp_b1).sum() +
-        (torch::sqrt(torch::clamp(pred.slice(3, 7, 9), eps)) - torch::sqrt(torch::clamp(tgt.slice(3, 2, 4), eps)))
-            .pow(2).sum({3}).mul(resp_b2).sum()
-    );
-
-    auto noobj_mask_b1 = (1.0F - resp_b1);
-    auto noobj_mask_b2 = (1.0F - resp_b2);
-
-    auto l_conf = (
-        (pred.slice(3, 4, 5).squeeze(-1) - iou1).pow(2).mul(resp_b1).sum() +
-        (pred.slice(3, 9, 10).squeeze(-1) - iou2).pow(2).mul(resp_b2).sum() +
-        lambda_noobj * pred.slice(3, 4, 5).squeeze(-1).pow(2).mul(noobj_mask_b1).sum() +
-        lambda_noobj * pred.slice(3, 9, 10).squeeze(-1).pow(2).mul(noobj_mask_b2).sum()
-    );
-
-    auto l_class = (pred.slice(3, 10, final_dim) - tgt.slice(3, 10, final_dim)).pow(2).sum({3}).mul(obj_mask).sum();
-
-    return (l_coord + l_conf + l_class) / static_cast<float>(batch_size);
+__device__ auto clampf(float value, float lo) -> float
+{
+    return value < lo ? lo : value;
 }
 
-auto YOLOLoss::loss_derivative(const torch::Tensor& target, const torch::Tensor& prediction, int num_classes) -> torch::Tensor {
-    int final_dim = 10 + num_classes;
-    
-    auto pred = (prediction.dim() == 2) ? prediction.view({-1, 7, 7, final_dim}) : prediction;
-    auto tgt  = (target.dim() == 2)     ? target.view({-1, 7, 7, final_dim})     : target;
+__device__ auto box_iou(float cx1, float cy1, float w1, float h1, float cx2, float cy2, float w2, float h2) -> float
+{
+    const float b1_x1 = cx1 - (w1 * 0.5F);
+    const float b1_y1 = cy1 - (h1 * 0.5F);
+    const float b1_x2 = cx1 + (w1 * 0.5F);
+    const float b1_y2 = cy1 + (h1 * 0.5F);
 
-    auto grad = torch::zeros_like(pred);
+    const float b2_x1 = cx2 - (w2 * 0.5F);
+    const float b2_y1 = cy2 - (h2 * 0.5F);
+    const float b2_x2 = cx2 + (w2 * 0.5F);
+    const float b2_y2 = cy2 + (h2 * 0.5F);
 
-    int64_t batch_size = pred.size(0);
-    constexpr float lambda_coord = 5.0F;
-    constexpr float lambda_noobj = 0.5F;
-    constexpr float eps = 1e-6F;
-    constexpr float safe_eps = 1e-8F;
+    const float inter_w = clampf(fminf(b1_x2, b2_x2) - fmaxf(b1_x1, b2_x1), 0.0F);
+    const float inter_h = clampf(fminf(b1_y2, b2_y2) - fmaxf(b1_y1, b2_y1), 0.0F);
+    const float inter_area = inter_w * inter_h;
 
-    auto grid_x = torch::arange(7, pred.options()).view({1, 1, 7, 1}).expand({batch_size, 7, 7, 1});
-    auto grid_y = torch::arange(7, pred.options()).view({1, 7, 1, 1}).expand({batch_size, 7, 7, 1});
+    const float area1 = clampf(w1 * h1, kEps);
+    const float area2 = clampf(w2 * h2, kEps);
+    return inter_area / (area1 + area2 - inter_area + kEps);
+}
 
-    auto p_box1 = pred.slice(3, 0, 4).clone();
-    p_box1.select(3, 0) = (p_box1.select(3, 0).unsqueeze(-1) + grid_x).squeeze(-1) / 7.0F;
-    p_box1.select(3, 1) = (p_box1.select(3, 1).unsqueeze(-1) + grid_y).squeeze(-1) / 7.0F;
+__device__ auto decode_center(float raw, int grid_index) -> float
+{
+    return (raw + static_cast<float>(grid_index)) / static_cast<float>(kGridSize);
+}
 
-    auto p_box2 = pred.slice(3, 5, 9).clone();
-    p_box2.select(3, 0) = (p_box2.select(3, 0).unsqueeze(-1) + grid_x).squeeze(-1) / 7.0F;
-    p_box2.select(3, 1) = (p_box2.select(3, 1).unsqueeze(-1) + grid_y).squeeze(-1) / 7.0F;
+__device__ auto cell_base(int batch, int row, int col, int final_dim) -> int
+{
+    return ((((batch * kGridSize) + row) * kGridSize) + col) * final_dim;
+}
 
-    auto t_box = tgt.slice(3, 0, 4).clone();
-    t_box.select(3, 0) = (t_box.select(3, 0).unsqueeze(-1) + grid_x).squeeze(-1) / 7.0F;
-    t_box.select(3, 1) = (t_box.select(3, 1).unsqueeze(-1) + grid_y).squeeze(-1) / 7.0F;
+__global__ void yolo_iou_kernel(const float* box1, const float* box2, float* iou, int box_count)
+{
+    const int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+    if (idx >= box_count)
+    {
+        return;
+    }
 
-    auto iou1 = calculate_iou(p_box1, t_box);
-    auto iou2 = calculate_iou(p_box2, t_box);
+    const int offset = idx * kBoxAttrs;
+    iou[idx] = box_iou(box1[offset + 0], box1[offset + 1], box1[offset + 2], box1[offset + 3], box2[offset + 0],
+                       box2[offset + 1], box2[offset + 2], box2[offset + 3]);
+}
 
-    auto obj_mask = tgt.slice(3, 4, 5).squeeze(-1);
-    auto box2_better = (iou2 > iou1).to(torch::kFloat32);
-    auto resp_b1 = (1.0F - box2_better) * obj_mask;
-    auto resp_b2 = box2_better * obj_mask;
+__global__ void yolo_loss_forward_kernel(const float* pred, const float* tgt, float* cell_loss, int batch_size,
+                                         int final_dim)
+{
+    const int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+    const int cell_count = batch_size * kCellsPerImage;
+    if (idx >= cell_count)
+    {
+        return;
+    }
 
-    auto noobj_mask_b1 = (1.0F - resp_b1);
-    auto noobj_mask_b2 = (1.0F - resp_b2);
+    const int batch = idx / kCellsPerImage;
+    const int cell = idx % kCellsPerImage;
+    const int row = cell / kGridSize;
+    const int col = cell % kGridSize;
+    const int base = cell_base(batch, row, col, final_dim);
 
-    grad.slice(3, 0, 2) = 2.0F * lambda_coord * (pred.slice(3, 0, 2) - tgt.slice(3, 0, 2)) * resp_b1.unsqueeze(-1);
-    grad.slice(3, 5, 7) = 2.0F * lambda_coord * (pred.slice(3, 5, 7) - tgt.slice(3, 0, 2)) * resp_b2.unsqueeze(-1);
+    const float p1_x = pred[base + 0];
+    const float p1_y = pred[base + 1];
+    const float p1_w = pred[base + 2];
+    const float p1_h = pred[base + 3];
+    const float p1_c = pred[base + 4];
+    const float p2_x = pred[base + 5];
+    const float p2_y = pred[base + 6];
+    const float p2_w = pred[base + 7];
+    const float p2_h = pred[base + 8];
+    const float p2_c = pred[base + 9];
 
-    auto p1_wh_raw = pred.slice(3, 2, 4);
-    auto mask_p1 = (p1_wh_raw > safe_eps).to(torch::kFloat32);
+    const float t_x = tgt[base + 0];
+    const float t_y = tgt[base + 1];
+    const float t_w = tgt[base + 2];
+    const float t_h = tgt[base + 3];
+    const float obj_mask = tgt[base + 4];
 
-    auto p2_wh_raw = pred.slice(3, 7, 9);
-    auto mask_p2 = (p2_wh_raw > safe_eps).to(torch::kFloat32);
+    const float iou1 = box_iou(decode_center(p1_x, col), decode_center(p1_y, row), p1_w, p1_h,
+                               decode_center(t_x, col), decode_center(t_y, row), t_w, t_h);
+    const float iou2 = box_iou(decode_center(p2_x, col), decode_center(p2_y, row), p2_w, p2_h,
+                               decode_center(t_x, col), decode_center(t_y, row), t_w, t_h);
 
-    auto sqrt_p1 = torch::sqrt(torch::clamp(p1_wh_raw, safe_eps));
-    auto sqrt_p2 = torch::sqrt(torch::clamp(p2_wh_raw, safe_eps));
-    auto sqrt_t  = torch::sqrt(torch::clamp(tgt.slice(3, 2, 4), safe_eps));
+    const float box2_better = iou2 > iou1 ? 1.0F : 0.0F;
+    const float resp_b1 = (1.0F - box2_better) * obj_mask;
+    const float resp_b2 = box2_better * obj_mask;
+    const float noobj_b1 = 1.0F - resp_b1;
+    const float noobj_b2 = 1.0F - resp_b2;
 
-    grad.slice(3, 2, 4) = lambda_coord * (sqrt_p1 - sqrt_t) / (sqrt_p1 + safe_eps) * mask_p1 * resp_b1.unsqueeze(-1);
-    grad.slice(3, 7, 9) = lambda_coord * (sqrt_p2 - sqrt_t) / (sqrt_p2 + safe_eps) * mask_p2 * resp_b2.unsqueeze(-1);
+    const float sqrt_p1_w = sqrtf(clampf(p1_w, kEps));
+    const float sqrt_p1_h = sqrtf(clampf(p1_h, kEps));
+    const float sqrt_p2_w = sqrtf(clampf(p2_w, kEps));
+    const float sqrt_p2_h = sqrtf(clampf(p2_h, kEps));
+    const float sqrt_t_w = sqrtf(clampf(t_w, kEps));
+    const float sqrt_t_h = sqrtf(clampf(t_h, kEps));
 
-    grad.slice(3, 4, 5) = 2.0F * (pred.slice(3, 4, 5).squeeze(-1) - iou1).unsqueeze(-1) * resp_b1.unsqueeze(-1);
-    grad.slice(3, 4, 5) += 2.0F * lambda_noobj * pred.slice(3, 4, 5) * noobj_mask_b1.unsqueeze(-1);
+    const float xy_b1 = ((p1_x - t_x) * (p1_x - t_x)) + ((p1_y - t_y) * (p1_y - t_y));
+    const float xy_b2 = ((p2_x - t_x) * (p2_x - t_x)) + ((p2_y - t_y) * (p2_y - t_y));
+    const float wh_b1 = ((sqrt_p1_w - sqrt_t_w) * (sqrt_p1_w - sqrt_t_w)) + ((sqrt_p1_h - sqrt_t_h) * (sqrt_p1_h - sqrt_t_h));
+    const float wh_b2 = ((sqrt_p2_w - sqrt_t_w) * (sqrt_p2_w - sqrt_t_w)) + ((sqrt_p2_h - sqrt_t_h) * (sqrt_p2_h - sqrt_t_h));
+    const float l_coord = kLambdaCoord * ((xy_b1 * resp_b1) + (xy_b2 * resp_b2) + (wh_b1 * resp_b1) + (wh_b2 * resp_b2));
 
-    grad.slice(3, 9, 10) = 2.0F * (pred.slice(3, 9, 10).squeeze(-1) - iou2).unsqueeze(-1) * resp_b2.unsqueeze(-1);
-    grad.slice(3, 9, 10) += 2.0F * lambda_noobj * pred.slice(3, 9, 10) * noobj_mask_b2.unsqueeze(-1);
+    const float conf_obj = ((p1_c - iou1) * (p1_c - iou1) * resp_b1) + ((p2_c - iou2) * (p2_c - iou2) * resp_b2);
+    const float conf_noobj = kLambdaNoobj * ((p1_c * p1_c * noobj_b1) + (p2_c * p2_c * noobj_b2));
+    const float l_conf = conf_obj + conf_noobj;
 
-    grad.slice(3, 10, final_dim) = 2.0F * (pred.slice(3, 10, final_dim) - tgt.slice(3, 10, final_dim)) * obj_mask.unsqueeze(-1);
+    float l_class = 0.0F;
+    const int num_classes = final_dim - 10;
+    for (int class_idx = 0; class_idx < num_classes; ++class_idx)
+    {
+        const float diff = pred[base + 10 + class_idx] - tgt[base + 10 + class_idx];
+        l_class += diff * diff;
+    }
+    l_class *= obj_mask;
 
-    auto final_grad = grad / static_cast<float>(batch_size);
+    cell_loss[idx] = l_coord + l_conf + l_class;
+}
 
-    return (prediction.dim() == 2) ? final_grad.view({batch_size, -1}) : final_grad;
+__global__ void yolo_loss_backward_kernel(const float* pred, const float* tgt, float* grad, int batch_size,
+                                          int final_dim, float inv_batch)
+{
+    const int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+    const int cell_count = batch_size * kCellsPerImage;
+    if (idx >= cell_count)
+    {
+        return;
+    }
+
+    const int batch = idx / kCellsPerImage;
+    const int cell = idx % kCellsPerImage;
+    const int row = cell / kGridSize;
+    const int col = cell % kGridSize;
+    const int base = cell_base(batch, row, col, final_dim);
+
+    const float p1_x = pred[base + 0];
+    const float p1_y = pred[base + 1];
+    const float p1_w = pred[base + 2];
+    const float p1_h = pred[base + 3];
+    const float p1_c = pred[base + 4];
+    const float p2_x = pred[base + 5];
+    const float p2_y = pred[base + 6];
+    const float p2_w = pred[base + 7];
+    const float p2_h = pred[base + 8];
+    const float p2_c = pred[base + 9];
+
+    const float t_x = tgt[base + 0];
+    const float t_y = tgt[base + 1];
+    const float t_w = tgt[base + 2];
+    const float t_h = tgt[base + 3];
+    const float obj_mask = tgt[base + 4];
+
+    const float iou1 = box_iou(decode_center(p1_x, col), decode_center(p1_y, row), p1_w, p1_h,
+                               decode_center(t_x, col), decode_center(t_y, row), t_w, t_h);
+    const float iou2 = box_iou(decode_center(p2_x, col), decode_center(p2_y, row), p2_w, p2_h,
+                               decode_center(t_x, col), decode_center(t_y, row), t_w, t_h);
+
+    const float box2_better = iou2 > iou1 ? 1.0F : 0.0F;
+    const float resp_b1 = (1.0F - box2_better) * obj_mask;
+    const float resp_b2 = box2_better * obj_mask;
+    const float noobj_b1 = 1.0F - resp_b1;
+    const float noobj_b2 = 1.0F - resp_b2;
+
+    grad[base + 0] = 2.0F * kLambdaCoord * (p1_x - t_x) * resp_b1 * inv_batch;
+    grad[base + 1] = 2.0F * kLambdaCoord * (p1_y - t_y) * resp_b1 * inv_batch;
+    grad[base + 5] = 2.0F * kLambdaCoord * (p2_x - t_x) * resp_b2 * inv_batch;
+    grad[base + 6] = 2.0F * kLambdaCoord * (p2_y - t_y) * resp_b2 * inv_batch;
+
+    const float sqrt_p1_w = sqrtf(clampf(p1_w, kSafeEps));
+    const float sqrt_p1_h = sqrtf(clampf(p1_h, kSafeEps));
+    const float sqrt_p2_w = sqrtf(clampf(p2_w, kSafeEps));
+    const float sqrt_p2_h = sqrtf(clampf(p2_h, kSafeEps));
+    const float sqrt_t_w = sqrtf(clampf(t_w, kSafeEps));
+    const float sqrt_t_h = sqrtf(clampf(t_h, kSafeEps));
+    const float mask_p1_w = p1_w > kSafeEps ? 1.0F : 0.0F;
+    const float mask_p1_h = p1_h > kSafeEps ? 1.0F : 0.0F;
+    const float mask_p2_w = p2_w > kSafeEps ? 1.0F : 0.0F;
+    const float mask_p2_h = p2_h > kSafeEps ? 1.0F : 0.0F;
+
+    grad[base + 2] = kLambdaCoord * (sqrt_p1_w - sqrt_t_w) / (sqrt_p1_w + kSafeEps) * mask_p1_w * resp_b1 * inv_batch;
+    grad[base + 3] = kLambdaCoord * (sqrt_p1_h - sqrt_t_h) / (sqrt_p1_h + kSafeEps) * mask_p1_h * resp_b1 * inv_batch;
+    grad[base + 7] = kLambdaCoord * (sqrt_p2_w - sqrt_t_w) / (sqrt_p2_w + kSafeEps) * mask_p2_w * resp_b2 * inv_batch;
+    grad[base + 8] = kLambdaCoord * (sqrt_p2_h - sqrt_t_h) / (sqrt_p2_h + kSafeEps) * mask_p2_h * resp_b2 * inv_batch;
+
+    grad[base + 4] =
+        ((2.0F * (p1_c - iou1) * resp_b1) + (2.0F * kLambdaNoobj * p1_c * noobj_b1)) * inv_batch;
+    grad[base + 9] =
+        ((2.0F * (p2_c - iou2) * resp_b2) + (2.0F * kLambdaNoobj * p2_c * noobj_b2)) * inv_batch;
+
+    const int num_classes = final_dim - 10;
+    for (int class_idx = 0; class_idx < num_classes; ++class_idx)
+    {
+        const float diff = pred[base + 10 + class_idx] - tgt[base + 10 + class_idx];
+        grad[base + 10 + class_idx] = 2.0F * diff * obj_mask * inv_batch;
+    }
+}
+
+auto launch_config(int count) -> dim3
+{
+    return dim3(static_cast<unsigned int>(std::max(1, ceil_div(count, kThreads))));
+}
+
+auto require_gpu_pair(const dl::Tensor& target, const dl::Tensor& prediction) -> void
+{
+    if (target.get_device() != dl::Device::GPU || prediction.get_device() != dl::Device::GPU)
+    {
+        throw std::runtime_error("YOLOLoss requires GPU tensors");
+    }
+    if (target.data() == nullptr || prediction.data() == nullptr)
+    {
+        throw std::runtime_error("YOLOLoss received a null device pointer");
+    }
+}
+
+auto as_yolo_grid(const dl::Tensor& tensor, int final_dim, const char* name) -> dl::Tensor
+{
+    const std::vector<int>& shape = tensor.get_shape();
+    if (shape.size() == 4)
+    {
+        if (shape[1] != kGridSize || shape[2] != kGridSize || shape[3] != final_dim)
+        {
+            throw std::runtime_error(std::string(name) + " must have shape [Batch, 7, 7, 10 + num_classes]");
+        }
+        return tensor.view(shape);
+    }
+    if (shape.size() == 2)
+    {
+        if (shape[1] != kCellsPerImage * final_dim)
+        {
+            throw std::runtime_error(std::string(name) + " must have shape [Batch, 7*7*(10 + num_classes)]");
+        }
+        return tensor.view({ shape[0], kGridSize, kGridSize, final_dim });
+    }
+    throw std::runtime_error(std::string(name) + " must be rank 2 or rank 4");
+}
+
+} // namespace
+
+auto YOLOLoss::calculate_iou(const dl::Tensor& box1, const dl::Tensor& box2) -> dl::Tensor
+{
+    require_gpu_pair(box1, box2);
+    if (box1.get_size() != box2.get_size() || (box1.get_size() % static_cast<size_t>(kBoxAttrs)) != 0)
+    {
+        throw std::runtime_error("YOLOLoss::calculate_iou expects matching [N, 4] box tensors");
+    }
+
+    const int box_count = static_cast<int>(box1.get_size() / static_cast<size_t>(kBoxAttrs));
+    dl::Tensor iou({ box_count }, dl::Device::GPU);
+    if (box_count == 0)
+    {
+        return iou;
+    }
+
+    yolo_iou_kernel<<<launch_config(box_count), kThreads>>>(box1.data(), box2.data(), iou.data(), box_count);
+    CHECK_CUDA(cudaGetLastError());
+    return iou;
+}
+
+auto YOLOLoss::loss(const dl::Tensor& target, const dl::Tensor& prediction, int num_classes) -> dl::Tensor
+{
+    if (num_classes <= 0)
+    {
+        throw std::runtime_error("YOLOLoss::loss requires a positive class count");
+    }
+    require_gpu_pair(target, prediction);
+
+    const int final_dim = 10 + num_classes;
+    const dl::Tensor pred = as_yolo_grid(prediction, final_dim, "YOLOLoss::loss prediction");
+    const dl::Tensor tgt = as_yolo_grid(target, final_dim, "YOLOLoss::loss target");
+    if (pred.get_shape()[0] != tgt.get_shape()[0])
+    {
+        throw std::runtime_error("YOLOLoss::loss batch sizes do not match");
+    }
+
+    const int batch_size = pred.get_shape()[0];
+    const int cell_count = batch_size * kCellsPerImage;
+    dl::Tensor cell_loss({ cell_count }, dl::Device::GPU);
+
+    yolo_loss_forward_kernel<<<launch_config(cell_count), kThreads>>>(pred.data(), tgt.data(), cell_loss.data(),
+                                                                      batch_size, final_dim);
+    CHECK_CUDA(cudaGetLastError());
+
+    auto begin = thrust::device_pointer_cast(cell_loss.data());
+    const float total = thrust::reduce(thrust::device, begin, begin + static_cast<std::ptrdiff_t>(cell_count), 0.0F,
+                                       thrust::plus<float>());
+    CHECK_CUDA(cudaGetLastError());
+
+    const float mean_loss = total / static_cast<float>(batch_size);
+    return dl::Tensor::from_host({ 1 }, { mean_loss }, dl::Device::GPU);
+}
+
+auto YOLOLoss::loss_derivative(const dl::Tensor& target, const dl::Tensor& prediction, int num_classes) -> dl::Tensor
+{
+    if (num_classes <= 0)
+    {
+        throw std::runtime_error("YOLOLoss::loss_derivative requires a positive class count");
+    }
+    require_gpu_pair(target, prediction);
+
+    const int final_dim = 10 + num_classes;
+    const bool flattened = prediction.get_shape().size() == 2;
+    const dl::Tensor pred = as_yolo_grid(prediction, final_dim, "YOLOLoss::loss_derivative prediction");
+    const dl::Tensor tgt = as_yolo_grid(target, final_dim, "YOLOLoss::loss_derivative target");
+    if (pred.get_shape()[0] != tgt.get_shape()[0])
+    {
+        throw std::runtime_error("YOLOLoss::loss_derivative batch sizes do not match");
+    }
+
+    const int batch_size = pred.get_shape()[0];
+    const int cell_count = batch_size * kCellsPerImage;
+    dl::Tensor grad = dl::Tensor::zeros_like(pred);
+    const float inv_batch = 1.0F / static_cast<float>(batch_size);
+
+    yolo_loss_backward_kernel<<<launch_config(cell_count), kThreads>>>(pred.data(), tgt.data(), grad.data(), batch_size,
+                                                                       final_dim, inv_batch);
+    CHECK_CUDA(cudaGetLastError());
+
+    if (flattened)
+    {
+        return grad.view({ batch_size, kCellsPerImage * final_dim });
+    }
+    return grad;
 }
