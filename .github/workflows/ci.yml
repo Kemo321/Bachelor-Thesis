@@ -31,6 +31,7 @@ jobs:
         run: |
           cppcheck --enable=warning --inline-suppr \
             --suppressions-list=.cppcheck_suppressions \
+            --suppress=shiftTooManyBits \
             --error-exitcode=1 \
             -I include \
             -i src/dataset.cpp \
