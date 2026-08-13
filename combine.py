@@ -86,7 +86,7 @@ def create_combined_cpp(src_dirs, include_dirs, config_patterns, output_filename
 
 if __name__ == "__main__":
     INCLUDE_DIRECTORIES = ["./include"]
-    SOURCE_DIRECTORIES = ["./src", "./benchmarks"]
+    SOURCE_DIRECTORIES = ["./src", "./benchmarks", "./tests"]
 
     EXCLUDE_DIRECTORIES = {
         'build', 'out', 'bin', '.git', '.cache', 'venv', '.vs', '.cursor', 

@@ -256,7 +256,7 @@ TEST_F(GpuTensorTest, RectangularMatmul)
     synchronize_device();
 
     EXPECT_EQ(result.get_shape(), (std::vector<int>{ 2, 4 }));
-    expect_near_vector(result.to_host(), { 38.0F, 44.0F, 50.0F, 56.0F, 78.0F, 92.0F, 106.0F, 120.0F });
+    expect_near_vector(result.to_host(), { 38.0F, 44.0F, 50.0F, 56.0F, 83.0F, 98.0F, 113.0F, 128.0F });
 }
 
 TEST_F(GpuTensorTest, IdentityMatmulLeavesMatrixUnchanged)

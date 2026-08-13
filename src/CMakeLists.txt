@@ -1,5 +1,10 @@
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "*.cpp" "*.cu")
 
+if(NOT OpenCV_FOUND)
+  list(FILTER SOURCES EXCLUDE REGEX ".*/dataset\\.cpp$")
+  list(FILTER SOURCES EXCLUDE REGEX ".*/utils\\.cpp$")
+endif()
+
 add_library(DeepLearnLib ${SOURCES})
 
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/Tensor.cpp PROPERTIES LANGUAGE CUDA)
@@ -26,14 +31,27 @@ target_include_directories(DeepLearnLib PUBLIC
     ${CUTLASS_DIR}/tools/util/include
 )
 
-target_compile_options(DeepLearnLib PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-mavx2 -mfma>)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(DeepLearnLib PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-mavx2 -mfma>)
+endif()
 
-target_link_libraries(DeepLearnLib PUBLIC 
+if(MSVC)
+  target_compile_options(DeepLearnLib PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:/bigobj;/Zc:preprocessor>
+    $<$<COMPILE_LANGUAGE:CUDA>:--allow-unsupported-compiler;-Xcompiler=/Zc:preprocessor,-bigobj>
+  )
+endif()
+
+set(_deeplearn_libs
     torch
-    hwy 
+    hwy
     CUDA::cudart
     CUDA::cublas
     CUDA::cudnn
     ${TORCH_LIBRARIES}
-    ${OpenCV_LIBS}
 )
+if(OpenCV_FOUND)
+  list(APPEND _deeplearn_libs ${OpenCV_LIBS})
+endif()
+
+target_link_libraries(DeepLearnLib PUBLIC ${_deeplearn_libs})
