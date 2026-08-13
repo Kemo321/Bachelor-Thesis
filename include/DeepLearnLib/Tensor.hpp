@@ -130,6 +130,10 @@ public:
 
     static auto zeros_like(const Tensor& other) -> Tensor;
 
+    auto to_host() const -> std::vector<float>;
+    static auto from_host(const std::vector<int>& shape, const std::vector<float>& host_data,
+                          Device device = Device::GPU) -> Tensor;
+
     // auto to_device(Device target_device) -> void;
 
     // auto operator/(const Tensor& other) const -> Tensor;
@@ -155,7 +159,6 @@ public:
     // static auto concat(const std::vector<Tensor>& tensors, int axis = 0) -> Tensor;
 
     // auto at(const std::vector<int>& indices) const -> float;
-    // auto to_host() const -> std::vector<float>;
 
     // static auto zeros(const std::vector<int>& shape, Device device = Device::CPU) -> Tensor;
     // static auto ones(const std::vector<int>& shape, Device device = Device::CPU) -> Tensor;

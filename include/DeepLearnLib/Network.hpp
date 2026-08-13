@@ -1,62 +1,58 @@
 #pragma once
 
 #include "DeepLearnLib/Layer.hpp"
+#include "DeepLearnLib/Tensor.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
+
 #include <memory>
 #include <string>
-#include <torch/torch.h>
 #include <vector>
 
 /**
- * @brief Represents a neural network composed of multiple layers.
- * 
- * This class provides functionality for forward propagation, training (fitting),
- * and saving/loading the model. It uses YOLOLoss as the loss criterion.
+ * @brief Neural network composed of ordered custom layers.
+ *
+ * Provides forward propagation, a training loop, and binary save/load of weights.
  */
 class Network
 {
 public:
     /**
      * @brief Constructs a Network object.
-     * 
-     * @param layersVector A vector of shared pointers to Layer objects representing the network's layers.
-     * @param learningRate The learning rate for the optimizer.
+     *
+     * @param layers_vector Ordered layers that define the forward pass.
+     * @param learning_rate Learning rate assigned to every layer.
      */
-    Network(std::vector<std::shared_ptr<Layer>> layersVector, float learningRate);
+    Network(std::vector<std::shared_ptr<Layer>> layers_vector, float learning_rate);
 
     /**
      * @brief Performs forward propagation through the network.
-     * 
-     * @param inputTensor The input tensor with shape [Batch, Channels, Height, Width].
-     * @return torch::Tensor The output tensor after forward propagation.
+     *
+     * @param input_tensor Input tensor with shape compatible with the first layer.
+     * @return Output tensor produced by the last layer.
      */
-    [[nodiscard]] auto forward(torch::Tensor inputTensor) -> torch::Tensor;
+    [[nodiscard]] auto forward(const dl::Tensor& input_tensor) -> dl::Tensor;
 
     /**
      * @brief Trains the network on the provided data.
-     * 
-     * @param xTrain The input training data tensor with shape [Batch, Channels, Height, Width].
-     * @param yTrain The ground truth tensor with shape [Batch, ...] (depends on the task).
-     * @param epochs The number of training epochs.
-     * @param verbose The verbosity level (default is 1).
+     *
+     * @param x_train Input training tensor.
+     * @param y_train Ground-truth tensor aligned with the model output.
+     * @param epochs Number of training epochs.
+     * @param verbose Non-zero value enables periodic loss logging.
      */
-    void fit(const torch::Tensor& xTrain, const torch::Tensor& yTrain, int epochs, int verbose = 1);
+    void fit(const dl::Tensor& x_train, const dl::Tensor& y_train, int epochs, int verbose = 1);
 
     /**
-     * @brief Saves the network's parameters to a file.
-     * 
-     * @param path The file path where the model will be saved.
+     * @brief Saves all layer parameters to a custom binary file.
      */
     void save(const std::string& path);
 
     /**
-     * @brief Loads the network's parameters from a file.
-     * 
-     * @param path The file path from which the model will be loaded.
+     * @brief Loads all layer parameters from a custom binary file.
      */
     void load(const std::string& path);
 
 private:
-    std::vector<std::shared_ptr<Layer>> layers_; ///< The layers of the network.
-    YOLOLoss criterion_; ///< The loss function used for training.
+    std::vector<std::shared_ptr<Layer>> layers_;
+    YOLOLoss criterion_;
 };

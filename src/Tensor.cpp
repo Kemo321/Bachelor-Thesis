@@ -534,4 +534,48 @@ auto Tensor::zeros_like(const Tensor& other) -> Tensor
     return result;
 }
 
+auto Tensor::to_host() const -> std::vector<float>
+{
+    std::vector<float> host(size_);
+    if (size_ == 0)
+    {
+        return host;
+    }
+    if (data_.get() == nullptr)
+    {
+        throw std::runtime_error("to_host requires a valid data pointer");
+    }
+#if DEEPLEARNLIB_ENABLE_CUDA
+    if (device_ == Device::GPU)
+    {
+        CHECK_CUDA(cudaMemcpy(host.data(), data_.get(), size_ * sizeof(float), cudaMemcpyDeviceToHost));
+        return host;
+    }
+#endif
+    std::copy(data_.get(), data_.get() + static_cast<std::ptrdiff_t>(size_), host.begin());
+    return host;
+}
+
+auto Tensor::from_host(const std::vector<int>& shape, const std::vector<float>& host_data, Device device) -> Tensor
+{
+    Tensor result(shape, device);
+    if (result.size_ != host_data.size())
+    {
+        throw std::runtime_error("from_host: host buffer size does not match the requested shape");
+    }
+    if (result.size_ == 0)
+    {
+        return result;
+    }
+#if DEEPLEARNLIB_ENABLE_CUDA
+    if (device == Device::GPU)
+    {
+        CHECK_CUDA(cudaMemcpy(result.data(), host_data.data(), result.size_ * sizeof(float), cudaMemcpyHostToDevice));
+        return result;
+    }
+#endif
+    std::copy(host_data.begin(), host_data.end(), result.data());
+    return result;
+}
+
 } // namespace dl

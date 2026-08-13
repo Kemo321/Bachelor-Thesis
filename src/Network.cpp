@@ -1,71 +1,151 @@
 #include "DeepLearnLib/Network.hpp"
-#include <iostream>
-#include <utility>
 
-/**
- * @brief Constructs a neural network from an ordered list of layers.
- *
- * The same learning rate is assigned to every layer to keep optimization
- * behavior consistent across the model.
- *
- * @param layers_vector Ordered layer sequence that defines the forward pass.
- * @param learning_rate_val Learning rate used by each layer during parameter updates.
- */
+#include <cstddef>
+#include <cstdint>
+#include <fstream>
+#include <iostream>
+#include <map>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include <thrust/device_ptr.h>
+#include <thrust/execution_policy.h>
+#include <thrust/transform.h>
+
+namespace
+{
+
+struct ClampValue
+{
+    float lo;
+    float hi;
+
+    __host__ __device__ auto operator()(float value) const -> float
+    {
+        if (value < lo)
+        {
+            return lo;
+        }
+        if (value > hi)
+        {
+            return hi;
+        }
+        return value;
+    }
+};
+
+auto clamp_gpu(const dl::Tensor& tensor, float lo, float hi) -> dl::Tensor
+{
+    dl::Tensor clamped(tensor.get_shape(), tensor.get_device());
+    if (tensor.get_size() == 0)
+    {
+        return clamped;
+    }
+    auto in = thrust::device_pointer_cast(tensor.data());
+    auto out = thrust::device_pointer_cast(clamped.data());
+    thrust::transform(thrust::device, in, in + static_cast<std::ptrdiff_t>(tensor.get_size()), out,
+                      ClampValue{ lo, hi });
+    CHECK_CUDA(cudaGetLastError());
+    return clamped;
+}
+
+template <typename T>
+auto write_pod(std::ostream& stream, const T& value, const std::string& path) -> void
+{
+    stream.write(reinterpret_cast<const char*>(&value), static_cast<std::streamsize>(sizeof(T)));
+    if (!stream)
+    {
+        throw std::runtime_error("Failed to write model data to '" + path + "'");
+    }
+}
+
+template <typename T>
+auto read_pod(std::istream& stream, T& value, const std::string& path) -> void
+{
+    stream.read(reinterpret_cast<char*>(&value), static_cast<std::streamsize>(sizeof(T)));
+    if (!stream)
+    {
+        throw std::runtime_error("Failed to read model data from '" + path + "' (unexpected EOF or I/O error)");
+    }
+}
+
+auto write_bytes(std::ostream& stream, const void* data, std::size_t bytes, const std::string& path) -> void
+{
+    if (bytes == 0)
+    {
+        return;
+    }
+    stream.write(static_cast<const char*>(data), static_cast<std::streamsize>(bytes));
+    if (!stream)
+    {
+        throw std::runtime_error("Failed to write model payload to '" + path + "'");
+    }
+}
+
+auto read_bytes(std::istream& stream, void* data, std::size_t bytes, const std::string& path) -> void
+{
+    if (bytes == 0)
+    {
+        return;
+    }
+    stream.read(static_cast<char*>(data), static_cast<std::streamsize>(bytes));
+    if (!stream)
+    {
+        throw std::runtime_error("Failed to read model payload from '" + path + "' (unexpected EOF or I/O error)");
+    }
+}
+
+} // namespace
+
 Network::Network(std::vector<std::shared_ptr<Layer>> layers_vector, float learning_rate_val)
     : layers_(std::move(layers_vector))
 {
     for (const auto& layer_pointer : layers_)
     {
+        if (layer_pointer == nullptr)
+        {
+            throw std::runtime_error("Network cannot contain a null layer");
+        }
         layer_pointer->learning_rate = learning_rate_val;
     }
 }
 
-/**
- * @brief Executes the forward pass through all layers.
- *
- * @param input_tensor Input tensor with shape compatible with the first layer,
- *        for example [Batch, Features] or [Batch, Channels, H, W].
- * @return torch::Tensor Output prediction tensor produced by the last layer.
- */
-auto Network::forward(torch::Tensor input_tensor) -> torch::Tensor
+auto Network::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 {
-    torch::Tensor current_output = std::move(input_tensor);
+    dl::Tensor current = input_tensor.view(input_tensor.get_shape());
     for (const auto& layer_pointer : layers_)
     {
-        current_output = layer_pointer->forward(current_output);
+        current = layer_pointer->forward(current);
+        current = current.view(current.get_shape());
     }
-    return current_output;
+    return current;
 }
 
-/**
- * @brief Trains the network for a fixed number of epochs.
- *
- * The method preserves the original learning flow: prediction, loss evaluation,
- * gradient computation, gradient clamping for stability, reverse-order backward
- * propagation using the chain rule, and parameter updates.
- *
- * @param x_train Training input tensor with shape [Batch, ...].
- * @param y_train Target tensor aligned with the model output shape, for example [Batch, ...].
- * @param epochs Number of optimization steps to run.
- * @param verbose Non-zero value enables periodic training loss logging.
- */
-auto Network::fit(const torch::Tensor& x_train, const torch::Tensor& y_train, int epochs, int verbose) -> void
+auto Network::fit(const dl::Tensor& x_train, const dl::Tensor& y_train, int epochs, int verbose) -> void
 {
-    torch::NoGradGuard no_grad;
+    if (epochs < 0)
+    {
+        throw std::runtime_error("Network::fit requires a non-negative epoch count");
+    }
 
     for (int epoch_idx = 0; epoch_idx < epochs; ++epoch_idx)
     {
-        torch::Tensor prediction = forward(x_train);
+        dl::Tensor prediction = forward(x_train);
 
-        const float loss_value = YOLOLoss::loss(y_train, prediction).item<float>();
+        const std::vector<float> loss_host = YOLOLoss::loss(y_train, prediction).to_host();
+        if (loss_host.empty())
+        {
+            throw std::runtime_error("YOLOLoss::loss returned an empty tensor");
+        }
+        const float loss_value = loss_host.front();
 
-        torch::Tensor gradient_error = YOLOLoss::loss_derivative(y_train, prediction);
-
-        gradient_error = gradient_error.clamp(-5.0F, 5.0F);
+        dl::Tensor gradient_error = YOLOLoss::loss_derivative(y_train, prediction);
+        gradient_error = clamp_gpu(gradient_error, -5.0F, 5.0F);
 
         for (auto iterator = layers_.rbegin(); iterator != layers_.rend(); ++iterator)
         {
-            // Backpropagate gradients through each layer in reverse order.
             gradient_error = (*iterator)->backward(gradient_error);
         }
 
@@ -77,60 +157,116 @@ auto Network::fit(const torch::Tensor& x_train, const torch::Tensor& y_train, in
         constexpr int log_interval = 10;
         if (verbose != 0 && (epoch_idx % log_interval == 0 || epoch_idx == epochs - 1))
         {
-            std::cout << "[INFO] Epoka " << epoch_idx << "/" << epochs
-                      << " | Blad (Loss): " << loss_value << "\n";
+            std::cout << "[INFO] Epoka " << epoch_idx << "/" << epochs << " | Blad (Loss): " << loss_value << "\n";
         }
     }
 }
 
-/**
- * @brief Saves all layer parameters to disk.
- *
- * Each tensor is stored under a deterministic key so the exact model state can
- * be reconstructed during loading.
- *
- * @param path Destination file path for the serialized model.
- */
 auto Network::save(const std::string& path) -> void
 {
-    torch::serialize::OutputArchive archive;
-    for (size_t index = 0; index < layers_.size(); ++index)
+    std::ofstream stream(path, std::ios::binary);
+    if (!stream)
     {
-        auto parameters = layers_[index]->get_parameters();
-        for (const auto& pair : parameters)
+        throw std::runtime_error("Failed to open '" + path + "' for writing");
+    }
+
+    const auto layer_count = static_cast<std::int32_t>(layers_.size());
+    write_pod(stream, layer_count, path);
+
+    for (const auto& layer : layers_)
+    {
+        auto parameters = layer->get_parameters();
+        const auto param_count = static_cast<std::int32_t>(parameters.size());
+        write_pod(stream, param_count, path);
+
+        for (auto& parameter : parameters)
         {
-            archive.write("layer_" + std::to_string(index) + "_" + pair.first, pair.second);
+            const auto name_length = static_cast<std::int32_t>(parameter.first.size());
+            write_pod(stream, name_length, path);
+            write_bytes(stream, parameter.first.data(), static_cast<std::size_t>(name_length), path);
+
+            const std::vector<int>& shape = parameter.second.get_shape();
+            const auto rank = static_cast<std::int32_t>(shape.size());
+            write_pod(stream, rank, path);
+            for (int dimension : shape)
+            {
+                write_pod(stream, static_cast<std::int32_t>(dimension), path);
+            }
+
+            const std::vector<float> host = parameter.second.to_host();
+            write_bytes(stream, host.data(), host.size() * sizeof(float), path);
         }
     }
-    archive.save_to(path);
+
+    stream.flush();
+    if (!stream)
+    {
+        throw std::runtime_error("Failed to flush model file '" + path + "'");
+    }
     std::cout << "[INFO] Model saved to: " << path << "\n";
 }
 
-/**
- * @brief Loads all layer parameters from disk.
- *
- * The serialized keys must match the architecture used during saving. Each
- * tensor is read back and assigned to the corresponding layer to preserve the
- * trained state exactly.
- *
- * @param path Source file path for the serialized model.
- */
 auto Network::load(const std::string& path) -> void
 {
-    torch::serialize::InputArchive archive;
-    archive.load_from(path);
-    for (size_t index = 0; index < layers_.size(); ++index)
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream)
     {
-        std::map<std::string, torch::Tensor> parameters_to_load;
-        auto current_parameters = layers_[index]->get_parameters();
-
-        for (const auto& pair : current_parameters)
-        {
-            torch::Tensor tensor_to_load;
-            archive.read("layer_" + std::to_string(index) + "_" + pair.first, tensor_to_load);
-            parameters_to_load[pair.first] = tensor_to_load;
-        }
-        layers_[index]->set_parameters(parameters_to_load);
+        throw std::runtime_error("Failed to open '" + path + "' for reading");
     }
+
+    std::int32_t layer_count{ 0 };
+    read_pod(stream, layer_count, path);
+    if (layer_count != static_cast<std::int32_t>(layers_.size()))
+    {
+        throw std::runtime_error("Model file '" + path + "' layer count does not match the current network");
+    }
+
+    for (auto& layer : layers_)
+    {
+        std::int32_t param_count{ 0 };
+        read_pod(stream, param_count, path);
+
+        std::map<std::string, dl::Tensor> loaded;
+        for (std::int32_t param_idx = 0; param_idx < param_count; ++param_idx)
+        {
+            std::int32_t name_length{ 0 };
+            read_pod(stream, name_length, path);
+            if (name_length < 0)
+            {
+                throw std::runtime_error("Invalid parameter name length in '" + path + "'");
+            }
+
+            std::string name(static_cast<std::size_t>(name_length), '\0');
+            read_bytes(stream, name.data(), static_cast<std::size_t>(name_length), path);
+
+            std::int32_t rank{ 0 };
+            read_pod(stream, rank, path);
+            if (rank < 0)
+            {
+                throw std::runtime_error("Invalid tensor rank in '" + path + "'");
+            }
+
+            std::vector<int> shape(static_cast<std::size_t>(rank));
+            std::size_t numel = 1;
+            for (std::int32_t dim_idx = 0; dim_idx < rank; ++dim_idx)
+            {
+                std::int32_t dimension{ 0 };
+                read_pod(stream, dimension, path);
+                shape[static_cast<std::size_t>(dim_idx)] = dimension;
+                numel *= static_cast<std::size_t>(dimension);
+            }
+            if (rank == 0)
+            {
+                numel = 1;
+            }
+
+            std::vector<float> host(numel);
+            read_bytes(stream, host.data(), host.size() * sizeof(float), path);
+            loaded.emplace(std::move(name), dl::Tensor::from_host(shape, host, dl::Device::GPU));
+        }
+
+        layer->set_parameters(loaded);
+    }
+
     std::cout << "[INFO] Model loaded from: " << path << "\n";
 }
