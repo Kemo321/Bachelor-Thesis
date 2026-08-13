@@ -2,6 +2,8 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "*.cpp" "*.cu")
 
 add_library(DeepLearnLib ${SOURCES})
 
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/Tensor.cpp PROPERTIES LANGUAGE CUDA)
+
 set_target_properties(
   DeepLearnLib
   PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS ON
@@ -17,7 +19,7 @@ target_include_directories(DeepLearnLib PUBLIC
     ${CUTLASS_DIR}/tools/util/include
 )
 
-target_compile_options(DeepLearnLib PRIVATE -mavx2 -mfma)
+target_compile_options(DeepLearnLib PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-mavx2 -mfma>)
 
 target_link_libraries(DeepLearnLib PUBLIC 
     torch

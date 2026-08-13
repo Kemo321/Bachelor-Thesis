@@ -116,26 +116,33 @@ public:
 
     auto matmul(const Tensor& other) const -> Tensor;
 
+    auto operator+(const Tensor& other) const -> Tensor;
+    auto operator-(const Tensor& other) const -> Tensor;
+    auto operator*(const Tensor& other) const -> Tensor;
+
+    auto operator*(float scalar) const -> Tensor;
+    auto operator+(float scalar) const -> Tensor;
+
+    auto sum(int dim = -1) const -> Tensor;
+
+    auto view(const std::vector<int>& new_shape) const -> Tensor;
+    auto transpose() const -> Tensor;
+
+    static auto zeros_like(const Tensor& other) -> Tensor;
+
     // auto to_device(Device target_device) -> void;
 
-    // auto operator+(const Tensor& other) const -> Tensor;
-    // auto operator-(const Tensor& other) const -> Tensor;
-    // auto operator*(const Tensor& other) const -> Tensor;
     // auto operator/(const Tensor& other) const -> Tensor;
     // auto dot(const Tensor& other) const -> Tensor;
 
-    // auto operator*(float scalar) const -> Tensor;
     // auto operator/(float scalar) const -> Tensor;
-    // auto operator+(float scalar) const -> Tensor;
     // auto operator-(float scalar) const -> Tensor;
 
-    // auto sum() const -> float;
     // auto mean() const -> float;
     // auto max() const -> float;
     // auto min() const -> float;
 
     // auto reshape(const std::vector<int>& new_shape) -> void;
-    // auto transpose() const -> Tensor;
     // auto flatten() const -> Tensor;
 
     // auto relu() const -> Tensor;
@@ -164,6 +171,8 @@ private:
 
     auto compute_strides() -> void;
     auto is_contiguous() const -> bool;
+    auto ensure_gpu(const char* op_name) const -> void;
+    auto ensure_binary_op(const Tensor& other, const char* op_name) const -> void;
 };
 
 } // namespace dl
