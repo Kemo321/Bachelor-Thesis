@@ -1,13 +1,13 @@
 #include <benchmark/benchmark.h>
+#include <filesystem>
 #include <iostream>
 #include <limits>
-#include <filesystem>
 #include <torch/torch.h>
 
-#include "DeepLearnLib/TorchYOLO.hpp"
-#include "DeepLearnLib/dataset.hpp"
-#include "DeepLearnLib/TorchDataset.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
+#include "DeepLearnLib/dataset.hpp"
+#include "TorchDataset.hpp"
+#include "TorchYOLO.hpp"
 
 namespace fs = std::filesystem;
 

@@ -47,7 +47,7 @@ auto CudnnPoolingDescriptor::get() const -> cudnnPoolingDescriptor_t
 auto CudnnPoolingDescriptor::set_max_2d(int window, int stride, int padding) -> void
 {
     CHECK_CUDNN(cudnnSetPooling2dDescriptor(desc_, CUDNN_POOLING_MAX, CUDNN_NOT_PROPAGATE_NAN, window, window, padding,
-                                            padding, stride, stride));
+        padding, stride, stride));
 }
 
 } // namespace dl
@@ -105,7 +105,7 @@ MaxPool2d::MaxPool2d(int kernel_size_val, int stride_val)
 
 auto MaxPool2d::configure_descriptors(int batch, int channels, int height, int width) -> void
 {
-    const std::vector<int> input_shape{ batch, channels, height, width };
+    const std::vector<int> input_shape { batch, channels, height, width };
     if (descriptors_configured_ && input_shape == input_shape_cache_)
     {
         return;
@@ -113,12 +113,12 @@ auto MaxPool2d::configure_descriptors(int batch, int channels, int height, int w
 
     input_desc_.set_nchw(batch, channels, height, width);
 
-    int n_out{ 0 };
-    int c_out{ 0 };
-    int h_out{ 0 };
-    int w_out{ 0 };
+    int n_out { 0 };
+    int c_out { 0 };
+    int h_out { 0 };
+    int w_out { 0 };
     CHECK_CUDNN(cudnnGetPooling2dForwardOutputDim(pooling_desc_.get(), input_desc_.get(), &n_out, &c_out, &h_out,
-                                                  &w_out));
+        &w_out));
     output_desc_.set_nchw(n_out, c_out, h_out, w_out);
 
     input_shape_cache_ = input_shape;
@@ -140,10 +140,10 @@ auto MaxPool2d::forward(const dl::Tensor& input_tensor) -> dl::Tensor
     copy_same_size(*input_cache_, input_tensor, "MaxPool2d::forward input cache");
 
     output_cache_ = dl::Tensor(output_shape_cache_, dl::Device::GPU);
-    const float alpha{ 1.0F };
-    const float beta_zero{ 0.0F };
+    const float alpha { 1.0F };
+    const float beta_zero { 0.0F };
     CHECK_CUDNN(cudnnPoolingForward(dl::get_cudnn_handle(), pooling_desc_.get(), &alpha, input_desc_.get(),
-                                    input_tensor.data(), &beta_zero, output_desc_.get(), output_cache_->data()));
+        input_tensor.data(), &beta_zero, output_desc_.get(), output_cache_->data()));
 
     return output_cache_->view(output_cache_->get_shape());
 }
@@ -161,12 +161,12 @@ auto MaxPool2d::backward(const dl::Tensor& output_error_derivative) -> dl::Tenso
     }
 
     dl::Tensor grad_input(input_cache_->get_shape(), dl::Device::GPU);
-    const float alpha{ 1.0F };
-    const float beta_zero{ 0.0F };
+    const float alpha { 1.0F };
+    const float beta_zero { 0.0F };
     CHECK_CUDNN(cudnnPoolingBackward(dl::get_cudnn_handle(), pooling_desc_.get(), &alpha, output_desc_.get(),
-                                     output_cache_->data(), output_desc_.get(), output_error_derivative.data(),
-                                     input_desc_.get(), input_cache_->data(), &beta_zero, input_desc_.get(),
-                                     grad_input.data()));
+        output_cache_->data(), output_desc_.get(), output_error_derivative.data(),
+        input_desc_.get(), input_cache_->data(), &beta_zero, input_desc_.get(),
+        grad_input.data()));
 
     input_cache_.reset();
     output_cache_.reset();

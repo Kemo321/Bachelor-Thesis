@@ -40,25 +40,35 @@ if(NOT TARGET CUDA::cudnn)
   find_path(CUDNN_INCLUDE_DIR cudnn.h
             HINTS ${CUDNN_ROOT} ${CUDNN_ROOT}/include
                   "$ENV{CUDA_PATH}/include"
+                  /usr/include
+                  /usr/local/cuda/include
             PATH_SUFFIXES include)
   find_library(CUDNN_LIBRARY NAMES cudnn cudnn64_9 cudnn64_8
                HINTS ${CUDNN_LIBRARY_DIR} ${CUDNN_ROOT} ${CUDNN_ROOT}/lib ${CUDNN_ROOT}/lib/x64
                      "$ENV{CUDA_PATH}/lib/x64"
-               PATH_SUFFIXES lib lib/x64)
+                     /usr/lib/x86_64-linux-gnu
+                     /usr/local/cuda/lib64
+               PATH_SUFFIXES lib lib/x64 lib64)
   if(CUDNN_INCLUDE_DIR AND CUDNN_LIBRARY)
     add_library(CUDA::cudnn SHARED IMPORTED)
-    set_target_properties(CUDA::cudnn PROPERTIES
-      IMPORTED_IMPLIB "${CUDNN_LIBRARY}"
-      INTERFACE_INCLUDE_DIRECTORIES "${CUDNN_INCLUDE_DIR}")
-    file(GLOB _cudnn_extra_libs "${CUDNN_LIBRARY_DIR}/cudnn_*.lib")
-    foreach(_extra_lib IN LISTS _cudnn_extra_libs)
-      get_filename_component(_extra_name "${_extra_lib}" NAME_WE)
-      if(NOT TARGET CUDA::${_extra_name})
-        add_library(CUDA::${_extra_name} SHARED IMPORTED)
-        set_target_properties(CUDA::${_extra_name} PROPERTIES IMPORTED_IMPLIB "${_extra_lib}")
-        target_link_libraries(CUDA::cudnn INTERFACE CUDA::${_extra_name})
-      endif()
-    endforeach()
+    if(WIN32)
+      set_target_properties(CUDA::cudnn PROPERTIES
+        IMPORTED_IMPLIB "${CUDNN_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${CUDNN_INCLUDE_DIR}")
+      file(GLOB _cudnn_extra_libs "${CUDNN_LIBRARY_DIR}/cudnn_*.lib")
+      foreach(_extra_lib IN LISTS _cudnn_extra_libs)
+        get_filename_component(_extra_name "${_extra_lib}" NAME_WE)
+        if(NOT TARGET CUDA::${_extra_name})
+          add_library(CUDA::${_extra_name} SHARED IMPORTED)
+          set_target_properties(CUDA::${_extra_name} PROPERTIES IMPORTED_IMPLIB "${_extra_lib}")
+          target_link_libraries(CUDA::cudnn INTERFACE CUDA::${_extra_name})
+        endif()
+      endforeach()
+    else()
+      set_target_properties(CUDA::cudnn PROPERTIES
+        IMPORTED_LOCATION "${CUDNN_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${CUDNN_INCLUDE_DIR}")
+    endif()
     message(STATUS "Using cuDNN: ${CUDNN_LIBRARY}")
   else()
     message(FATAL_ERROR "cuDNN was not found. Set CUDNN_ROOT / CUDNN_LIBRARY_DIR.")
@@ -66,15 +76,22 @@ if(NOT TARGET CUDA::cudnn)
 endif()
 
 if(NOT CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES 120 CACHE STRING "CMake CUDA archs")
+  set(CMAKE_CUDA_ARCHITECTURES 75 CACHE STRING "CMake CUDA archs")
 endif()
 if(NOT DEFINED TORCH_CUDA_ARCH_LIST OR TORCH_CUDA_ARCH_LIST STREQUAL "" OR TORCH_CUDA_ARCH_LIST STREQUAL "native")
-  set(TORCH_CUDA_ARCH_LIST "12.0" CACHE STRING "CUDA archs" FORCE)
+  set(TORCH_CUDA_ARCH_LIST "7.5" CACHE STRING "CUDA archs" FORCE)
 endif()
 
 if(NOT MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=1")
   add_definitions(-D_GLIBCXX_USE_CXX11_ABI=1)
+endif()
+
+# OpenCV 4.10 Windows packs ship vc16/vc17 only. VS 2026 is MSVC 19.50+ and
+# is otherwise skipped by OpenCVConfig.cmake's runtime mapping.
+if(MSVC AND MSVC_VERSION GREATER_EQUAL 1950 AND NOT DEFINED OpenCV_RUNTIME)
+  set(OpenCV_ARCH x64)
+  set(OpenCV_RUNTIME vc16)
 endif()
 
 find_package(OpenCV QUIET)
@@ -111,12 +128,11 @@ endif()
 set(CAFFE2_USE_KINETO OFF CACHE BOOL "" FORCE)
 set(kineto_LIBRARIES "")
 
-find_package(Torch REQUIRED)
+find_package(Torch QUIET)
 if(Torch_FOUND)
-    message(STATUS "Sukces! LibTorch znaleziony.")
-    include_directories(${TORCH_INCLUDE_DIRS})
+    message(STATUS "LibTorch found for baseline targets.")
 else()
-    message(FATAL_ERROR "Nie znaleziono LibTorch!")
+    message(STATUS "LibTorch not found; torch baseline targets will be skipped.")
 endif()
 
 add_subdirectory(extern/googletest EXCLUDE_FROM_ALL)
@@ -137,6 +153,9 @@ if(NOT pugixml_FOUND)
 endif()
 
 add_subdirectory(src)
+if(Torch_FOUND)
+  add_subdirectory(torch_baseline)
+endif()
 add_subdirectory(tests)
 if(OpenCV_FOUND)
   add_subdirectory(benchmarks)

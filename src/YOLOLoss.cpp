@@ -75,11 +75,11 @@ __global__ void yolo_iou_kernel(const float* box1, const float* box2, float* iou
 
     const int offset = idx * kBoxAttrs;
     iou[idx] = box_iou(box1[offset + 0], box1[offset + 1], box1[offset + 2], box1[offset + 3], box2[offset + 0],
-                       box2[offset + 1], box2[offset + 2], box2[offset + 3]);
+        box2[offset + 1], box2[offset + 2], box2[offset + 3]);
 }
 
 __global__ void yolo_loss_forward_kernel(const float* pred, const float* tgt, float* cell_loss, int batch_size,
-                                         int final_dim)
+    int final_dim)
 {
     const int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
     const int cell_count = batch_size * kCellsPerImage;
@@ -112,9 +112,9 @@ __global__ void yolo_loss_forward_kernel(const float* pred, const float* tgt, fl
     const float obj_mask = tgt[base + 4];
 
     const float iou1 = box_iou(decode_center(p1_x, col), decode_center(p1_y, row), p1_w, p1_h,
-                               decode_center(t_x, col), decode_center(t_y, row), t_w, t_h);
+        decode_center(t_x, col), decode_center(t_y, row), t_w, t_h);
     const float iou2 = box_iou(decode_center(p2_x, col), decode_center(p2_y, row), p2_w, p2_h,
-                               decode_center(t_x, col), decode_center(t_y, row), t_w, t_h);
+        decode_center(t_x, col), decode_center(t_y, row), t_w, t_h);
 
     const float box2_better = iou2 > iou1 ? 1.0F : 0.0F;
     const float resp_b1 = (1.0F - box2_better) * obj_mask;
@@ -152,7 +152,7 @@ __global__ void yolo_loss_forward_kernel(const float* pred, const float* tgt, fl
 }
 
 __global__ void yolo_loss_backward_kernel(const float* pred, const float* tgt, float* grad, int batch_size,
-                                          int final_dim, float inv_batch)
+    int final_dim, float inv_batch)
 {
     const int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
     const int cell_count = batch_size * kCellsPerImage;
@@ -185,9 +185,9 @@ __global__ void yolo_loss_backward_kernel(const float* pred, const float* tgt, f
     const float obj_mask = tgt[base + 4];
 
     const float iou1 = box_iou(decode_center(p1_x, col), decode_center(p1_y, row), p1_w, p1_h,
-                               decode_center(t_x, col), decode_center(t_y, row), t_w, t_h);
+        decode_center(t_x, col), decode_center(t_y, row), t_w, t_h);
     const float iou2 = box_iou(decode_center(p2_x, col), decode_center(p2_y, row), p2_w, p2_h,
-                               decode_center(t_x, col), decode_center(t_y, row), t_w, t_h);
+        decode_center(t_x, col), decode_center(t_y, row), t_w, t_h);
 
     const float box2_better = iou2 > iou1 ? 1.0F : 0.0F;
     const float resp_b1 = (1.0F - box2_better) * obj_mask;
@@ -216,10 +216,8 @@ __global__ void yolo_loss_backward_kernel(const float* pred, const float* tgt, f
     grad[base + 7] = kLambdaCoord * (sqrt_p2_w - sqrt_t_w) / (sqrt_p2_w + kSafeEps) * mask_p2_w * resp_b2 * inv_batch;
     grad[base + 8] = kLambdaCoord * (sqrt_p2_h - sqrt_t_h) / (sqrt_p2_h + kSafeEps) * mask_p2_h * resp_b2 * inv_batch;
 
-    grad[base + 4] =
-        ((2.0F * (p1_c - iou1) * resp_b1) + (2.0F * kLambdaNoobj * p1_c * noobj_b1)) * inv_batch;
-    grad[base + 9] =
-        ((2.0F * (p2_c - iou2) * resp_b2) + (2.0F * kLambdaNoobj * p2_c * noobj_b2)) * inv_batch;
+    grad[base + 4] = ((2.0F * (p1_c - iou1) * resp_b1) + (2.0F * kLambdaNoobj * p1_c * noobj_b1)) * inv_batch;
+    grad[base + 9] = ((2.0F * (p2_c - iou2) * resp_b2) + (2.0F * kLambdaNoobj * p2_c * noobj_b2)) * inv_batch;
 
     const int num_classes = final_dim - 10;
     for (int class_idx = 0; class_idx < num_classes; ++class_idx)
@@ -311,12 +309,12 @@ auto YOLOLoss::loss(const dl::Tensor& target, const dl::Tensor& prediction, int 
     dl::Tensor cell_loss({ cell_count }, dl::Device::GPU);
 
     yolo_loss_forward_kernel<<<launch_config(cell_count), kThreads>>>(pred.data(), tgt.data(), cell_loss.data(),
-                                                                      batch_size, final_dim);
+        batch_size, final_dim);
     CHECK_CUDA(cudaGetLastError());
 
     auto begin = thrust::device_pointer_cast(cell_loss.data());
     const float total = thrust::reduce(thrust::device, begin, begin + static_cast<std::ptrdiff_t>(cell_count), 0.0F,
-                                       thrust::plus<float>());
+        thrust::plus<float>());
     CHECK_CUDA(cudaGetLastError());
 
     const float mean_loss = total / static_cast<float>(batch_size);
@@ -346,7 +344,7 @@ auto YOLOLoss::loss_derivative(const dl::Tensor& target, const dl::Tensor& predi
     const float inv_batch = 1.0F / static_cast<float>(batch_size);
 
     yolo_loss_backward_kernel<<<launch_config(cell_count), kThreads>>>(pred.data(), tgt.data(), grad.data(), batch_size,
-                                                                       final_dim, inv_batch);
+        final_dim, inv_batch);
     CHECK_CUDA(cudaGetLastError());
 
     if (flattened)

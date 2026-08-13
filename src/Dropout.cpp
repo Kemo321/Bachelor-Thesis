@@ -78,8 +78,8 @@ auto Dropout::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 
     auto mask_ptr = thrust::device_pointer_cast(mask_->data());
     thrust::transform(thrust::device, thrust::make_counting_iterator(0),
-                      thrust::make_counting_iterator(static_cast<int>(input_tensor.get_size())), mask_ptr,
-                      BernoulliMask{ keep_probability, scale, seed_ });
+        thrust::make_counting_iterator(static_cast<int>(input_tensor.get_size())), mask_ptr,
+        BernoulliMask { keep_probability, scale, seed_ });
     CHECK_CUDA(cudaGetLastError());
     return input_tensor * (*mask_);
 }

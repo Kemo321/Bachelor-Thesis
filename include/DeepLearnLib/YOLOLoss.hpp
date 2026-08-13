@@ -31,7 +31,7 @@ public:
      * @return Gradient with the same layout as prediction.
      */
     [[nodiscard]] static auto loss_derivative(const dl::Tensor& target, const dl::Tensor& prediction,
-                                              int num_classes = 20) -> dl::Tensor;
+        int num_classes = 20) -> dl::Tensor;
 
 private:
     /**

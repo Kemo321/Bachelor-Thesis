@@ -1,18 +1,18 @@
-#include "DeepLearnLib/TorchYOLO.hpp"
+#include "TorchYOLO.hpp"
 
 /**
  * @brief Constructor for YOLOv1 neural network implementation.
- * 
+ *
  * Initializes the YOLOv1 backbone (feature extraction) and head (detection output) modules.
  * The backbone implements a modified AlexNet architecture with depthwise feature extraction,
  * while the head performs spatial regression of bounding boxes and class predictions.
- * 
+ *
  * @param num_classes Number of object classes for detection (e.g., 20 for PASCAL VOC).
- * 
+ *
  * Architecture overview:
  * - Backbone: 24 convolutional layers + batch normalization + LeakyReLU activation
  * - Head: 2 fully connected layers for flattened spatial features to detection grid
- * - Final output shape: [Batch, 7, 7, (10 + num_classes)] 
+ * - Final output shape: [Batch, 7, 7, (10 + num_classes)]
  *   where 10 = 2 bounding boxes × (4 coords + 1 confidence)
  */
 YOLOv1Impl::YOLOv1Impl(int num_classes) : num_classes_(num_classes)
@@ -80,12 +80,12 @@ YOLOv1Impl::YOLOv1Impl(int num_classes) : num_classes_(num_classes)
 
 /**
  * @brief Forward pass through YOLOv1 network.
- * 
+ *
  * Processes input images through backbone feature extraction and detection head,
  * producing spatial predictions for bounding boxes and class probabilities.
- * 
+ *
  * @param input_tensor Input tensor of shape [Batch, 3, 448, 448] (RGB images normalized to [-1, 1]).
- * 
+ *
  * @return Output tensor of shape [Batch, 7, 7, (10 + num_classes)] containing:
  *         - (x, y, w, h, confidence) × 2 bounding boxes per grid cell (5*2=10 values)
  *         - Class probability distribution (num_classes values)
@@ -95,16 +95,16 @@ auto YOLOv1Impl::forward(torch::Tensor input_tensor) -> torch::Tensor
 {
     // Extract spatial features via backbone: [Batch, 3, 448, 448] → [Batch, 1024, 7, 7]
     auto features = backbone->forward(input_tensor);
-    
+
     // Flatten spatial dimensions for fully connected layers
     // [Batch, 1024, 7, 7] → [Batch, 1024*7*7]
     // Contiguous ensures memory layout is compatible with linear layer operations
     auto flattened = features.view({ features.size(0), -1 }).contiguous();
-    
+
     // Apply fully connected detection head
     // [Batch, 1024*7*7] → [Batch, 7*7*(10 + num_classes)]
     auto predictions = head->forward(flattened);
-    
+
     // Reshape to grid format for spatial localization
     // [Batch, 7*7*(10 + num_classes)] → [Batch, 7, 7, (10 + num_classes)]
     // Contiguous ensures proper memory layout for downstream processing and loss computation

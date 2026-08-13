@@ -80,7 +80,7 @@ auto LeakyReLU::forward(const dl::Tensor& input_tensor) -> dl::Tensor
     auto in = thrust::device_pointer_cast(input_tensor.data());
     auto out = thrust::device_pointer_cast(output.data());
     thrust::transform(thrust::device, in, in + static_cast<std::ptrdiff_t>(input_tensor.get_size()), out,
-                      LeakyReluForward{ slope_ });
+        LeakyReluForward { slope_ });
     CHECK_CUDA(cudaGetLastError());
     return output;
 }
@@ -108,7 +108,7 @@ auto LeakyReLU::backward(const dl::Tensor& output_error_derivative) -> dl::Tenso
     auto x = thrust::device_pointer_cast(input_cache_->data());
     auto dx = thrust::device_pointer_cast(grad_input.data());
     thrust::transform(thrust::device, dy, dy + static_cast<std::ptrdiff_t>(output_error_derivative.get_size()), x, dx,
-                      LeakyReluBackward{ slope_ });
+        LeakyReluBackward { slope_ });
     CHECK_CUDA(cudaGetLastError());
     input_cache_.reset();
     return grad_input;

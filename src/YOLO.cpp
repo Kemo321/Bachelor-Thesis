@@ -10,7 +10,8 @@
 
 YOLO::YOLO(int num_classes)
 {
-    auto add_block = [&](int in_channels, int out_channels, int kernel, int stride, int padding) {
+    auto add_block = [&](int in_channels, int out_channels, int kernel, int stride, int padding)
+    {
         backbone_layers.push_back(std::make_shared<Conv2d>(in_channels, out_channels, kernel, stride, padding));
         backbone_layers.push_back(std::make_shared<BatchNorm2d>(out_channels));
         backbone_layers.push_back(std::make_shared<LeakyReLU>(0.1F));

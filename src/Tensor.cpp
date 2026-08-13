@@ -20,114 +20,114 @@ namespace
 {
 
 #if DEEPLEARNLIB_ENABLE_CUDA
-struct ClampValue
-{
-    float lo;
-    float hi;
-
-    __host__ __device__ auto operator()(float value) const -> float
+    struct ClampValue
     {
-        if (value < lo)
+        float lo;
+        float hi;
+
+        __host__ __device__ auto operator()(float value) const -> float
         {
-            return lo;
+            if (value < lo)
+            {
+                return lo;
+            }
+            if (value > hi)
+            {
+                return hi;
+            }
+            return value;
         }
-        if (value > hi)
-        {
-            return hi;
-        }
-        return value;
-    }
-};
+    };
 #endif
 
-static auto calculate_size(const std::vector<int>& shape) -> int
-{
-    return std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<>());
-}
-
-static auto make_contiguous_strides(const std::vector<int>& shape) -> std::vector<int>
-{
-    std::vector<int> strides(shape.size());
-    if (shape.empty())
+    static auto calculate_size(const std::vector<int>& shape) -> int
     {
+        return std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<>());
+    }
+
+    static auto make_contiguous_strides(const std::vector<int>& shape) -> std::vector<int>
+    {
+        std::vector<int> strides(shape.size());
+        if (shape.empty())
+        {
+            return strides;
+        }
+        strides.back() = 1;
+        for (int dim_idx = static_cast<int>(shape.size()) - 2; dim_idx >= 0; --dim_idx)
+        {
+            strides[dim_idx] = strides[dim_idx + 1] * shape[dim_idx + 1];
+        }
         return strides;
     }
-    strides.back() = 1;
-    for (int dim_idx = static_cast<int>(shape.size()) - 2; dim_idx >= 0; --dim_idx)
-    {
-        strides[dim_idx] = strides[dim_idx + 1] * shape[dim_idx + 1];
-    }
-    return strides;
-}
 
-static auto infer_view_shape(const std::vector<int>& new_shape, size_t numel) -> std::vector<int>
-{
-    std::vector<int> shape = new_shape;
-    int infer_index{ -1 };
-    size_t known_product{ 1 };
-
-    for (size_t dim_idx = 0; dim_idx < shape.size(); ++dim_idx)
+    static auto infer_view_shape(const std::vector<int>& new_shape, size_t numel) -> std::vector<int>
     {
-        if (shape[dim_idx] == -1)
+        std::vector<int> shape = new_shape;
+        int infer_index { -1 };
+        size_t known_product { 1 };
+
+        for (size_t dim_idx = 0; dim_idx < shape.size(); ++dim_idx)
         {
-            if (infer_index != -1)
+            if (shape[dim_idx] == -1)
             {
-                throw std::runtime_error("view can infer at most one dimension");
+                if (infer_index != -1)
+                {
+                    throw std::runtime_error("view can infer at most one dimension");
+                }
+                infer_index = static_cast<int>(dim_idx);
             }
-            infer_index = static_cast<int>(dim_idx);
-        }
-        else if (shape[dim_idx] < 0)
-        {
-            throw std::runtime_error("view shape dimensions must be positive or -1");
-        }
-        else
-        {
-            known_product *= static_cast<size_t>(shape[dim_idx]);
-        }
-    }
-
-    if (infer_index >= 0)
-    {
-        if (known_product == 0)
-        {
-            if (numel != 0)
+            else if (shape[dim_idx] < 0)
             {
-                throw std::runtime_error("view cannot infer a dimension when another axis is zero");
+                throw std::runtime_error("view shape dimensions must be positive or -1");
             }
-            shape[static_cast<size_t>(infer_index)] = 0;
+            else
+            {
+                known_product *= static_cast<size_t>(shape[dim_idx]);
+            }
         }
-        else if (numel % known_product != 0)
-        {
-            throw std::runtime_error("view cannot infer dimension: tensor size is not divisible");
-        }
-        else
-        {
-            shape[static_cast<size_t>(infer_index)] = static_cast<int>(numel / known_product);
-        }
-    }
-    else if (known_product != numel)
-    {
-        throw std::runtime_error("view shape is incompatible with tensor size");
-    }
 
-    return shape;
-}
+        if (infer_index >= 0)
+        {
+            if (known_product == 0)
+            {
+                if (numel != 0)
+                {
+                    throw std::runtime_error("view cannot infer a dimension when another axis is zero");
+                }
+                shape[static_cast<size_t>(infer_index)] = 0;
+            }
+            else if (numel % known_product != 0)
+            {
+                throw std::runtime_error("view cannot infer dimension: tensor size is not divisible");
+            }
+            else
+            {
+                shape[static_cast<size_t>(infer_index)] = static_cast<int>(numel / known_product);
+            }
+        }
+        else if (known_product != numel)
+        {
+            throw std::runtime_error("view shape is incompatible with tensor size");
+        }
+
+        return shape;
+    }
 
 #if DEEPLEARNLIB_ENABLE_CUDA
-struct Transpose2D
-{
-    const float* input;
-    float* output;
-    int rows;
-    int cols;
-
-    __host__ __device__ void operator()(int index) const
+    struct Transpose2D
     {
-        const int row = index / cols;
-        const int col = index % cols;
-        output[(col * rows) + row] = input[index];
-    }
-};
+        const float* input;
+        float* output;
+        int rows;
+        int cols;
+
+        __host__ __device__ void operator()(int index) const
+        {
+            const int row = index / cols;
+            const int col = index % cols;
+            output[(col * rows) + row] = input[index];
+        }
+    };
 #endif
 
 } // namespace
@@ -168,14 +168,14 @@ Tensor::Tensor(std::vector<int> shape, Device device_type)
 #if DEEPLEARNLIB_ENABLE_CUDA
     if (device_ == Device::GPU)
     {
-        int device_count{ 0 };
+        int device_count { 0 };
         CHECK_CUDA(cudaGetDeviceCount(&device_count));
         if (device_count == 0)
         {
             throw std::runtime_error("No CUDA-capable devices found");
         }
 
-        void* gpu_pointer{ nullptr };
+        void* gpu_pointer { nullptr };
         CHECK_CUDA(cudaMalloc(&gpu_pointer, size_ * sizeof(float)));
         data_ = std::shared_ptr<float>(static_cast<float*>(gpu_pointer), CudaDeleter());
     }
@@ -249,7 +249,7 @@ auto Tensor::is_contiguous() const -> bool
         return true;
     }
 
-    int expected_stride{ 1 };
+    int expected_stride { 1 };
     for (int dim_idx = static_cast<int>(shape_.size()) - 1; dim_idx >= 0; --dim_idx)
     {
         if (shape_[dim_idx] != 1 && strides_[dim_idx] != expected_stride)
@@ -309,21 +309,20 @@ auto Tensor::matmul(const Tensor& other) const -> Tensor
         throw std::runtime_error("matmul requires contiguous row-major tensors");
     }
 
-    const int k_left{ shape_.back() };
-    const int k_right{ other.shape_.front() };
+    const int k_left { shape_.back() };
+    const int k_right { other.shape_.front() };
     if (k_left != k_right)
     {
-        throw std::runtime_error("matmul inner dimensions must match (" + std::to_string(k_left) + " vs " +
-                                 std::to_string(k_right) + ")");
+        throw std::runtime_error("matmul inner dimensions must match (" + std::to_string(k_left) + " vs " + std::to_string(k_right) + ")");
     }
     if (k_left <= 0)
     {
         throw std::runtime_error("matmul inner dimension must be positive");
     }
 
-    const int K{ k_left };
-    const int M{ static_cast<int>(size_ / static_cast<size_t>(K)) };
-    const int N{ static_cast<int>(other.size_ / static_cast<size_t>(K)) };
+    const int K { k_left };
+    const int M { static_cast<int>(size_ / static_cast<size_t>(K)) };
+    const int N { static_cast<int>(other.size_ / static_cast<size_t>(K)) };
 
     std::vector<int> result_shape;
     result_shape.reserve(shape_.size() + other.shape_.size() - 2);
@@ -344,10 +343,10 @@ auto Tensor::matmul(const Tensor& other) const -> Tensor
     // Row-major C = A * B is computed as column-major C^T = B^T * A^T.
     // Interpreting row-major storage as column-major therefore means swapping A/B
     // and using CUBLAS_OP_N for both operands.
-    const float alpha{ 1.0F };
-    const float beta{ 0.0F };
+    const float alpha { 1.0F };
+    const float beta { 0.0F };
     CHECK_CUBLAS(cublasSgemm(get_cublas_handle(), CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, other.data(), N, data(), K,
-                             &beta, result.data(), N));
+        &beta, result.data(), N));
 
     return result;
 #endif
@@ -411,7 +410,7 @@ auto Tensor::operator*(const Tensor& other) const -> Tensor
     auto rhs = thrust::device_pointer_cast(other.data());
     auto out = thrust::device_pointer_cast(result.data());
     thrust::transform(thrust::device, lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out,
-                      thrust::multiplies<float>());
+        thrust::multiplies<float>());
     CHECK_CUDA(cudaGetLastError());
     return result;
 #endif
@@ -437,7 +436,7 @@ auto Tensor::operator*(float scalar) const -> Tensor
     auto in = thrust::device_pointer_cast(data());
     auto out = thrust::device_pointer_cast(result.data());
     thrust::transform(thrust::device, in, in + static_cast<std::ptrdiff_t>(size_), out,
-                      thrust::placeholders::_1 * scalar);
+        thrust::placeholders::_1 * scalar);
     CHECK_CUDA(cudaGetLastError());
     return result;
 #endif
@@ -463,7 +462,7 @@ auto Tensor::operator+(float scalar) const -> Tensor
     auto in = thrust::device_pointer_cast(data());
     auto out = thrust::device_pointer_cast(result.data());
     thrust::transform(thrust::device, in, in + static_cast<std::ptrdiff_t>(size_), out,
-                      thrust::placeholders::_1 + scalar);
+        thrust::placeholders::_1 + scalar);
     CHECK_CUDA(cudaGetLastError());
     return result;
 #endif
@@ -492,7 +491,7 @@ auto Tensor::clamp(float lo, float hi) const -> Tensor
 
     auto in = thrust::device_pointer_cast(data());
     auto out = thrust::device_pointer_cast(result.data());
-    thrust::transform(thrust::device, in, in + static_cast<std::ptrdiff_t>(size_), out, ClampValue{ lo, hi });
+    thrust::transform(thrust::device, in, in + static_cast<std::ptrdiff_t>(size_), out, ClampValue { lo, hi });
     CHECK_CUDA(cudaGetLastError());
     return result;
 #endif
@@ -514,12 +513,12 @@ auto Tensor::sum(int dim) const -> Tensor
     }
 
     Tensor result({ 1 }, Device::GPU);
-    float total{ 0.0F };
+    float total { 0.0F };
     if (size_ > 0)
     {
         auto begin = thrust::device_pointer_cast(data());
         total = thrust::reduce(thrust::device, begin, begin + static_cast<std::ptrdiff_t>(size_), 0.0F,
-                               thrust::plus<float>());
+            thrust::plus<float>());
         CHECK_CUDA(cudaGetLastError());
     }
     CHECK_CUDA(cudaMemcpy(result.data(), &total, sizeof(float), cudaMemcpyHostToDevice));
@@ -554,8 +553,8 @@ auto Tensor::transpose() const -> Tensor
         throw std::runtime_error("transpose requires a contiguous tensor");
     }
 
-    const int rows{ shape_[0] };
-    const int cols{ shape_[1] };
+    const int rows { shape_[0] };
+    const int cols { shape_[1] };
     Tensor result({ cols, rows }, Device::GPU);
     if (size_ == 0 || rows == 0 || cols == 0)
     {
@@ -563,8 +562,8 @@ auto Tensor::transpose() const -> Tensor
     }
 
     thrust::for_each(thrust::device, thrust::make_counting_iterator(0),
-                     thrust::make_counting_iterator(static_cast<int>(size_)),
-                     Transpose2D{ data(), result.data(), rows, cols });
+        thrust::make_counting_iterator(static_cast<int>(size_)),
+        Transpose2D { data(), result.data(), rows, cols });
     CHECK_CUDA(cudaGetLastError());
     return result;
 #endif
@@ -608,7 +607,7 @@ auto Tensor::to_host() const -> std::vector<float>
 
 auto Tensor::from_host(const std::vector<int>& shape, const std::vector<float>& host_data, Device device) -> Tensor
 {
-    size_t expected{ 1 };
+    size_t expected { 1 };
     for (int dimension : shape)
     {
         expected *= static_cast<size_t>(dimension);

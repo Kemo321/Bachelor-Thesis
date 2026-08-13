@@ -2,12 +2,12 @@
 
 #include <algorithm>
 #include <filesystem>
-#include <random>
 #include <fstream>
 #include <iostream>
 #include <numeric>
 #include <opencv2/opencv.hpp>
 #include <pugixml.hpp>
+#include <random>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -28,7 +28,7 @@ constexpr int IMAGE_CHANNELS = 3;
 constexpr int IMAGE_SIZE = 448;
 
 auto convert_voc_to_yolo(const std::string& annot_dir, const std::string& label_dir, const std::string& jpeg_dir,
-                         const std::vector<std::string>& class_names) -> void
+    const std::vector<std::string>& class_names) -> void
 {
     std::unordered_map<std::string, int> class_map;
     for (size_t i = 0; i < class_names.size(); ++i)
@@ -154,21 +154,22 @@ auto apply_hsv_jitter(cv::Mat& image, float saturation_factor, float exposure_fa
 }
 
 auto encode_targets(const std::string& label_path, bool is_train, float scale, float dx, float dy, int num_classes,
-                    std::vector<float>& target) -> void
+    std::vector<float>& target) -> void
 {
     const int attributes = BOXES_PER_CELL * BOX_PARAMS + num_classes;
     target.assign(static_cast<std::size_t>(GRID_SIZE * GRID_SIZE * attributes), 0.0F);
 
-    auto at = [&](int grid_y, int grid_x, int offset) -> float& {
+    auto at = [&](int grid_y, int grid_x, int offset) -> float&
+    {
         return target[static_cast<std::size_t>((grid_y * GRID_SIZE * attributes) + (grid_x * attributes) + offset)];
     };
 
     std::ifstream label_file(label_path);
-    int class_id{};
-    float x_center{};
-    float y_center{};
-    float box_width{};
-    float box_height{};
+    int class_id {};
+    float x_center {};
+    float y_center {};
+    float box_width {};
+    float box_height {};
 
     while (label_file >> class_id >> x_center >> y_center >> box_width >> box_height)
     {
@@ -215,7 +216,7 @@ auto encode_targets(const std::string& label_path, bool is_train, float scale, f
 } // namespace
 
 auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths& val_data, DataPaths& test_data,
-                   const std::vector<std::string>& class_names, float train_ratio, float val_ratio) -> void
+    const std::vector<std::string>& class_names, float train_ratio, float val_ratio) -> void
 {
     std::string jpeg_dir = voc_root + "/JPEGImages";
     std::string annot_dir = voc_root + "/Annotations";
@@ -234,8 +235,7 @@ auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths
     bool conversion_needed = false;
     for (const auto& directory_entry : std::filesystem::directory_iterator(jpeg_dir))
     {
-        if (directory_entry.path().extension() == ".jpg" &&
-            !std::filesystem::exists(label_dir + "/" + directory_entry.path().stem().string() + ".txt"))
+        if (directory_entry.path().extension() == ".jpg" && !std::filesystem::exists(label_dir + "/" + directory_entry.path().stem().string() + ".txt"))
         {
             conversion_needed = true;
             break;
@@ -300,14 +300,14 @@ auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths
 }
 
 CustomDataLoader::CustomDataLoader(const DataPaths& paths, int batch_size, bool is_train,
-                                   const std::vector<std::string>& class_names)
+    const std::vector<std::string>& class_names)
     : paths_(paths)
     , batch_size_(batch_size)
     , is_train_(is_train)
     , num_classes_(static_cast<int>(class_names.size()))
     , img_size_(IMAGE_SIZE)
     , cursor_(0)
-    , rng_(std::random_device{}())
+    , rng_(std::random_device {}())
 {
     if (batch_size_ <= 0)
     {
@@ -415,9 +415,9 @@ auto CustomDataLoader::get_batch() -> Batch
         load_sample(sample_index, sample_image, sample_target);
         std::copy(sample_image.begin(), sample_image.end(), images_host.begin() + static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(image_elems));
         std::copy(sample_target.begin(), sample_target.end(),
-                  targets_host.begin() + static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(target_elems));
+            targets_host.begin() + static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(target_elems));
     }
 
-    return Batch{ dl::Tensor::from_host({ this_batch, IMAGE_CHANNELS, img_size_, img_size_ }, images_host),
-                  dl::Tensor::from_host({ this_batch, GRID_SIZE, GRID_SIZE, attributes }, targets_host) };
+    return Batch { dl::Tensor::from_host({ this_batch, IMAGE_CHANNELS, img_size_, img_size_ }, images_host),
+        dl::Tensor::from_host({ this_batch, GRID_SIZE, GRID_SIZE, attributes }, targets_host) };
 }

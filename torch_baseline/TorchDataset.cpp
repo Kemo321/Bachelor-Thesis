@@ -1,4 +1,4 @@
-#include "DeepLearnLib/TorchDataset.hpp"
+#include "TorchDataset.hpp"
 
 #include <algorithm>
 #include <cstdlib>

@@ -2,15 +2,12 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
-#include <opencv2/opencv.hpp>
-#include <torch/torch.h>
 
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/Tensor.hpp"
-#include "DeepLearnLib/TorchDataset.hpp"
-#include "DeepLearnLib/TorchYOLO.hpp"
 #include "DeepLearnLib/YOLO.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
@@ -23,14 +20,17 @@ const std::vector<std::string> VOC_CLASSES = {
     "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"
 };
 
-int main(int argc, char* argv[]) {
-    if (argc < 2) {
+int main(int argc, char* argv[])
+{
+    if (argc < 2)
+    {
         std::cerr << "Usage: ./overfit_test <--torch|--custom>\n";
         return -1;
     }
 
     std::string mode = argv[1];
-    if (mode != "--torch" && mode != "--custom") {
+    if (mode != "--torch" && mode != "--custom")
+    {
         std::cerr << "[ERROR] Unknown mode: " << mode << "\n";
         return -1;
     }
@@ -48,157 +48,112 @@ int main(int argc, char* argv[]) {
     DataPaths train_paths, val_paths, test_paths;
     split_dataset(data_root + "/VOC2012", train_paths, val_paths, test_paths, VOC_CLASSES);
 
-    if (train_paths.images.empty()) {
-        std::cerr << "[ERROR] No data in the data folder!\n"; return -1;
+    if (train_paths.images.empty())
+    {
+        std::cerr << "[ERROR] No data in the data folder!\n";
+        return -1;
     }
 
     DataPaths tiny_paths;
-    for (int i = 0; i < batch_size && i < static_cast<int>(train_paths.images.size()); ++i) {
+    for (int i = 0; i < batch_size && i < static_cast<int>(train_paths.images.size()); ++i)
+    {
         tiny_paths.images.push_back(train_paths.images[i]);
         tiny_paths.labels.push_back(train_paths.labels[i]);
     }
 
-    if (mode == "--torch") {
-        torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
-
-        auto train_loader = torch::data::make_data_loader(
-            VOCYoloDataset(tiny_paths, false, VOC_CLASSES).map(torch::data::transforms::Stack<>()),
-            torch::data::DataLoaderOptions().batch_size(batch_size).workers(2));
-
-        YOLOv1 model(20);
-        model->to(device);
-        model->train();
-
-        torch::optim::SGD optimizer(model->parameters(), torch::optim::SGDOptions(learning_rate).momentum(0.9));
-
-        for (int epoch = 1; epoch <= total_epochs; ++epoch) {
-            float epoch_loss = 0.0F;
-            for (auto& batch : *train_loader) {
-                auto data = batch.data.to(device);
-                auto target = batch.target.to(device);
-
-                optimizer.zero_grad();
-                auto pred = model->forward(data);
-                auto loss = YOLOLoss::loss(target, pred, 20);
-
-                loss.backward();
-                optimizer.step();
-
-                epoch_loss += loss.item().toFloat();
-            }
-            if (epoch % 10 == 0 || epoch == 1) {
-                std::cout << "Epoch [" << std::setw(3) << epoch << "/" << total_epochs << "] Loss: " << epoch_loss << "\n";
-            }
-        }
-        std::string save_path = results_dir + "/yolov1_torch_overfitted.pt";
-        torch::save(model, save_path);
-        std::cout << "\n[INFO] Torch model saved: " << save_path << "\n";
-
-        model->eval();
-        std::string drawn_dir = results_dir + "/overfit_drawn_torch";
-        fs::create_directories(drawn_dir);
-
-        for (const auto& img_path : tiny_paths.images) {
-            cv::Mat img = cv::imread(img_path);
-            if (img.empty()) continue;
-            cv::Mat resized; cv::resize(img, resized, cv::Size(448, 448));
-            cv::cvtColor(resized, resized, cv::COLOR_BGR2RGB);
-            resized.convertTo(resized, CV_32FC3, 1.0f / 255.0f);
-            auto input = torch::from_blob(resized.data, {1, 448, 448, 3}, torch::kFloat32).permute({0, 3, 1, 2}).contiguous().to(device);
-
-            torch::Tensor output;
-            { torch::NoGradGuard no_grad; output = model->forward(input).cpu().view({1, 7, 7, 30}); }
-            output = output.contiguous();
-            const float* output_ptr = output.data_ptr<float>();
-            std::vector<float> output_data(output_ptr, output_ptr + output.numel());
-
-            auto raw_det = decode_yolo_tensor(output_data, 0.10f, img.cols, img.rows, 20);
-            auto final_det = apply_nms(raw_det, 0.45f);
-            draw_detections(img, final_det, VOC_CLASSES, cv::Scalar(0, 255, 0));
-
-            fs::path p(img_path);
-            cv::imwrite(drawn_dir + "/" + p.filename().string(), img);
-        }
-        std::cout << "[SUCCESS] Torch-generated images saved in: " << drawn_dir << "\n";
-
-    } else {
-        CustomDataLoader train_loader(tiny_paths, batch_size, false, VOC_CLASSES);
-
-        YOLO custom_model(20);
-        for (auto& layer : custom_model.get_all_layers()) {
-            layer->to(dl::Device::GPU);
-            layer->train();
-            layer->learning_rate = learning_rate;
-        }
-
-        for (int epoch = 1; epoch <= total_epochs; ++epoch) {
-            float epoch_loss = 0.0F;
-            train_loader.reset();
-            while (train_loader.has_next()) {
-                Batch batch = train_loader.get_batch();
-
-                dl::Tensor pred = custom_model.forward(batch.images);
-                epoch_loss += YOLOLoss::loss(batch.targets, pred, 20).to_host().front();
-
-                dl::Tensor grad_error = YOLOLoss::loss_derivative(batch.targets, pred, 20).clamp(-10.0F, 10.0F);
-                auto layers = custom_model.get_all_layers();
-
-                for (auto it = layers.rbegin(); it != layers.rend(); ++it) {
-                    grad_error = (*it)->backward(grad_error);
-                }
-                for (auto& layer : layers) {
-                    layer->step();
-                }
-            }
-            if (epoch % 10 == 0 || epoch == 1) {
-                std::cout << "Epoch [" << std::setw(3) << epoch << "/" << total_epochs << "] Loss: " << epoch_loss << "\n";
-            }
-        }
-        Network trainer(custom_model.get_all_layers(), learning_rate);
-        std::string save_path = results_dir + "/yolov1_custom_overfitted.pt";
-        trainer.save(save_path);
-        std::cout << "\n[INFO] Custom model saved: " << save_path << "\n";
-
-        for (auto& layer : custom_model.get_all_layers()) {
-            layer->eval();
-        }
-        std::string drawn_dir = results_dir + "/overfit_drawn_custom";
-        fs::create_directories(drawn_dir);
-
-        for (const auto& img_path : tiny_paths.images) {
-            cv::Mat img = cv::imread(img_path);
-            if (img.empty()) continue;
-            cv::Mat resized;
-            cv::resize(img, resized, cv::Size(448, 448));
-            cv::cvtColor(resized, resized, cv::COLOR_BGR2RGB);
-            resized.convertTo(resized, CV_32FC3, 1.0f / 255.0f);
-
-            constexpr int kHeight = 448;
-            constexpr int kWidth = 448;
-            constexpr int kChannels = 3;
-            std::vector<float> chw_data(static_cast<size_t>(kChannels * kHeight * kWidth));
-            for (int row = 0; row < kHeight; ++row) {
-                const auto* pixel_row = resized.ptr<cv::Vec3f>(row);
-                for (int col = 0; col < kWidth; ++col) {
-                    for (int channel = 0; channel < kChannels; ++channel) {
-                        chw_data[static_cast<size_t>((channel * kHeight * kWidth) + (row * kWidth) + col)] =
-                            pixel_row[col][channel];
-                    }
-                }
-            }
-
-            dl::Tensor input = dl::Tensor::from_host({1, 3, 448, 448}, chw_data.data());
-            std::vector<float> output_data = custom_model.forward(input).to_host();
-
-            auto raw_det = decode_yolo_tensor(output_data, 0.10f, img.cols, img.rows, 20);
-            auto final_det = apply_nms(raw_det, 0.45f);
-            draw_detections(img, final_det, VOC_CLASSES, cv::Scalar(0, 0, 255));
-
-            fs::path p(img_path);
-            cv::imwrite(drawn_dir + "/" + p.filename().string(), img);
-        }
-        std::cout << "[SUCCESS] Custom-generated images saved in: " << drawn_dir << "\n";
+    if (mode == "--torch")
+    {
+        std::cerr << "[ERROR] --torch overfit still expects a LibTorch loss. YOLOLoss is dl::Tensor-only; use --custom.\n";
+        return -1;
     }
+
+    CustomDataLoader train_loader(tiny_paths, batch_size, false, VOC_CLASSES);
+
+    YOLO custom_model(20);
+    for (auto& layer : custom_model.get_all_layers())
+    {
+        layer->to(dl::Device::GPU);
+        layer->train();
+        layer->learning_rate = learning_rate;
+    }
+
+    for (int epoch = 1; epoch <= total_epochs; ++epoch)
+    {
+        float epoch_loss = 0.0F;
+        train_loader.reset();
+        while (train_loader.has_next())
+        {
+            Batch batch = train_loader.get_batch();
+
+            dl::Tensor pred = custom_model.forward(batch.images);
+            epoch_loss += YOLOLoss::loss(batch.targets, pred, 20).to_host().front();
+
+            dl::Tensor grad_error = YOLOLoss::loss_derivative(batch.targets, pred, 20).clamp(-10.0F, 10.0F);
+            auto layers = custom_model.get_all_layers();
+
+            for (auto it = layers.rbegin(); it != layers.rend(); ++it)
+            {
+                grad_error = (*it)->backward(grad_error);
+            }
+            for (auto& layer : layers)
+            {
+                layer->step();
+            }
+        }
+        if (epoch % 10 == 0 || epoch == 1)
+        {
+            std::cout << "Epoch [" << std::setw(3) << epoch << "/" << total_epochs << "] Loss: " << epoch_loss << "\n";
+        }
+    }
+    Network trainer(custom_model.get_all_layers(), learning_rate);
+    std::string save_path = results_dir + "/yolov1_custom_overfitted.pt";
+    trainer.save(save_path);
+    std::cout << "\n[INFO] Custom model saved: " << save_path << "\n";
+
+    for (auto& layer : custom_model.get_all_layers())
+    {
+        layer->eval();
+    }
+    std::string drawn_dir = results_dir + "/overfit_drawn_custom";
+    fs::create_directories(drawn_dir);
+
+    for (const auto& img_path : tiny_paths.images)
+    {
+        cv::Mat img = cv::imread(img_path);
+        if (img.empty())
+            continue;
+        cv::Mat resized;
+        cv::resize(img, resized, cv::Size(448, 448));
+        cv::cvtColor(resized, resized, cv::COLOR_BGR2RGB);
+        resized.convertTo(resized, CV_32FC3, 1.0f / 255.0f);
+
+        constexpr int kHeight = 448;
+        constexpr int kWidth = 448;
+        constexpr int kChannels = 3;
+        std::vector<float> chw_data(static_cast<size_t>(kChannels * kHeight * kWidth));
+        for (int row = 0; row < kHeight; ++row)
+        {
+            const auto* pixel_row = resized.ptr<cv::Vec3f>(row);
+            for (int col = 0; col < kWidth; ++col)
+            {
+                for (int channel = 0; channel < kChannels; ++channel)
+                {
+                    chw_data[static_cast<size_t>((channel * kHeight * kWidth) + (row * kWidth) + col)] = pixel_row[col][channel];
+                }
+            }
+        }
+
+        dl::Tensor input = dl::Tensor::from_host({ 1, 3, 448, 448 }, chw_data.data());
+        std::vector<float> output_data = custom_model.forward(input).to_host();
+
+        auto raw_det = decode_yolo_tensor(output_data, 0.10f, img.cols, img.rows, 20);
+        auto final_det = apply_nms(raw_det, 0.45f);
+        draw_detections(img, final_det, VOC_CLASSES, cv::Scalar(0, 0, 255));
+
+        fs::path p(img_path);
+        cv::imwrite(drawn_dir + "/" + p.filename().string(), img);
+    }
+    std::cout << "[SUCCESS] Custom-generated images saved in: " << drawn_dir << "\n";
 
     return 0;
 }

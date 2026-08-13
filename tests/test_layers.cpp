@@ -60,7 +60,7 @@ auto expect_all_finite(const std::vector<float>& values) -> void
 }
 
 auto set_named_parameter(std::map<std::string, Tensor>& params, const std::string& name, const std::vector<int>& shape,
-                         const std::vector<float>& host) -> void
+    const std::vector<float>& host) -> void
 {
     params.emplace(name, Tensor::from_host(shape, host, Device::GPU));
 }
@@ -86,7 +86,7 @@ TEST_F(GpuLayerTest, Conv2dForwardOutputShape)
     Tensor output = conv.forward(input);
     synchronize_device();
 
-    EXPECT_EQ(output.get_shape(), (std::vector<int>{ 2, 8, 16, 16 }));
+    EXPECT_EQ(output.get_shape(), (std::vector<int> { 2, 8, 16, 16 }));
     EXPECT_EQ(output.get_device(), Device::GPU);
     expect_all_finite(output.to_host());
 }
@@ -103,7 +103,7 @@ TEST_F(GpuLayerTest, Conv2dOnesKernelMatchesWindowSum)
     Tensor output = conv.forward(input);
     synchronize_device();
 
-    EXPECT_EQ(output.get_shape(), (std::vector<int>{ 1, 1, 2, 2 }));
+    EXPECT_EQ(output.get_shape(), (std::vector<int> { 1, 1, 2, 2 }));
     expect_near_vector(output.to_host(), { 4.0F, 4.0F, 4.0F, 4.0F });
 }
 
@@ -143,14 +143,14 @@ TEST_F(GpuLayerTest, MaxPool2dDownsamplesAndRoutesGradientToArgmax)
 
     Tensor output = pool.forward(input);
     synchronize_device();
-    EXPECT_EQ(output.get_shape(), (std::vector<int>{ 1, 1, 1, 1 }));
+    EXPECT_EQ(output.get_shape(), (std::vector<int> { 1, 1, 1, 1 }));
     expect_near_vector(output.to_host(), { 3.0F });
 
     Tensor grad_output = Tensor::from_host({ 1, 1, 1, 1 }, { 1.0F }, Device::GPU);
     Tensor grad_input = pool.backward(grad_output);
     synchronize_device();
 
-    EXPECT_EQ(grad_input.get_shape(), (std::vector<int>{ 1, 1, 2, 2 }));
+    EXPECT_EQ(grad_input.get_shape(), (std::vector<int> { 1, 1, 2, 2 }));
     expect_near_vector(grad_input.to_host(), { 0.0F, 1.0F, 0.0F, 0.0F });
 }
 
@@ -158,13 +158,13 @@ TEST_F(GpuLayerTest, MaxPool2dFourByFourWindows)
 {
     MaxPool2d pool(2, 2);
     Tensor input = Tensor::from_host({ 1, 1, 4, 4 },
-                                     { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F, 8.0F, 9.0F, 8.0F, 7.0F, 6.0F, 5.0F,
-                                       4.0F, 3.0F, 2.0F },
-                                     Device::GPU);
+        { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F, 8.0F, 9.0F, 8.0F, 7.0F, 6.0F, 5.0F,
+            4.0F, 3.0F, 2.0F },
+        Device::GPU);
 
     Tensor output = pool.forward(input);
     synchronize_device();
-    EXPECT_EQ(output.get_shape(), (std::vector<int>{ 1, 1, 2, 2 }));
+    EXPECT_EQ(output.get_shape(), (std::vector<int> { 1, 1, 2, 2 }));
     expect_near_vector(output.to_host(), { 6.0F, 8.0F, 9.0F, 7.0F });
 
     Tensor grad_output = Tensor::from_host({ 1, 1, 2, 2 }, { 1.0F, 1.0F, 1.0F, 1.0F }, Device::GPU);
@@ -320,7 +320,7 @@ TEST_F(GpuLayerTest, FlattenReshapesAndUnflattensGradient)
 
     Tensor output = flatten.forward(input);
     synchronize_device();
-    EXPECT_EQ(output.get_shape(), (std::vector<int>{ 2, 12 }));
+    EXPECT_EQ(output.get_shape(), (std::vector<int> { 2, 12 }));
     expect_near_vector(output.to_host(), host_input);
 
     Tensor grad_output = Tensor::from_host({ 2, 12 }, host_input, Device::GPU);
@@ -342,7 +342,7 @@ TEST_F(GpuLayerTest, FullyConnectedForwardMatchesMatmulPlusBias)
     Tensor output = dense.forward(input);
     synchronize_device();
 
-    EXPECT_EQ(output.get_shape(), (std::vector<int>{ 1, 3 }));
+    EXPECT_EQ(output.get_shape(), (std::vector<int> { 1, 3 }));
     expect_near_vector(output.to_host(), { 1.5F, 1.0F, 5.0F });
 }
 
@@ -363,7 +363,7 @@ TEST_F(GpuLayerTest, FullyConnectedBackwardAndStepUpdateWeights)
     Tensor grad_output = Tensor::from_host({ 2, 2 }, { 1.0F, 0.0F, 0.0F, 1.0F }, Device::GPU);
     Tensor grad_input = dense.backward(grad_output);
     synchronize_device();
-    EXPECT_EQ(grad_input.get_shape(), (std::vector<int>{ 2, 2 }));
+    EXPECT_EQ(grad_input.get_shape(), (std::vector<int> { 2, 2 }));
     expect_near_vector(grad_input.to_host(), { 0.0F, 0.0F, 0.0F, 0.0F });
 
     dense.step();

@@ -46,7 +46,7 @@ auto clamp_gpu(const dl::Tensor& tensor, float lo, float hi) -> dl::Tensor
     auto in = thrust::device_pointer_cast(tensor.data());
     auto out = thrust::device_pointer_cast(clamped.data());
     thrust::transform(thrust::device, in, in + static_cast<std::ptrdiff_t>(tensor.get_size()), out,
-                      ClampValue{ lo, hi });
+        ClampValue { lo, hi });
     CHECK_CUDA(cudaGetLastError());
     return clamped;
 }
@@ -214,7 +214,7 @@ auto Network::load(const std::string& path) -> void
         throw std::runtime_error("Failed to open '" + path + "' for reading");
     }
 
-    std::int32_t layer_count{ 0 };
+    std::int32_t layer_count { 0 };
     read_pod(stream, layer_count, path);
     if (layer_count != static_cast<std::int32_t>(layers_.size()))
     {
@@ -223,13 +223,13 @@ auto Network::load(const std::string& path) -> void
 
     for (auto& layer : layers_)
     {
-        std::int32_t param_count{ 0 };
+        std::int32_t param_count { 0 };
         read_pod(stream, param_count, path);
 
         std::map<std::string, dl::Tensor> loaded;
         for (std::int32_t param_idx = 0; param_idx < param_count; ++param_idx)
         {
-            std::int32_t name_length{ 0 };
+            std::int32_t name_length { 0 };
             read_pod(stream, name_length, path);
             if (name_length < 0)
             {
@@ -239,7 +239,7 @@ auto Network::load(const std::string& path) -> void
             std::string name(static_cast<std::size_t>(name_length), '\0');
             read_bytes(stream, name.data(), static_cast<std::size_t>(name_length), path);
 
-            std::int32_t rank{ 0 };
+            std::int32_t rank { 0 };
             read_pod(stream, rank, path);
             if (rank < 0)
             {
@@ -250,7 +250,7 @@ auto Network::load(const std::string& path) -> void
             std::size_t numel = 1;
             for (std::int32_t dim_idx = 0; dim_idx < rank; ++dim_idx)
             {
-                std::int32_t dimension{ 0 };
+                std::int32_t dimension { 0 };
                 read_pod(stream, dimension, path);
                 shape[static_cast<std::size_t>(dim_idx)] = dimension;
                 numel *= static_cast<std::size_t>(dimension);

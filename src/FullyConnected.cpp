@@ -43,8 +43,8 @@ auto fill_uniform(dl::Tensor& tensor, float low, float high, unsigned long long 
     }
     auto out = thrust::device_pointer_cast(tensor.data());
     thrust::transform(thrust::device, thrust::make_counting_iterator(0),
-                      thrust::make_counting_iterator(static_cast<int>(tensor.get_size())), out,
-                      UniformFill{ low, high, seed });
+        thrust::make_counting_iterator(static_cast<int>(tensor.get_size())), out,
+        UniformFill { low, high, seed });
     CHECK_CUDA(cudaGetLastError());
 }
 

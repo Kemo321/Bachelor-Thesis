@@ -32,15 +32,15 @@ struct DataPaths
  * @param val_ratio Fraction of the dataset to use for validation (default 0.15F).
  */
 void split_dataset(const std::string& voc_root, DataPaths& train, DataPaths& val, DataPaths& test,
-                   const std::vector<std::string>& class_names = VOC_CLASSES_DEFAULT, float train_ratio = 0.7F,
-                   float val_ratio = 0.15F);
+    const std::vector<std::string>& class_names = VOC_CLASSES_DEFAULT, float train_ratio = 0.7F,
+    float val_ratio = 0.15F);
 
 /**
  * @brief CamelCase compatibility wrapper for split_dataset.
  */
 inline void splitDataset(const std::string& voc_root, DataPaths& train, DataPaths& val, DataPaths& test,
-                         const std::vector<std::string>& class_names = VOC_CLASSES_DEFAULT, float train_ratio = 0.7F,
-                         float val_ratio = 0.15F)
+    const std::vector<std::string>& class_names = VOC_CLASSES_DEFAULT, float train_ratio = 0.7F,
+    float val_ratio = 0.15F)
 {
     split_dataset(voc_root, train, val, test, class_names, train_ratio, val_ratio);
 }
@@ -67,7 +67,7 @@ class CustomDataLoader
 {
 public:
     CustomDataLoader(const DataPaths& paths, int batch_size, bool is_train,
-                     const std::vector<std::string>& class_names = VOC_CLASSES_DEFAULT);
+        const std::vector<std::string>& class_names = VOC_CLASSES_DEFAULT);
 
     /**
      * @brief Rewind to the start of an epoch. Shuffles sample order when is_train is true.

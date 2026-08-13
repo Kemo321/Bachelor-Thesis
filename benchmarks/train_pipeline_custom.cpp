@@ -22,7 +22,8 @@ const std::vector<std::string> VOC_CLASSES = {
     "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"
 };
 
-int main() {
+int main()
+{
     std::srand(static_cast<unsigned int>(std::time(nullptr)));
 
     const int batch_size = 16;
@@ -43,14 +44,19 @@ int main() {
     YOLO custom_model(20);
     Network trainer(custom_model.get_all_layers(), 1e-4F);
 
-    for (auto& layer : custom_model.get_all_layers()) {
+    for (auto& layer : custom_model.get_all_layers())
+    {
         layer->to(dl::Device::GPU);
     }
 
-    auto get_lr = [](int ep) -> float {
-        if (ep <= 5) return 1e-5F;
-        if (ep <= 80) return 1e-4F;
-        if (ep <= 120) return 1e-5F;
+    auto get_lr = [](int ep) -> float
+    {
+        if (ep <= 5)
+            return 1e-5F;
+        if (ep <= 80)
+            return 1e-4F;
+        if (ep <= 120)
+            return 1e-5F;
         return 1e-6F;
     };
 
@@ -58,11 +64,13 @@ int main() {
     std::ofstream csv_file(results_dir + "/metrics_custom.csv");
     csv_file << "Epoch;TrainLoss;TestLoss;Time(s)\n";
 
-    for (int epoch = 1; epoch <= total_epochs; ++epoch) {
+    for (int epoch = 1; epoch <= total_epochs; ++epoch)
+    {
         auto epoch_start_time = std::chrono::steady_clock::now();
         float current_lr = get_lr(epoch);
 
-        for (auto& layer : custom_model.get_all_layers()) {
+        for (auto& layer : custom_model.get_all_layers())
+        {
             layer->learning_rate = current_lr;
             layer->train();
         }
@@ -71,7 +79,8 @@ int main() {
         int train_batches = 0;
 
         train_loader.reset();
-        while (train_loader.has_next()) {
+        while (train_loader.has_next())
+        {
             Batch batch = train_loader.get_batch();
 
             dl::Tensor pred = custom_model.forward(batch.images);
@@ -81,10 +90,12 @@ int main() {
             grad_error = grad_error.clamp(-10.0F, 10.0F);
 
             auto layers = custom_model.get_all_layers();
-            for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator) {
+            for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator)
+            {
                 grad_error = (*iterator)->backward(grad_error);
             }
-            for (auto& layer : layers) {
+            for (auto& layer : layers)
+            {
                 layer->step();
             }
 
@@ -93,7 +104,8 @@ int main() {
         }
         float avg_train_loss = epoch_train_loss / static_cast<float>(std::max(1, train_batches));
 
-        for (auto& layer : custom_model.get_all_layers()) {
+        for (auto& layer : custom_model.get_all_layers())
+        {
             layer->eval();
         }
 
@@ -101,7 +113,8 @@ int main() {
         int test_batches = 0;
 
         test_loader.reset();
-        while (test_loader.has_next()) {
+        while (test_loader.has_next())
+        {
             Batch batch = test_loader.get_batch();
             dl::Tensor pred = custom_model.forward(batch.images);
             epoch_test_loss += YOLOLoss::loss(batch.targets, pred, 20).to_host().front();

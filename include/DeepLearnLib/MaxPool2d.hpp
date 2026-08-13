@@ -26,7 +26,7 @@ public:
     auto set_max_2d(int window, int stride, int padding = 0) -> void;
 
 private:
-    cudnnPoolingDescriptor_t desc_{ nullptr };
+    cudnnPoolingDescriptor_t desc_ { nullptr };
 };
 
 } // namespace dl
@@ -78,5 +78,5 @@ private:
     dl::CudnnPoolingDescriptor pooling_desc_;
     dl::CudnnTensorDescriptor input_desc_;
     dl::CudnnTensorDescriptor output_desc_;
-    bool descriptors_configured_{ false };
+    bool descriptors_configured_ { false };
 };

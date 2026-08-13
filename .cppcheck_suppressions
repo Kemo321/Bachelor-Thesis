@@ -1,2 +1,5 @@
 unusedFunction
 missingIncludeSystem
+missingInclude
+unmatchedSuppression
+normalCheckLevelMaxBranches

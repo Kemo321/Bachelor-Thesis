@@ -10,8 +10,6 @@ set(DEEPLEARN_SOURCES
     Network.cpp
     YOLO.cpp
     YOLOLoss.cpp
-    TorchYOLO.cpp
-    TorchDataset.cpp
 )
 
 if(OpenCV_FOUND)
@@ -66,9 +64,8 @@ target_link_libraries(
   PUBLIC CUDA::cudart
          CUDA::cublas
          CUDA::cudnn
-         hwy
-         ${TORCH_LIBRARIES})
+         hwy)
 
 if(OpenCV_FOUND)
-  target_link_libraries(DeepLearnLib PUBLIC ${OpenCV_LIBS})
+  target_link_libraries(DeepLearnLib PUBLIC ${OpenCV_LIBS} pugixml)
 endif()
