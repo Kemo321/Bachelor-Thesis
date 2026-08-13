@@ -1,6 +1,6 @@
 find_package(CUDAToolkit QUIET)
 
-add_executable(dllib_tests test_main.cpp test_tensor.cpp)
+add_executable(dllib_tests test_main.cpp test_tensor.cpp test_layers.cpp test_loss.cpp)
 
 target_link_libraries(dllib_tests PRIVATE DeepLearnLib GTest::gtest_main)
 
