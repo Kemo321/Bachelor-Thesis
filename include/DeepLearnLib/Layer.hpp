@@ -1,6 +1,6 @@
 #pragma once
 
-#include <torch/torch.h>
+#include "DeepLearnLib/Tensor.hpp"
 #include <map>
 #include <string>
 
@@ -10,7 +10,8 @@
  * Provides a minimal interface for forward/backward passes, parameter
  * access, mode switching (train/eval) and device placement.
  */
-class Layer {
+class Layer
+{
 public:
     /**
      * @brief Learning rate used by layers that implement parameter updates.
@@ -30,12 +31,18 @@ public:
      * Some layers (e.g., dropout, batch-norm) alter behavior depending on
      * whether the model is training or evaluating.
      */
-    virtual void train() { is_training_ = true; }
+    virtual void train()
+    {
+        is_training_ = true;
+    }
 
     /**
      * @brief Set layer to evaluation mode.
      */
-    virtual void eval() { is_training_ = false; }
+    virtual void eval()
+    {
+        is_training_ = false;
+    }
 
     /**
      * @brief Compute forward pass of the layer.
@@ -45,7 +52,7 @@ public:
      * @return Output tensor produced by the layer. Shape depends on the
      *         concrete implementation.
      */
-    [[nodiscard]] virtual auto forward(const torch::Tensor& input_tensor) -> torch::Tensor = 0;
+    [[nodiscard]] virtual auto forward(const dl::Tensor& input_tensor) -> dl::Tensor = 0;
 
     /**
      * @brief Compute backward pass (gradient propagation) for the layer.
@@ -54,10 +61,8 @@ public:
      *        output: [Batch, ...].
      * @return Gradient of the loss w.r.t. the layer's input. Shape matches
      *         the original forward input: [Batch, ...].
-     * @note Implementations should follow the chain rule and ensure returned
-     *       tensors are contiguous when necessary (use .contiguous()).
      */
-    [[nodiscard]] virtual auto backward(const torch::Tensor& output_error_derivative) -> torch::Tensor = 0;
+    [[nodiscard]] virtual auto backward(const dl::Tensor& output_error_derivative) -> dl::Tensor = 0;
 
     /**
      * @brief Optional per-layer optimizer step.
@@ -72,20 +77,29 @@ public:
      * @return Map from parameter name to tensor. Tensor shapes depend on the
      *         specific layer (e.g., weights: [Out, In], bias: [Out]).
      */
-    virtual auto get_parameters() -> std::map<std::string, torch::Tensor> { return {}; }
+    virtual auto get_parameters() -> std::map<std::string, dl::Tensor>
+    {
+        return {};
+    }
 
     /**
      * @brief Set parameters by name.
      * @param params Map from parameter name to tensor. Shapes must match the
      *               layer's expected parameter shapes.
      */
-    virtual void set_parameters(const std::map<std::string, torch::Tensor>& params) {}
+    virtual void set_parameters(const std::map<std::string, dl::Tensor>& params)
+    {
+        (void)params;
+    }
 
     /**
      * @brief Move layer internal tensors to the given device.
-     * @param device Target torch device (e.g., torch::kCUDA or torch::kCPU).
+     * @param device Target device (CPU or GPU). Conv2d parameters live on the GPU.
      */
-    virtual auto to(torch::Device device) -> void { this->device_ = device; }
+    virtual auto to(dl::Device device) -> void
+    {
+        device_ = device;
+    }
 
 protected:
     /**
@@ -97,5 +111,5 @@ protected:
     /**
      * @brief Device where the layer's tensors reside.
      */
-    torch::Device device_ = torch::kCPU;
+    dl::Device device_ = dl::Device::GPU;
 };
