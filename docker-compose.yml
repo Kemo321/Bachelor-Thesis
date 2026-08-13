@@ -6,8 +6,8 @@ services:
     image: yolo-bachelor-thesis:latest
     container_name: yolo_dev_container
 
-    shm_size: '32gb' 
-    
+    shm_size: '32gb'
+
     deploy:
       resources:
         reservations:
@@ -20,45 +20,20 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
       - TORCH_CUDA_ARCH_LIST=100
+      - CCACHE_DIR=/ccache
 
     volumes:
       - .:/app
-      - build_cache:/app/build 
+      - build_cache:/app/build
       - ccache_data:/ccache
 
     working_dir: /app
     tty: true
     stdin_open: true
-    
-    command:
-      - /bin/bash
-      - -c
-      - |
-        set -e
-        export LD_LIBRARY_PATH=/opt/hpcx/ucx/lib:/opt/hpcx/ucc/lib:$$LD_LIBRARY_PATH
-        
-        mkdir -p results/predictions_torch results/predictions_custom
-        mkdir -p build && cd build
-        
-        if [ -f CMakeCache.txt ] && ! grep -q "Ninja" CMakeCache.txt; then
-          echo "[DEBUG] Detected old cache from another generator - clearing build volume..."
-          rm -rf *
-        fi
-        
-        cmake -G Ninja .. \
-          -DUSE_CUDA=ON \
-          -DCMAKE_BUILD_TYPE=Release
-        
-        ninja
-        
-        echo "=========================================================="
-        echo "Compilation completed successfully!"
-        echo "All results (models, CSV, images) will be in the 'results' folder."
-        echo "Run Torch pipeline:  ./benchmarks/train_pipeline_torch"
-        echo "Run Custom pipeline: ./benchmarks/train_pipeline_custom"
-        echo "=========================================================="
-        
-        /bin/bash
+
+    # Incremental builds live in the build_cache volume. Use ./scripts/dev.sh
+    # (ccache + Ninja + tests) instead of rebuilding on every container start.
+    command: ["/bin/bash"]
 
 volumes:
   build_cache:
