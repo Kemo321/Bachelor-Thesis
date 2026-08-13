@@ -1,98 +1,174 @@
 #include "DeepLearnLib/MaxPool2d.hpp"
-#include <tuple>
-#include <utility>
 
-/**
- * @brief Constructs a MaxPool2d layer with specified kernel size and stride.
- * @param kernel_size_val The size of the pooling kernel (kernel_size_val x kernel_size_val).
- * @param stride_val The stride of the pooling operation.
- */
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+#include <stdexcept>
+#include <string>
+
+namespace dl
+{
+
+CudnnPoolingDescriptor::CudnnPoolingDescriptor()
+{
+    CHECK_CUDNN(cudnnCreatePoolingDescriptor(&desc_));
+}
+
+CudnnPoolingDescriptor::~CudnnPoolingDescriptor()
+{
+    if (desc_ != nullptr)
+    {
+        static_cast<void>(cudnnDestroyPoolingDescriptor(desc_));
+    }
+}
+
+CudnnPoolingDescriptor::CudnnPoolingDescriptor(CudnnPoolingDescriptor&& other) noexcept
+    : desc_(other.desc_)
+{
+    other.desc_ = nullptr;
+}
+
+auto CudnnPoolingDescriptor::operator=(CudnnPoolingDescriptor&& other) noexcept -> CudnnPoolingDescriptor&
+{
+    if (this != &other)
+    {
+        if (desc_ != nullptr)
+        {
+            static_cast<void>(cudnnDestroyPoolingDescriptor(desc_));
+        }
+        desc_ = other.desc_;
+        other.desc_ = nullptr;
+    }
+    return *this;
+}
+
+auto CudnnPoolingDescriptor::get() const -> cudnnPoolingDescriptor_t
+{
+    return desc_;
+}
+
+auto CudnnPoolingDescriptor::set_max_2d(int window, int stride, int padding) -> void
+{
+    CHECK_CUDNN(cudnnSetPooling2dDescriptor(desc_, CUDNN_POOLING_MAX, CUDNN_NOT_PROPAGATE_NAN, window, window, padding,
+                                            padding, stride, stride));
+}
+
+} // namespace dl
+
+namespace
+{
+
+auto require_gpu_nchw(const dl::Tensor& tensor, const char* name) -> void
+{
+    if (tensor.get_device() != dl::Device::GPU)
+    {
+        throw std::runtime_error(std::string(name) + " must reside on the GPU");
+    }
+    if (tensor.get_shape().size() != 4)
+    {
+        throw std::runtime_error(std::string(name) + " must have NCHW rank 4");
+    }
+    if (tensor.get_size() > 0 && tensor.data() == nullptr)
+    {
+        throw std::runtime_error(std::string(name) + " has a null device pointer");
+    }
+}
+
+auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) -> void
+{
+    if (src.get_device() != dl::Device::GPU || dst.get_device() != dl::Device::GPU)
+    {
+        throw std::runtime_error(std::string(name) + " requires GPU tensors");
+    }
+    if (src.get_size() != dst.get_size())
+    {
+        throw std::runtime_error(std::string(name) + " tensor size mismatch");
+    }
+    if (src.get_size() == 0)
+    {
+        return;
+    }
+    CHECK_CUDA(cudaMemcpy(dst.data(), src.data(), src.get_size() * sizeof(float), cudaMemcpyDeviceToDevice));
+}
+
+} // namespace
+
 MaxPool2d::MaxPool2d(int kernel_size_val, int stride_val)
     : kernel_size_(kernel_size_val)
     , stride_(stride_val)
 {
+    if (kernel_size_val <= 0 || stride_val <= 0)
+    {
+        throw std::runtime_error("MaxPool2d requires positive kernel size and stride");
+    }
+
+    device_ = dl::Device::GPU;
+    pooling_desc_.set_max_2d(kernel_size_, stride_);
 }
 
-/**
- * @brief Performs forward pass of 2D max pooling operation.
- * 
- * Applies 2D max pooling using torch::nn::functional::unfold and fold operations.
- * This implementation extracts patches, finds maximum values per patch, and reconstructs
- * the output tensor. Indices of maximum values are cached for backward pass.
- * 
- * @param input_tensor Input tensor of shape [Batch, Channels, Height, Width].
- * @return Output tensor of shape [Batch, Channels, OutputHeight, OutputWidth],
- *         where OutputHeight = (Height - kernel_size) / stride + 1,
- *         and OutputWidth = (Width - kernel_size) / stride + 1.
- * 
- * @note The maximum value indices are cached in indices_cache_ for use in the backward pass.
- *       The input tensor shape is cached in input_shape_cache_ to reconstruct gradients.
- */
-auto MaxPool2d::forward(const torch::Tensor& input_tensor) -> torch::Tensor
+auto MaxPool2d::configure_descriptors(int batch, int channels, int height, int width) -> void
 {
-    input_shape_cache_ = input_tensor.sizes().vec();
-    
-    int64_t batch_size = input_tensor.size(0);
-    int64_t channels_count = input_tensor.size(1);
-    int64_t input_height = input_tensor.size(2);
-    int64_t input_width = input_tensor.size(3);
+    const std::vector<int> input_shape{ batch, channels, height, width };
+    if (descriptors_configured_ && input_shape == input_shape_cache_)
+    {
+        return;
+    }
 
-    torch::Tensor unfolded_input = torch::nn::functional::unfold(
-        input_tensor,
-        torch::nn::functional::UnfoldFuncOptions({ kernel_size_, kernel_size_ }).stride({ stride_, stride_ }));
+    input_desc_.set_nchw(batch, channels, height, width);
 
-    int64_t patch_area = static_cast<int64_t>(kernel_size_) * kernel_size_;
-    int64_t patches_count = unfolded_input.size(2);
+    int n_out{ 0 };
+    int c_out{ 0 };
+    int h_out{ 0 };
+    int w_out{ 0 };
+    CHECK_CUDNN(cudnnGetPooling2dForwardOutputDim(pooling_desc_.get(), input_desc_.get(), &n_out, &c_out, &h_out,
+                                                  &w_out));
+    output_desc_.set_nchw(n_out, c_out, h_out, w_out);
 
-    torch::Tensor reshaped_unfolded = unfolded_input.view({ batch_size, channels_count, patch_area, patches_count });
-
-    constexpr int reduction_dimension = 2;
-    auto max_tuple = torch::max(reshaped_unfolded, reduction_dimension, false);
-
-    torch::Tensor max_values = std::get<0>(max_tuple);
-    indices_cache_ = std::get<1>(max_tuple);
-
-    int64_t output_height = (input_height - kernel_size_) / stride_ + 1;
-    int64_t output_width = (input_width - kernel_size_) / stride_ + 1;
-
-    return max_values.contiguous().view({ batch_size, channels_count, output_height, output_width });
+    input_shape_cache_ = input_shape;
+    output_shape_cache_ = { n_out, c_out, h_out, w_out };
+    descriptors_configured_ = true;
 }
 
-/**
- * @brief Computes the gradients for the backward pass of the MaxPool2d layer.
- * 
- * @param output_error_derivative Gradient of the loss with respect to the layer's output [Batch, Channels, OutputHeight, OutputWidth].
- * @return Gradient of the loss with respect to the layer's input [Batch, Channels, Height, Width].
- * 
- * @note Uses the indices cached during the forward pass to scatter the gradients back to the corresponding maximum value locations.
- */
-auto MaxPool2d::backward(const torch::Tensor& output_error_derivative) -> torch::Tensor
+auto MaxPool2d::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 {
-    int64_t batch_size = output_error_derivative.size(0);
-    int64_t channels_count = output_error_derivative.size(1);
-    int64_t patch_area = static_cast<int64_t>(kernel_size_) * kernel_size_;
-    int64_t patches_count = indices_cache_.size(2);
+    require_gpu_nchw(input_tensor, "MaxPool2d::forward input");
 
-    torch::Tensor flat_gradient = output_error_derivative.contiguous().view({ batch_size, channels_count, 1, patches_count });
-    
-    torch::Tensor gradient_unfolded = torch::zeros(
-        { batch_size, channels_count, patch_area, patches_count }, 
-        output_error_derivative.options());
+    const int batch = input_tensor.get_shape()[0];
+    const int channels = input_tensor.get_shape()[1];
+    const int height = input_tensor.get_shape()[2];
+    const int width = input_tensor.get_shape()[3];
+    configure_descriptors(batch, channels, height, width);
 
-    constexpr int scatter_dimension = 2;
-    torch::Tensor scatter_indices = indices_cache_.unsqueeze(scatter_dimension);
+    input_cache_ = dl::Tensor(input_tensor.get_shape(), dl::Device::GPU);
+    copy_same_size(*input_cache_, input_tensor, "MaxPool2d::forward input cache");
 
-    gradient_unfolded.scatter_(scatter_dimension, scatter_indices, flat_gradient);
+    output_cache_ = dl::Tensor(output_shape_cache_, dl::Device::GPU);
+    const float alpha{ 1.0F };
+    const float beta_zero{ 0.0F };
+    CHECK_CUDNN(cudnnPoolingForward(dl::get_cudnn_handle(), pooling_desc_.get(), &alpha, input_desc_.get(),
+                                    input_tensor.data(), &beta_zero, output_desc_.get(), output_cache_->data()));
 
-    gradient_unfolded = gradient_unfolded.view({ batch_size, channels_count * patch_area, patches_count });
+    return output_cache_->view(output_cache_->get_shape());
+}
 
-    auto folded_grad = torch::nn::functional::fold(
-        gradient_unfolded,
-        torch::nn::functional::FoldFuncOptions({ input_shape_cache_[2], input_shape_cache_[3] }, { kernel_size_, kernel_size_ })
-            .stride({ stride_, stride_ }));
+auto MaxPool2d::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
+{
+    if (!input_cache_.has_value() || !output_cache_.has_value())
+    {
+        throw std::runtime_error("MaxPool2d::backward requires a preceding forward pass");
+    }
+    require_gpu_nchw(output_error_derivative, "MaxPool2d::backward grad_output");
+    if (output_error_derivative.get_shape() != output_shape_cache_)
+    {
+        throw std::runtime_error("MaxPool2d::backward grad_output shape does not match the cached pooling output");
+    }
 
-    indices_cache_ = torch::Tensor();
+    dl::Tensor grad_input(input_cache_->get_shape(), dl::Device::GPU);
+    const float alpha{ 1.0F };
+    const float beta_zero{ 0.0F };
+    CHECK_CUDNN(cudnnPoolingBackward(dl::get_cudnn_handle(), pooling_desc_.get(), &alpha, output_desc_.get(),
+                                     output_cache_->data(), output_desc_.get(), output_error_derivative.data(),
+                                     input_desc_.get(), input_cache_->data(), &beta_zero, input_desc_.get(),
+                                     grad_input.data()));
 
-    return folded_grad;
+    input_cache_.reset();
+    output_cache_.reset();
+    return grad_input;
 }

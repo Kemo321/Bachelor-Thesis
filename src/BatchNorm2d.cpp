@@ -1,139 +1,236 @@
 #include "DeepLearnLib/BatchNorm2d.hpp"
 
-/**
- * @brief Constructs a 2D Batch Normalization layer.
- * 
- * @param num_features Number of features/channels in the input tensor.
- * @param eps A value added to the denominator for numerical stability.
- * @param momentum The value used for the running_mean and running_var computation.
- */
-BatchNorm2d::BatchNorm2d(int num_features, float eps, float momentum)
-    : num_features_(num_features), eps_(eps), momentum_bn_(momentum)
-{
-    gamma_ = torch::ones({1, num_features, 1, 1});
-    beta_ = torch::zeros({1, num_features, 1, 1});
-    
-    gamma_grad_ = torch::zeros_like(gamma_);
-    beta_grad_ = torch::zeros_like(beta_);
+#include <algorithm>
+#include <cstddef>
+#include <stdexcept>
+#include <string>
 
-    running_mean_ = torch::zeros({1, num_features, 1, 1});
-    running_var_ = torch::ones({1, num_features, 1, 1});
+#include <thrust/device_ptr.h>
+#include <thrust/execution_policy.h>
+#include <thrust/fill.h>
+#include <thrust/functional.h>
+#include <thrust/transform.h>
+
+namespace
+{
+
+constexpr float kWeightDecay = 0.0005F;
+
+struct ScaledAdd
+{
+    float scale;
+
+    __host__ __device__ auto operator()(float lhs, float rhs) const -> float
+    {
+        return lhs + (scale * rhs);
+    }
+};
+
+auto fill_constant(dl::Tensor& tensor, float value) -> void
+{
+    if (tensor.get_size() == 0)
+    {
+        return;
+    }
+    auto out = thrust::device_pointer_cast(tensor.data());
+    thrust::fill(thrust::device, out, out + static_cast<std::ptrdiff_t>(tensor.get_size()), value);
+    CHECK_CUDA(cudaGetLastError());
 }
 
-/**
- * @brief Performs the forward pass of the batch normalization.
- * 
- * @param input_tensor The input tensor [Batch, Channels, Height, Width].
- * @return torch::Tensor The normalized output tensor [Batch, Channels, Height, Width].
- */
-auto BatchNorm2d::forward(const torch::Tensor& input_tensor) -> torch::Tensor
+auto add_scaled(dl::Tensor& lhs, const dl::Tensor& rhs, float scale) -> void
 {
+    if (lhs.get_size() == 0)
+    {
+        return;
+    }
+    auto dest = thrust::device_pointer_cast(lhs.data());
+    auto src = thrust::device_pointer_cast(rhs.data());
+    thrust::transform(thrust::device, dest, dest + static_cast<std::ptrdiff_t>(lhs.get_size()), src, dest,
+                      ScaledAdd{ scale });
+    CHECK_CUDA(cudaGetLastError());
+}
+
+auto require_gpu_nchw(const dl::Tensor& tensor, const char* name) -> void
+{
+    if (tensor.get_device() != dl::Device::GPU)
+    {
+        throw std::runtime_error(std::string(name) + " must reside on the GPU");
+    }
+    if (tensor.get_shape().size() != 4)
+    {
+        throw std::runtime_error(std::string(name) + " must have NCHW rank 4");
+    }
+    if (tensor.get_size() > 0 && tensor.data() == nullptr)
+    {
+        throw std::runtime_error(std::string(name) + " has a null device pointer");
+    }
+}
+
+auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) -> void
+{
+    if (src.get_device() != dl::Device::GPU || dst.get_device() != dl::Device::GPU)
+    {
+        throw std::runtime_error(std::string(name) + " requires GPU tensors");
+    }
+    if (src.get_size() != dst.get_size())
+    {
+        throw std::runtime_error(std::string(name) + " tensor size mismatch");
+    }
+    if (src.get_size() == 0)
+    {
+        return;
+    }
+    CHECK_CUDA(cudaMemcpy(dst.data(), src.data(), src.get_size() * sizeof(float), cudaMemcpyDeviceToDevice));
+}
+
+} // namespace
+
+BatchNorm2d::BatchNorm2d(int num_features, float eps, float momentum)
+    : num_features_(num_features)
+    , eps_(eps)
+    , momentum_bn_(momentum)
+    , gamma_({ 1, num_features, 1, 1 }, dl::Device::GPU)
+    , beta_({ 1, num_features, 1, 1 }, dl::Device::GPU)
+    , gamma_grad_({ 1, num_features, 1, 1 }, dl::Device::GPU)
+    , beta_grad_({ 1, num_features, 1, 1 }, dl::Device::GPU)
+    , running_mean_({ 1, num_features, 1, 1 }, dl::Device::GPU)
+    , running_var_({ 1, num_features, 1, 1 }, dl::Device::GPU)
+    , save_mean_({ 1, num_features, 1, 1 }, dl::Device::GPU)
+    , save_inv_var_({ 1, num_features, 1, 1 }, dl::Device::GPU)
+{
+    if (num_features <= 0)
+    {
+        throw std::runtime_error("BatchNorm2d requires a positive channel count");
+    }
+    if (eps_ < 0.0F)
+    {
+        throw std::runtime_error("BatchNorm2d epsilon must be non-negative");
+    }
+
+    device_ = dl::Device::GPU;
+    fill_constant(gamma_, 1.0F);
+    fill_constant(beta_, 0.0F);
+    fill_constant(gamma_grad_, 0.0F);
+    fill_constant(beta_grad_, 0.0F);
+    fill_constant(running_mean_, 0.0F);
+    fill_constant(running_var_, 1.0F);
+}
+
+auto BatchNorm2d::configure_descriptors(int batch, int channels, int height, int width) -> void
+{
+    const std::vector<int> shape{ batch, channels, height, width };
+    if (descriptors_configured_ && shape == input_shape_cache_)
+    {
+        return;
+    }
+    if (channels != num_features_)
+    {
+        throw std::runtime_error("BatchNorm2d channel count does not match the layer");
+    }
+
+    x_desc_.set_nchw(batch, channels, height, width);
+    CHECK_CUDNN(cudnnDeriveBNTensorDescriptor(bn_desc_.get(), x_desc_.get(), CUDNN_BATCHNORM_SPATIAL));
+    input_shape_cache_ = shape;
+    descriptors_configured_ = true;
+}
+
+auto BatchNorm2d::forward(const dl::Tensor& input_tensor) -> dl::Tensor
+{
+    require_gpu_nchw(input_tensor, "BatchNorm2d::forward input");
+
+    const int batch = input_tensor.get_shape()[0];
+    const int channels = input_tensor.get_shape()[1];
+    const int height = input_tensor.get_shape()[2];
+    const int width = input_tensor.get_shape()[3];
+    configure_descriptors(batch, channels, height, width);
+
+    dl::Tensor output(input_tensor.get_shape(), dl::Device::GPU);
+    const float alpha{ 1.0F };
+    const float beta_zero{ 0.0F };
+    const auto handle = dl::get_cudnn_handle();
+    const double epsilon = std::max(static_cast<double>(eps_), static_cast<double>(CUDNN_BN_MIN_EPSILON));
+
     if (is_training_)
     {
-        auto mean = input_tensor.mean({0, 2, 3}, true);
-        auto var = input_tensor.var({0, 2, 3}, false, true);
+        input_cache_ = dl::Tensor(input_tensor.get_shape(), dl::Device::GPU);
+        copy_same_size(*input_cache_, input_tensor, "BatchNorm2d::forward input cache");
 
-        std_inv_ = 1.0F / torch::sqrt(var + eps_);
-        x_hat_ = (input_tensor - mean) * std_inv_;
-
-        running_mean_ = (1.0F - momentum_bn_) * running_mean_ + momentum_bn_ * mean.detach();
-        
-        int64_t numElements = input_tensor.size(0) * input_tensor.size(2) * input_tensor.size(3);
-        float adjust = static_cast<float>(numElements) / static_cast<float>(numElements - 1);
-        running_var_ = (1.0F - momentum_bn_) * running_var_ + momentum_bn_ * var.detach() * adjust;
-
-        return gamma_ * x_hat_ + beta_;
+        const double average_factor = static_cast<double>(momentum_bn_);
+        CHECK_CUDNN(cudnnBatchNormalizationForwardTraining(
+            handle, CUDNN_BATCHNORM_SPATIAL, &alpha, &beta_zero, x_desc_.get(), input_tensor.data(), x_desc_.get(),
+            output.data(), bn_desc_.get(), gamma_.data(), beta_.data(), average_factor, running_mean_.data(),
+            running_var_.data(), epsilon, save_mean_.data(), save_inv_var_.data()));
     }
-    
-    auto xHat = (input_tensor - running_mean_) / torch::sqrt(running_var_ + eps_);
-    return gamma_ * xHat + beta_;
-}
-
-/**
- * @brief Performs the backward pass, computing gradients for inputs and parameters.
- * 
- * @note Applies the chain rule to backpropagate through the normalization steps.
- * 
- * @param output_error_derivative The gradient of the loss with respect to the output [Batch, Channels, Height, Width].
- * @return torch::Tensor The gradient of the loss with respect to the input [Batch, Channels, Height, Width].
- */
-auto BatchNorm2d::backward(const torch::Tensor& output_error_derivative) -> torch::Tensor {
-    if (!is_training_ || !x_hat_.defined()) {
-        return output_error_derivative; 
+    else
+    {
+        input_cache_.reset();
+        CHECK_CUDNN(cudnnBatchNormalizationForwardInference(
+            handle, CUDNN_BATCHNORM_SPATIAL, &alpha, &beta_zero, x_desc_.get(), input_tensor.data(), x_desc_.get(),
+            output.data(), bn_desc_.get(), gamma_.data(), beta_.data(), running_mean_.data(), running_var_.data(),
+            epsilon));
     }
 
-    gamma_grad_ = (output_error_derivative * x_hat_).sum({0, 2, 3}, true);
-    beta_grad_  = output_error_derivative.sum({0, 2, 3}, true);
-
-    constexpr float weightDecay = 0.0005F;
-    gamma_grad_ += weightDecay * gamma_;
-    beta_grad_  += weightDecay * beta_;
-
-    auto gradXHat = output_error_derivative * gamma_;
-    auto meanGradXHat = gradXHat.mean({0, 2, 3}, true);
-    auto varTerm = (gradXHat * x_hat_).mean({0, 2, 3}, true);
-    auto gradInput = std_inv_ * (gradXHat - meanGradXHat - x_hat_ * varTerm);
-
-    x_hat_ = torch::Tensor();
-    std_inv_ = torch::Tensor();
-    return gradInput; // return dx
+    return output;
 }
 
-/**
- * @brief Updates the gamma and beta parameters using their computed gradients.
- */
-void BatchNorm2d::step() {
-    gamma_ -= learning_rate * gamma_grad_;
-    beta_  -= learning_rate * beta_grad_;
-}
-
-/**
- * @brief Moves parameters and buffers to the specified target device.
- * 
- * @param target_device The device to move the tensors to (e.g., CPU, CUDA).
- */
-auto BatchNorm2d::to(torch::Device target_device) -> void
+auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
 {
-    Layer::to(target_device);
-    gamma_ = gamma_.to(target_device);
-    beta_ = beta_.to(target_device);
-    gamma_grad_ = gamma_grad_.to(target_device);
-    beta_grad_ = beta_grad_.to(target_device);
-    running_mean_ = running_mean_.to(target_device);
-    running_var_ = running_var_.to(target_device);
-    
-    if (x_hat_.defined()) {
-        x_hat_ = x_hat_.to(target_device);
+    if (!is_training_ || !input_cache_.has_value())
+    {
+        throw std::runtime_error("BatchNorm2d::backward requires a preceding training forward pass");
     }
-    if (std_inv_.defined()) {
-        std_inv_ = std_inv_.to(target_device);
+    require_gpu_nchw(output_error_derivative, "BatchNorm2d::backward grad_output");
+    if (output_error_derivative.get_shape() != input_cache_->get_shape())
+    {
+        throw std::runtime_error("BatchNorm2d::backward grad_output shape does not match the cached input");
     }
+
+    dl::Tensor grad_input(input_cache_->get_shape(), dl::Device::GPU);
+    const float alpha{ 1.0F };
+    const float beta_zero{ 0.0F };
+    const double epsilon = std::max(static_cast<double>(eps_), static_cast<double>(CUDNN_BN_MIN_EPSILON));
+
+    CHECK_CUDNN(cudnnBatchNormalizationBackward(
+        dl::get_cudnn_handle(), CUDNN_BATCHNORM_SPATIAL, &alpha, &beta_zero, &alpha, &beta_zero, x_desc_.get(),
+        input_cache_->data(), x_desc_.get(), output_error_derivative.data(), x_desc_.get(), grad_input.data(),
+        bn_desc_.get(), gamma_.data(), gamma_grad_.data(), beta_grad_.data(), epsilon, save_mean_.data(),
+        save_inv_var_.data()));
+
+    add_scaled(gamma_grad_, gamma_, kWeightDecay);
+    add_scaled(beta_grad_, beta_, kWeightDecay);
+    input_cache_.reset();
+    return grad_input;
 }
 
-/**
- * @brief Gets a map of the layer's parameters and buffers.
- * 
- * @return std::map<std::string, torch::Tensor> A dictionary containing parameter tensors.
- */
-auto BatchNorm2d::get_parameters() -> std::map<std::string, torch::Tensor>
+void BatchNorm2d::step()
 {
-    return {
-        {"gamma", gamma_},
-        {"beta", beta_},
-        {"running_mean", running_mean_},
-        {"running_var", running_var_}
-    };
+    gamma_ = gamma_ - (gamma_grad_ * learning_rate);
+    beta_ = beta_ - (beta_grad_ * learning_rate);
 }
 
-/**
- * @brief Sets the layer's parameters and buffers from a map.
- * 
- * @param params A dictionary containing parameter tensors.
- */
-void BatchNorm2d::set_parameters(const std::map<std::string, torch::Tensor>& params)
+auto BatchNorm2d::get_parameters() -> std::map<std::string, dl::Tensor>
 {
-    gamma_ = params.at("gamma");
-    beta_ = params.at("beta");
-    running_mean_ = params.at("running_mean");
-    running_var_ = params.at("running_var");
+    std::map<std::string, dl::Tensor> params;
+    params.emplace("gamma", gamma_.view(gamma_.get_shape()));
+    params.emplace("beta", beta_.view(beta_.get_shape()));
+    params.emplace("running_mean", running_mean_.view(running_mean_.get_shape()));
+    params.emplace("running_var", running_var_.view(running_var_.get_shape()));
+    return params;
+}
+
+void BatchNorm2d::set_parameters(const std::map<std::string, dl::Tensor>& params)
+{
+    copy_same_size(gamma_, params.at("gamma"), "BatchNorm2d::set_parameters gamma");
+    copy_same_size(beta_, params.at("beta"), "BatchNorm2d::set_parameters beta");
+    copy_same_size(running_mean_, params.at("running_mean"), "BatchNorm2d::set_parameters running_mean");
+    copy_same_size(running_var_, params.at("running_var"), "BatchNorm2d::set_parameters running_var");
+}
+
+auto BatchNorm2d::to(dl::Device device) -> void
+{
+    if (device != dl::Device::GPU)
+    {
+        throw std::runtime_error("BatchNorm2d parameters must remain on the GPU");
+    }
+    device_ = device;
 }
