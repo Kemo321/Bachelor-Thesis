@@ -23,6 +23,7 @@ target_link_libraries(DeepLearnLib PUBLIC
     torch
     hwy 
     CUDA::cudart
+    CUDA::cublas
     ${TORCH_LIBRARIES}
     ${OpenCV_LIBS}
 )

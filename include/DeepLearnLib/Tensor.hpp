@@ -1,12 +1,18 @@
 #pragma once
 
+#ifndef DEEPLEARNLIB_ENABLE_CUDA
+#define DEEPLEARNLIB_ENABLE_CUDA 1
+#endif
+
 #include <algorithm>
 #include <cstddef>
 #if DEEPLEARNLIB_ENABLE_CUDA
+#include <cublas_v2.h>
 #include <cuda_runtime.h>
 #endif
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace dl
@@ -16,6 +22,17 @@ enum class Device
 {
     CPU,
     GPU
+};
+
+struct CpuDeleter
+{
+    void operator()(float* ptr) const
+    {
+        if (ptr)
+        {
+            delete[] ptr;
+        }
+    }
 };
 
 #if DEEPLEARNLIB_ENABLE_CUDA
@@ -30,17 +47,45 @@ struct CudaDeleter
     }
 };
 
-#else
-struct CpuDeleter
+inline auto check_cuda(cudaError_t status, const char* file, int line) -> void
 {
-    void operator()(float* ptr) const
+    if (status != cudaSuccess)
     {
-        if (ptr)
-        {
-            delete[] ptr;
-        }
+        throw std::runtime_error(std::string("CUDA error at ") + file + ":" + std::to_string(line) + ": " +
+                                 cudaGetErrorString(status));
     }
+}
+
+inline auto check_cublas(cublasStatus_t status, const char* file, int line) -> void
+{
+    if (status != CUBLAS_STATUS_SUCCESS)
+    {
+        throw std::runtime_error(std::string("cuBLAS error at ") + file + ":" + std::to_string(line) + ": " +
+                                 cublasGetStatusString(status));
+    }
+}
+
+#define CHECK_CUDA(call) ::dl::check_cuda((call), __FILE__, __LINE__)
+#define CHECK_CUBLAS(call) ::dl::check_cublas((call), __FILE__, __LINE__)
+
+class CublasContext
+{
+public:
+    static auto handle() -> cublasHandle_t;
+
+    CublasContext(const CublasContext&) = delete;
+    auto operator=(const CublasContext&) -> CublasContext& = delete;
+    CublasContext(CublasContext&&) = delete;
+    auto operator=(CublasContext&&) -> CublasContext& = delete;
+
+private:
+    CublasContext();
+    ~CublasContext();
+
+    cublasHandle_t handle_{ nullptr };
 };
+
+auto get_cublas_handle() -> cublasHandle_t;
 #endif
 
 class Tensor
@@ -65,10 +110,11 @@ public:
     auto get_size() const -> size_t;
     auto get_device() const -> Device;
     auto get_data() const -> const float*;
+    auto data() -> float*;
+    auto data() const -> const float*;
     // clang-format on
 
-    // auto data() -> float*;
-    // auto data() const -> const float*;
+    auto matmul(const Tensor& other) const -> Tensor;
 
     // auto to_device(Device target_device) -> void;
 
@@ -117,6 +163,7 @@ private:
     std::shared_ptr<float> data_;
 
     auto compute_strides() -> void;
+    auto is_contiguous() const -> bool;
 };
 
 } // namespace dl
