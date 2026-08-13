@@ -1,17 +1,16 @@
 #pragma once
 
 #include "DeepLearnLib/Layer.hpp"
+#include "DeepLearnLib/Tensor.hpp"
+
 #include <map>
+#include <optional>
 #include <string>
-#include <torch/torch.h>
 
 /**
- * @brief Fully connected (dense) linear layer implementing manual forward/backward.
+ * @brief Fully connected layer using cuBLAS GEMM via dl::Tensor::matmul.
  *
- * This layer stores weights and biases and exposes explicit forward, backward
- * and parameter update (step) operations. It is intended for use in a
- * custom training loop where gradients are computed via the backward method
- * and applied in step().
+ * Weights have shape [input_size, output_size]. Biases have shape [1, output_size].
  */
 class FullyConnected : public Layer
 {
@@ -19,89 +18,55 @@ public:
     /**
      * @brief Construct a fully connected layer.
      *
-     * @param inputSize Number of input features (D_in).
-     * @param outputSize Number of output features (D_out).
-     * @param inertiaVal Momentum/inertia factor used in parameter updates (default 0.0F).
+     * @param input_size Number of input features.
+     * @param output_size Number of output features.
+     * @param inertia_val Momentum factor used when accumulating gradients.
      */
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-    FullyConnected(int inputSize, int outputSize, float inertiaVal = 0.0F);
+    FullyConnected(int input_size, int output_size, float inertia_val = 0.0F);
 
     /**
-     * @brief Forward pass for the fully connected layer.
-     *
-     * @param inputTensor Input activation tensor with shape [batch, inputSize].
-     *                    Prefer contiguous memory layout; implementations may
-     *                    call .contiguous() internally to avoid striding issues.
-     * @return Output activation tensor with shape [batch, outputSize].
+     * @brief Forward pass: Y = X W + b.
+     * @param input_tensor Input activations with shape [batch, input_size].
+     * @return Output activations with shape [batch, output_size].
      */
-    [[nodiscard]] auto forward(const torch::Tensor& inputTensor) -> torch::Tensor override;
+    [[nodiscard]] auto forward(const dl::Tensor& input_tensor) -> dl::Tensor override;
 
     /**
-     * @brief Backward pass computing derivative wrt inputs.
-     *
-     * @param outputErrorDerivative Gradient of loss wrt this layer's outputs with shape [batch, outputSize].
-     * @return Gradient of loss wrt this layer's inputs with shape [batch, inputSize].
-     * @note This method should populate internal weight/bias gradient members used by step().
+     * @brief Backward pass computing dX, dW, and db.
+     * @param output_error_derivative Gradient wrt outputs with shape [batch, output_size].
+     * @return Gradient wrt inputs with shape [batch, input_size].
      */
-    [[nodiscard]] auto backward(const torch::Tensor& outputErrorDerivative) -> torch::Tensor override;
+    [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative) -> dl::Tensor override;
 
     /**
-     * @brief Apply accumulated gradients to parameters (weights and biases).
-     *
-     * This method should update internal parameters according to the chosen
-     * optimizer scheme (e.g. simple SGD with optional inertia/momentum).
+     * @brief SGD parameter update.
      */
     void step() override;
 
     /**
-     * @brief Retrieve layer parameters.
-     *
-     * @return Map with keys typically "weights" and "biases" and their tensors.
+     * @brief Retrieve learnable parameters.
+     * @return Map with keys "weights" and "bias".
      */
-    auto get_parameters() -> std::map<std::string, torch::Tensor> override;
+    auto get_parameters() -> std::map<std::string, dl::Tensor> override;
 
     /**
-     * @brief Replace layer parameters from provided map.
-     *
-     * @param params Map containing tensors for keys such as "weights" and "biases".
+     * @brief Replace learnable parameters from an external source.
      */
-    void set_parameters(const std::map<std::string, torch::Tensor>& params) override;
+    void set_parameters(const std::map<std::string, dl::Tensor>& params) override;
 
     /**
-     * @brief Move internal tensors to the specified device.
-     *
-     * @param device Target torch device (e.g. torch::kCUDA or torch::kCPU).
+     * @brief FullyConnected parameters already reside on the GPU; CPU placement is rejected.
      */
-    auto to(torch::Device device) -> void override;
+    auto to(dl::Device device) -> void override;
 
 private:
-    /**
-     * @brief Weight matrix with shape [inputSize, outputSize].
-     */
-    torch::Tensor weights_;
-
-    /**
-     * @brief Bias vector with shape [outputSize].
-     */
-    torch::Tensor biases_;
-
-    /**
-     * @brief Cached input activations from last forward pass with shape [batch, inputSize].
-     */
-    torch::Tensor input_cache_;
-
-    /**
-     * @brief Gradient accumulator for weights, same shape as weights_.
-     */
-    torch::Tensor weights_gradient_;
-
-    /**
-     * @brief Gradient accumulator for biases, same shape as biases_.
-     */
-    torch::Tensor biases_gradient_;
-
-    /**
-     * @brief Inertia / momentum coefficient applied during parameter updates.
-     */
+    dl::Tensor weights_;
+    dl::Tensor biases_;
+    std::optional<dl::Tensor> input_cache_;
+    dl::Tensor weights_gradient_;
+    dl::Tensor biases_gradient_;
+    int input_size_;
+    int output_size_;
     float inertia_;
 };

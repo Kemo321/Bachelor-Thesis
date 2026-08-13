@@ -1,33 +1,50 @@
 #include "DeepLearnLib/Flatten.hpp"
 
-/**
- * @brief Computes the forward pass for the Flatten layer.
- *
- * @param input_tensor The input tensor to the layer. Expected shape: [Batch, ...].
- * @return A flattened tensor with shape [Batch, FlattenedSize].
- */
+#include <stdexcept>
+#include <string>
 
-auto Flatten::forward(const torch::Tensor& input_tensor) -> torch::Tensor
+namespace
 {
-    input_shape_cache_ = input_tensor.sizes().vec();
-    int64_t batch_size = input_tensor.size(0);
-    int64_t flattened_size = 1;
-    for (size_t i = 1; i < input_shape_cache_.size(); ++i)
+
+auto require_gpu(const dl::Tensor& tensor, const char* name) -> void
+{
+    if (tensor.get_device() != dl::Device::GPU)
     {
-        flattened_size *= input_shape_cache_[i];
+        throw std::runtime_error(std::string(name) + " must reside on the GPU");
     }
-    return input_tensor.view({batch_size, flattened_size}).contiguous();
+    if (tensor.get_size() > 0 && tensor.data() == nullptr)
+    {
+        throw std::runtime_error(std::string(name) + " has a null device pointer");
+    }
 }
 
-/**
- * @brief Computes the backward pass for the Flatten layer.
- *
- * @param output_error_derivative The derivative of the error with respect to the output. Expected shape: [Batch, FlattenedSize].
- * @return The derivative of the error with respect to the input. Expected shape: [Batch, ...].
- * @note Reshapes the gradient back to the original input shape cache.
- */
+} // namespace
 
-auto Flatten::backward(const torch::Tensor& output_error_derivative) -> torch::Tensor
+auto Flatten::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 {
+    require_gpu(input_tensor, "Flatten::forward input");
+    if (input_tensor.get_shape().empty())
+    {
+        throw std::runtime_error("Flatten::forward requires a tensor with a batch dimension");
+    }
+
+    input_shape_cache_ = input_tensor.get_shape();
+    const int batch_size = input_shape_cache_.front();
+    if (batch_size <= 0)
+    {
+        throw std::runtime_error("Flatten::forward requires a positive batch size");
+    }
+
+    const int flattened_size = static_cast<int>(input_tensor.get_size() / static_cast<size_t>(batch_size));
+    return input_tensor.view({ batch_size, flattened_size });
+}
+
+auto Flatten::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
+{
+    require_gpu(output_error_derivative, "Flatten::backward grad_output");
+    if (input_shape_cache_.empty())
+    {
+        throw std::runtime_error("Flatten::backward requires a preceding forward pass");
+    }
     return output_error_derivative.view(input_shape_cache_);
 }
