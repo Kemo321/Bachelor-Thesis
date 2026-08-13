@@ -133,6 +133,8 @@ public:
     auto to_host() const -> std::vector<float>;
     static auto from_host(const std::vector<int>& shape, const std::vector<float>& host_data,
                           Device device = Device::GPU) -> Tensor;
+    static auto from_host(const std::vector<int>& shape, const float* host_data, Device device = Device::GPU)
+        -> Tensor;
 
     // auto to_device(Device target_device) -> void;
 

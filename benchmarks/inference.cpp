@@ -1,14 +1,16 @@
-#include <iostream>
 #include <algorithm>
 #include <filesystem>
+#include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 #include <opencv2/opencv.hpp>
 #include <torch/torch.h>
 
+#include "DeepLearnLib/Network.hpp"
+#include "DeepLearnLib/Tensor.hpp"
 #include "DeepLearnLib/TorchYOLO.hpp"
 #include "DeepLearnLib/YOLO.hpp"
-#include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/utils.hpp"
 
 namespace fs = std::filesystem;
@@ -58,15 +60,22 @@ int main(int argc, char* argv[]) {
     }
 
     YOLOv1 torch_model(20);
-    YOLO custom_model(20);
+    std::unique_ptr<YOLO> custom_model;
     if (mode == "--torch") {
         torch::load(torch_model, model_path);
         torch_model->to(device);
         torch_model->eval();
-    } else {
+    } else if (mode == "--custom") {
+        custom_model = std::make_unique<YOLO>(20);
         Network network(custom_model->get_all_layers(), 0.0f);
         network.load(model_path);
-        for (auto& l : custom_model->get_all_layers()) { l->to(device); l->eval(); }
+        for (auto& layer : custom_model->get_all_layers()) {
+            layer->to(dl::Device::GPU);
+            layer->eval();
+        }
+    } else {
+        std::cerr << "[ERROR] Unknown mode. Use --torch or --custom.\n";
+        return -1;
     }
 
     for (const auto& image_file : images) {
@@ -80,16 +89,37 @@ int main(int argc, char* argv[]) {
         cv::resize(img, resized, cv::Size(448, 448));
         cv::cvtColor(resized, resized, cv::COLOR_BGR2RGB);
         resized.convertTo(resized, CV_32FC3, 1.0f / 255.0f);
-        auto input = torch::from_blob(resized.data, {1, 448, 448, 3}, torch::kFloat32).permute({0, 3, 1, 2}).contiguous().to(device);
 
-        torch::Tensor output;
+        std::vector<Detection> raw_detections;
         if (mode == "--torch") {
+            auto input = torch::from_blob(resized.data, {1, 448, 448, 3}, torch::kFloat32).permute({0, 3, 1, 2}).contiguous().to(device);
+            torch::Tensor output;
             { torch::NoGradGuard no_grad; output = torch_model->forward(input).cpu().view({1, 7, 7, 30}); }
+            output = output.contiguous();
+            const float* output_ptr = output.data_ptr<float>();
+            std::vector<float> output_data(output_ptr, output_ptr + output.numel());
+            raw_detections = decode_yolo_tensor(output_data, conf_threshold, img.cols, img.rows, 20);
         } else {
-            { torch::NoGradGuard no_grad; output = custom_model->forward(input).cpu().view({1, 7, 7, 30}); }
+            constexpr int kHeight = 448;
+            constexpr int kWidth = 448;
+            constexpr int kChannels = 3;
+            std::vector<float> chw_data(static_cast<size_t>(kChannels * kHeight * kWidth));
+            for (int row = 0; row < kHeight; ++row) {
+                const auto* pixel_row = resized.ptr<cv::Vec3f>(row);
+                for (int col = 0; col < kWidth; ++col) {
+                    for (int channel = 0; channel < kChannels; ++channel) {
+                        chw_data[static_cast<size_t>((channel * kHeight * kWidth) + (row * kWidth) + col)] =
+                            pixel_row[col][channel];
+                    }
+                }
+            }
+
+            dl::Tensor input = dl::Tensor::from_host({1, 3, 448, 448}, chw_data.data());
+            dl::Tensor output = custom_model->forward(input);
+            std::vector<float> output_data = output.to_host();
+            raw_detections = decode_yolo_tensor(output_data, conf_threshold, img.cols, img.rows, 20);
         }
 
-        auto raw_detections = decode_yolo_tensor(output, conf_threshold, img.cols, img.rows, 20);
         auto final_detections = apply_nms(raw_detections, nms_threshold);
 
         cv::Scalar box_color = (mode == "--torch") ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);

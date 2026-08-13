@@ -1,6 +1,6 @@
 #include "DeepLearnLib/utils.hpp"
 #include <algorithm>
-#include <torch/torch.h>
+#include <stdexcept>
 
 /**
  * @brief Calculates Intersection over Union (IoU) metric for bounding box comparison.
@@ -87,44 +87,17 @@ std::vector<Detection> apply_nms(std::vector<Detection>& detections, float nms_t
 
 /**
  * @brief Decodes YOLO tensor output into Detection objects with bounding boxes.
- * 
+ *
  * This function processes raw YOLO network output (typically from a 7×7 grid of cells,
  * each predicting 2 bounding boxes and class probabilities) into structured Detection
  * objects with absolute image coordinates. The YOLO architecture uses relative coordinates
  * and grid cell offsets, which are converted to actual pixel coordinates and dimensions.
- * 
- * @param output torch::Tensor YOLO model output tensor with shape [Batch=1, GridH=7, GridW=7, Channels=30]
- *               Channel layout: [tx, ty, tw, th, objectness, tx, ty, tw, th, objectness, class_probs[20]]
- *               - tx, ty: relative x, y offsets within grid cell (sigmoid output ~[0, 1])
- *               - tw, th: relative width, height (exp-transformed prior box scales)
- *               - objectness: confidence score that cell contains an object
- *               - class_probs: per-class probabilities
- * @param conf_threshold float Minimum objectness confidence threshold for detection. 
- *                       Boxes with objectness <= conf_threshold are discarded.
- *                       Typical range: [0.3F, 0.5F]
- * @param img_width int Width of input image in pixels
- * @param img_height int Height of input image in pixels
- * @param num_classes int Number of object classes (typically 20 for PASCAL VOC, 80 for COCO)
- * @return std::vector<Detection> Vector of detected objects. Each Detection contains:
- *         - box: cv::Rect with absolute pixel coordinates (x_min, y_min, width, height)
- *         - score: float objectness score
- *         - class_id: int predicted class index
- * 
- * @details
- *   YOLO Decoding Process:
- *   1. Iterate through all 7×7 = 49 grid cells
- *   2. For each cell, find the class with maximum probability
- *   3. For each of 2 bounding box predictions in the cell:
- *      a. Extract objectness score and coordinates
- *      b. Apply grid cell offset: normalized_x = (tx + grid_j) / 7.0
- *      c. Convert to image coordinates: cx = normalized_x * img_width
- *      d. Apply exponential scaling to width/height
- *      e. Clamp box coordinates to image bounds [0, img_width) × [0, img_height)
- *   4. Only include boxes with objectness > conf_threshold
+ *
+ * Layout is a flat [Batch=1, Grid=7, Grid=7, Attributes=10+num_classes] buffer.
+ * Index: (grid_i * 7 * attributes) + (grid_j * attributes) + offset.
  */
-std::vector<Detection> decode_yolo_tensor(const torch::Tensor& output, float conf_threshold, 
+std::vector<Detection> decode_yolo_tensor(const std::vector<float>& output_data, float conf_threshold, 
                                           int img_width, int img_height, int num_classes) {
-    auto out_acc = output.accessor<float, 4>();
     std::vector<Detection> all_detections;
     
     constexpr int GRID_SIZE = 7;
@@ -132,7 +105,16 @@ std::vector<Detection> decode_yolo_tensor(const torch::Tensor& output, float con
     constexpr int COORDINATES_PER_BOX = 5;  // tx, ty, tw, th, objectness
     constexpr int CLASS_PROB_OFFSET = 10;   // Offset to class probabilities
     constexpr float GRID_SIZE_FLOAT = 7.0F;
-    constexpr int BATCH_IDX = 0;
+    const int attributes = 10 + num_classes;
+    const size_t expected_size = static_cast<size_t>(GRID_SIZE * GRID_SIZE * attributes);
+    if (output_data.size() < expected_size)
+    {
+        throw std::runtime_error("decode_yolo_tensor expected a flat [1, 7, 7, 10+num_classes] buffer");
+    }
+
+    auto at = [&](int grid_i, int grid_j, int offset) -> float {
+        return output_data[static_cast<size_t>((grid_i * GRID_SIZE * attributes) + (grid_j * attributes) + offset)];
+    };
 
     for (int grid_i = 0; grid_i < GRID_SIZE; ++grid_i) {
         for (int grid_j = 0; grid_j < GRID_SIZE; ++grid_j) {
@@ -142,7 +124,7 @@ std::vector<Detection> decode_yolo_tensor(const torch::Tensor& output, float con
             int class_id = -1;
             
             for (int class_idx = 0; class_idx < num_classes; ++class_idx) {
-                float class_prob = out_acc[BATCH_IDX][grid_i][grid_j][CLASS_PROB_OFFSET + class_idx];
+                float class_prob = at(grid_i, grid_j, CLASS_PROB_OFFSET + class_idx);
                 if (class_prob > max_class_prob) {
                     max_class_prob = class_prob;
                     class_id = class_idx;
@@ -153,7 +135,7 @@ std::vector<Detection> decode_yolo_tensor(const torch::Tensor& output, float con
             for (int box_idx = 0; box_idx < NUM_BOXES_PER_CELL; ++box_idx) {
                 int coordinate_offset = box_idx * COORDINATES_PER_BOX;
                 
-                float objectness_score = out_acc[BATCH_IDX][grid_i][grid_j][coordinate_offset + 4];
+                float objectness_score = at(grid_i, grid_j, coordinate_offset + 4);
                 
                 // Filter by objectness confidence threshold
                 if (objectness_score <= conf_threshold) {
@@ -162,21 +144,21 @@ std::vector<Detection> decode_yolo_tensor(const torch::Tensor& output, float con
                 
                 // Decode normalized coordinates to image coordinates
                 // tx and ty are offsets within grid cell [0, 1]
-                float normalized_tx = out_acc[BATCH_IDX][grid_i][grid_j][coordinate_offset + 0];
-                float normalized_ty = out_acc[BATCH_IDX][grid_i][grid_j][coordinate_offset + 1];
+                float normalized_tx = at(grid_i, grid_j, coordinate_offset + 0);
+                float normalized_ty = at(grid_i, grid_j, coordinate_offset + 1);
                 
                 // Apply grid cell offset
-                float normalized_center_x = (normalized_tx + grid_j) / GRID_SIZE_FLOAT;
-                float normalized_center_y = (normalized_ty + grid_i) / GRID_SIZE_FLOAT;
+                float normalized_center_x = (normalized_tx + static_cast<float>(grid_j)) / GRID_SIZE_FLOAT;
+                float normalized_center_y = (normalized_ty + static_cast<float>(grid_i)) / GRID_SIZE_FLOAT;
                 
                 // Convert to image pixel coordinates
                 float center_x = normalized_center_x * static_cast<float>(img_width);
                 float center_y = normalized_center_y * static_cast<float>(img_height);
                 
                 // Decode width and height (already in image scale from network output)
-                float box_width = out_acc[BATCH_IDX][grid_i][grid_j][coordinate_offset + 2] * 
+                float box_width = at(grid_i, grid_j, coordinate_offset + 2) * 
                                   static_cast<float>(img_width);
-                float box_height = out_acc[BATCH_IDX][grid_i][grid_j][coordinate_offset + 3] * 
+                float box_height = at(grid_i, grid_j, coordinate_offset + 3) * 
                                    static_cast<float>(img_height);
                 
                 // Calculate top-left corner with boundary clamping
