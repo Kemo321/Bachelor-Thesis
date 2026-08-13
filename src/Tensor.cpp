@@ -40,8 +40,6 @@ struct ClampValue
 };
 #endif
 
-} // namespace
-
 static auto calculate_size(const std::vector<int>& shape) -> int
 {
     return std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<>());
