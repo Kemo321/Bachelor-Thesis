@@ -11,6 +11,7 @@
 
 #include "DeepLearnLib/TorchYOLO.hpp"
 #include "DeepLearnLib/dataset.hpp"
+#include "DeepLearnLib/TorchDataset.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 
 namespace fs = std::filesystem;

@@ -19,6 +19,29 @@ namespace dl
 namespace
 {
 
+#if DEEPLEARNLIB_ENABLE_CUDA
+struct ClampValue
+{
+    float lo;
+    float hi;
+
+    __host__ __device__ auto operator()(float value) const -> float
+    {
+        if (value < lo)
+        {
+            return lo;
+        }
+        if (value > hi)
+        {
+            return hi;
+        }
+        return value;
+    }
+};
+#endif
+
+} // namespace
+
 static auto calculate_size(const std::vector<int>& shape) -> int
 {
     return std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<>());
@@ -443,6 +466,35 @@ auto Tensor::operator+(float scalar) const -> Tensor
     auto out = thrust::device_pointer_cast(result.data());
     thrust::transform(thrust::device, in, in + static_cast<std::ptrdiff_t>(size_), out,
                       thrust::placeholders::_1 + scalar);
+    CHECK_CUDA(cudaGetLastError());
+    return result;
+#endif
+}
+
+auto Tensor::clamp(float lo, float hi) const -> Tensor
+{
+#if !DEEPLEARNLIB_ENABLE_CUDA
+    throw std::runtime_error("clamp requires CUDA/Thrust support");
+#else
+    ensure_gpu("clamp");
+    if (!is_contiguous())
+    {
+        throw std::runtime_error("clamp requires a contiguous tensor");
+    }
+    if (lo > hi)
+    {
+        throw std::runtime_error("clamp requires lo <= hi");
+    }
+
+    Tensor result(shape_, Device::GPU);
+    if (size_ == 0)
+    {
+        return result;
+    }
+
+    auto in = thrust::device_pointer_cast(data());
+    auto out = thrust::device_pointer_cast(result.data());
+    thrust::transform(thrust::device, in, in + static_cast<std::ptrdiff_t>(size_), out, ClampValue{ lo, hi });
     CHECK_CUDA(cudaGetLastError());
     return result;
 #endif

@@ -1,18 +1,19 @@
+#include <algorithm>
 #include <chrono>
+#include <cstdlib>
+#include <ctime>
+#include <cuda_runtime.h>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <string>
 #include <vector>
-#include <filesystem>
-#include <random>
-#include <torch/torch.h>
-#include <ATen/cuda/CUDAContext.h>
 
-#include "DeepLearnLib/YOLO.hpp"
 #include "DeepLearnLib/Network.hpp"
-#include "DeepLearnLib/dataset.hpp"
+#include "DeepLearnLib/YOLO.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
+#include "DeepLearnLib/dataset.hpp"
 
 namespace fs = std::filesystem;
 
@@ -22,73 +23,64 @@ const std::vector<std::string> VOC_CLASSES = {
 };
 
 int main() {
-    std::srand(std::time(nullptr));
+    std::srand(static_cast<unsigned int>(std::time(nullptr)));
 
-    const int batch_size = 16;   
-    const int total_epochs = 150; 
+    const int batch_size = 16;
+    const int total_epochs = 150;
     const std::string data_root = "../../data/VOCdevkit";
     const std::string results_dir = "../../results/voc";
 
-    torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
-    std::cout << "[VOC CUSTOM PIPELINE] Starting on device: " << (device.is_cuda() ? "GPU" : "CPU") << "\n";
-
-    if (device.is_cuda()) {
-        at::globalContext().setBenchmarkCuDNN(true);
-    }
+    int gpu_count = 0;
+    cudaGetDeviceCount(&gpu_count);
+    std::cout << "[VOC CUSTOM PIPELINE] Starting on device: " << (gpu_count > 0 ? "GPU" : "CPU") << "\n";
 
     DataPaths train_paths, val_paths, test_paths;
     split_dataset(data_root + "/VOC2012", train_paths, val_paths, test_paths, VOC_CLASSES);
 
-    auto train_loader = torch::data::make_data_loader(
-        VOCYoloDataset(train_paths, true, VOC_CLASSES).map(torch::data::transforms::Stack<>()), 
-        torch::data::samplers::RandomSampler(train_paths.images.size()),
-        torch::data::DataLoaderOptions().batch_size(batch_size).workers(4));
+    CustomDataLoader train_loader(train_paths, batch_size, true, VOC_CLASSES);
+    CustomDataLoader test_loader(test_paths, batch_size, false, VOC_CLASSES);
 
-    auto test_loader = torch::data::make_data_loader(
-        VOCYoloDataset(test_paths, false, VOC_CLASSES).map(torch::data::transforms::Stack<>()), 
-        torch::data::DataLoaderOptions().batch_size(batch_size).workers(4));
+    YOLO custom_model(20);
+    Network trainer(custom_model.get_all_layers(), 1e-4F);
 
-    YOLO custom_model(20); 
-    Network trainer(custom_model->get_all_layers(), 1e-4F);
-
-    for (auto& layer : custom_model->get_all_layers()) {
-        layer->to(device);
+    for (auto& layer : custom_model.get_all_layers()) {
+        layer->to(dl::Device::GPU);
     }
 
     auto get_lr = [](int ep) -> float {
-        if (ep <= 5) return 1e-5F;   
-        if (ep <= 80) return 1e-4F;  
-        if (ep <= 120) return 1e-5F; 
-        return 1e-6F;                
+        if (ep <= 5) return 1e-5F;
+        if (ep <= 80) return 1e-4F;
+        if (ep <= 120) return 1e-5F;
+        return 1e-6F;
     };
 
     fs::create_directories(results_dir);
     std::ofstream csv_file(results_dir + "/metrics_custom.csv");
-    csv_file << "Epoch;TrainLoss;TestLoss;Time(s)\n"; 
+    csv_file << "Epoch;TrainLoss;TestLoss;Time(s)\n";
 
     for (int epoch = 1; epoch <= total_epochs; ++epoch) {
-        auto epoch_start_time = std::chrono::steady_clock::now(); 
+        auto epoch_start_time = std::chrono::steady_clock::now();
         float current_lr = get_lr(epoch);
-        
-        for (auto& layer : custom_model->get_all_layers()) {
+
+        for (auto& layer : custom_model.get_all_layers()) {
             layer->learning_rate = current_lr;
-            layer->train(); 
+            layer->train();
         }
 
         float epoch_train_loss = 0.0F;
         int train_batches = 0;
 
-        for (auto& batch : *train_loader) {
-            auto data = batch.data.to(device, true);
-            auto target = batch.target.to(device, true);
+        train_loader.reset();
+        while (train_loader.has_next()) {
+            Batch batch = train_loader.get_batch();
 
-            auto pred = custom_model->forward(data);
-            float batch_loss = YOLOLoss::loss(target, pred, 20).item().toFloat();
-            
-            auto grad_error = YOLOLoss::loss_derivative(target, pred, 20);
-            grad_error = grad_error.clamp(-10.0, 10.0);
+            dl::Tensor pred = custom_model.forward(batch.images);
+            const float batch_loss = YOLOLoss::loss(batch.targets, pred, 20).to_host().front();
 
-            auto layers = custom_model->get_all_layers();
+            dl::Tensor grad_error = YOLOLoss::loss_derivative(batch.targets, pred, 20);
+            grad_error = grad_error.clamp(-10.0F, 10.0F);
+
+            auto layers = custom_model.get_all_layers();
             for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator) {
                 grad_error = (*iterator)->backward(grad_error);
             }
@@ -99,33 +91,29 @@ int main() {
             epoch_train_loss += batch_loss;
             train_batches++;
         }
-        float avg_train_loss = epoch_train_loss / std::max(1, train_batches);
+        float avg_train_loss = epoch_train_loss / static_cast<float>(std::max(1, train_batches));
 
-        for (auto& layer : custom_model->get_all_layers()) {
-            layer->eval(); 
+        for (auto& layer : custom_model.get_all_layers()) {
+            layer->eval();
         }
 
         float epoch_test_loss = 0.0F;
         int test_batches = 0;
 
-        {
-            torch::NoGradGuard no_grad;
-            for (auto& batch : *test_loader) {
-                auto data = batch.data.to(device, true);
-                auto target = batch.target.to(device, true);
-                auto pred = custom_model->forward(data);
-                
-                epoch_test_loss += YOLOLoss::loss(target, pred, 20).item().toFloat();
-                test_batches++;
-            }
+        test_loader.reset();
+        while (test_loader.has_next()) {
+            Batch batch = test_loader.get_batch();
+            dl::Tensor pred = custom_model.forward(batch.images);
+            epoch_test_loss += YOLOLoss::loss(batch.targets, pred, 20).to_host().front();
+            test_batches++;
         }
-        float avg_test_loss = epoch_test_loss / std::max(1, test_batches);
+        float avg_test_loss = epoch_test_loss / static_cast<float>(std::max(1, test_batches));
 
         auto epoch_end_time = std::chrono::steady_clock::now();
         auto epoch_duration = std::chrono::duration_cast<std::chrono::seconds>(epoch_end_time - epoch_start_time).count();
 
-        std::cout << "VOC Custom | Epoch [" << std::setw(3) << epoch << "/" << total_epochs << "] | Train Loss: " 
-                  << std::fixed << std::setprecision(4) << avg_train_loss << " | Test Loss: " << avg_test_loss 
+        std::cout << "VOC Custom | Epoch [" << std::setw(3) << epoch << "/" << total_epochs << "] | Train Loss: "
+                  << std::fixed << std::setprecision(4) << avg_train_loss << " | Test Loss: " << avg_test_loss
                   << " | Time: " << epoch_duration << "s\n";
 
         csv_file << epoch << ";" << avg_train_loss << ";" << avg_test_loss << ";" << epoch_duration << "\n";

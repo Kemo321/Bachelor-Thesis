@@ -1,7 +1,10 @@
 #pragma once
 
+#include "DeepLearnLib/Tensor.hpp"
+
+#include <cstddef>
+#include <random>
 #include <string>
-#include <torch/torch.h>
 #include <vector>
 
 extern const std::vector<std::string> VOC_CLASSES_DEFAULT;
@@ -28,57 +31,64 @@ struct DataPaths
  * @param train_ratio Fraction of the dataset to use for training (default 0.7F).
  * @param val_ratio Fraction of the dataset to use for validation (default 0.15F).
  */
-void split_dataset(const std::string& voc_root, DataPaths& train, DataPaths& val, DataPaths& test, const std::vector<std::string>& class_names = VOC_CLASSES_DEFAULT, float train_ratio = 0.7F, float val_ratio = 0.15F);
+void split_dataset(const std::string& voc_root, DataPaths& train, DataPaths& val, DataPaths& test,
+                   const std::vector<std::string>& class_names = VOC_CLASSES_DEFAULT, float train_ratio = 0.7F,
+                   float val_ratio = 0.15F);
 
 /**
  * @brief CamelCase compatibility wrapper for split_dataset.
- *
- * This wrapper preserves the original split_dataset function while providing a
- * camelCase API. It simply forwards all arguments to split_dataset.
  */
-inline void splitDataset(const std::string& voc_root, DataPaths& train, DataPaths& val, DataPaths& test, const std::vector<std::string>& class_names = VOC_CLASSES_DEFAULT, float train_ratio = 0.7F, float val_ratio = 0.15F)
+inline void splitDataset(const std::string& voc_root, DataPaths& train, DataPaths& val, DataPaths& test,
+                         const std::vector<std::string>& class_names = VOC_CLASSES_DEFAULT, float train_ratio = 0.7F,
+                         float val_ratio = 0.15F)
 {
     split_dataset(voc_root, train, val, test, class_names, train_ratio, val_ratio);
 }
 
 /**
- * @brief Dataset adapter for VOC formatted data tailored for YOLO-style models.
+ * @brief One GPU-resident training/evaluation batch.
  *
- * This class implements the Dataset concept from LibTorch and provides
- * tensors suitable for training and validation of YOLO-like networks.
+ * images:  [Batch, 3, 448, 448] in CHW layout.
+ * targets: [Batch, 7, 7, 10 + num_classes] YOLOv1 grid encoding.
  */
-class VOCYoloDataset : public torch::data::datasets::Dataset<VOCYoloDataset>
+struct Batch
+{
+    dl::Tensor images;
+    dl::Tensor targets;
+};
+
+/**
+ * @brief Sequential/shuffled mini-batch loader built on OpenCV and dl::Tensor.
+ *
+ * Training mode applies scale/translation (cv::warpAffine) and HSV saturation/exposure jitter
+ * on the CPU, then uploads CHW image buffers and YOLO targets with dl::Tensor::from_host.
+ */
+class CustomDataLoader
 {
 public:
-    /**
-     * @brief Construct a new VOCYoloDataset object.
-     *
-     * @param paths_param DataPaths containing image and label file paths.
-     * @param is_train Whether the dataset should operate in training mode (applies augmentations).
-     * @param class_names Names of classes to consider; used to map labels to indices.
-     */
-    explicit VOCYoloDataset(const DataPaths& paths_param, bool is_train = false, const std::vector<std::string>& class_names = VOC_CLASSES_DEFAULT);
+    CustomDataLoader(const DataPaths& paths, int batch_size, bool is_train,
+                     const std::vector<std::string>& class_names = VOC_CLASSES_DEFAULT);
 
     /**
-     * @brief Retrieve the dataset example at the given index.
-     *
-     * @param index Index of the example to retrieve.
-     * @return torch::data::Example<> Pair of tensors {input, target}.
-     *         - input: [Channels, Height, Width] (typical image tensor layout).
-     *         - target: shape depends on label encoding used by the project (see implementation).
+     * @brief Rewind to the start of an epoch. Shuffles sample order when is_train is true.
      */
-    [[nodiscard]] auto get(size_t index) -> torch::data::Example<> override;
+    auto reset() -> void;
 
-    /**
-     * @brief Return the size (number of samples) in the dataset.
-     *
-     * @return torch::optional<size_t> Number of samples.
-     */
-    [[nodiscard]] auto size() const -> torch::optional<size_t> override;
+    [[nodiscard]] auto has_next() const -> bool;
+    auto get_batch() -> Batch;
+
+    [[nodiscard]] auto size() const -> std::size_t;
+    [[nodiscard]] auto batch_size() const -> int;
 
 private:
-    DataPaths paths;
+    DataPaths paths_;
+    int batch_size_;
     bool is_train_;
-    const int img_size = 448;
     int num_classes_;
+    int img_size_;
+    std::size_t cursor_;
+    std::vector<std::size_t> order_;
+    std::mt19937 rng_;
+
+    auto load_sample(std::size_t sample_index, std::vector<float>& image_chw, std::vector<float>& target) -> void;
 };

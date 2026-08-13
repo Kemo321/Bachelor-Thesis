@@ -123,6 +123,8 @@ public:
     auto operator*(float scalar) const -> Tensor;
     auto operator+(float scalar) const -> Tensor;
 
+    auto clamp(float lo, float hi) const -> Tensor;
+
     auto sum(int dim = -1) const -> Tensor;
 
     auto view(const std::vector<int>& new_shape) const -> Tensor;

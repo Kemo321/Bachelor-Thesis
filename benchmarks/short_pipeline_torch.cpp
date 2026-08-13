@@ -3,6 +3,7 @@
 #include <torch/torch.h>
 #include "DeepLearnLib/TorchYOLO.hpp"
 #include "DeepLearnLib/dataset.hpp"
+#include "DeepLearnLib/TorchDataset.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 
 int main() {

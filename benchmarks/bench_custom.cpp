@@ -1,20 +1,18 @@
 #include <benchmark/benchmark.h>
-#include <iostream>
+#include <cuda_runtime.h>
 #include <filesystem>
-#include <torch/torch.h>
+#include <iostream>
 
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/YOLO.hpp"
-#include "DeepLearnLib/dataset.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
+#include "DeepLearnLib/dataset.hpp"
 
 static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
 {
-    const int batch_size = state.range(0);
+    const int batch_size = static_cast<int>(state.range(0));
     const std::string data_root = "../../data/VOCdevkit";
     const float learning_rate = 1e-4F;
-
-    torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
 
     DataPaths train_paths, val_paths, test_paths;
     split_dataset(data_root + "/VOC2012", train_paths, val_paths, test_paths);
@@ -25,33 +23,30 @@ static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
         return;
     }
 
-    auto train_loader = torch::data::make_data_loader(
-        VOCYoloDataset(train_paths, false).map(torch::data::transforms::Stack<>()),
-        torch::data::DataLoaderOptions().batch_size(batch_size).workers(4));
+    CustomDataLoader train_loader(train_paths, batch_size, false);
 
     YOLO custom_model;
-    for (auto& layer : custom_model->get_all_layers()) {
-        layer->to(device);
+    for (auto& layer : custom_model.get_all_layers()) {
+        layer->to(dl::Device::GPU);
     }
 
-    Network trainer(custom_model->get_all_layers(), learning_rate);
+    Network trainer(custom_model.get_all_layers(), learning_rate);
     int64_t total_processed = 0;
 
     for (auto _ : state)
     {
-        torch::NoGradGuard no_grad;
-        for (auto& batch : *train_loader)
+        train_loader.reset();
+        while (train_loader.has_next())
         {
-            auto data = batch.data.to(device);
-            auto target = batch.target.to(device);
+            Batch batch = train_loader.get_batch();
 
-            auto pred = custom_model->forward(data);
+            dl::Tensor pred = custom_model.forward(batch.images);
 
-            float loss_val = YOLOLoss::loss(target, pred).item().toFloat();
-            auto grad_error = YOLOLoss::loss_derivative(target, pred);
-            grad_error = grad_error.clamp(-5.0, 5.0);
+            (void)YOLOLoss::loss(batch.targets, pred).to_host();
+            dl::Tensor grad_error = YOLOLoss::loss_derivative(batch.targets, pred);
+            grad_error = grad_error.clamp(-5.0F, 5.0F);
 
-            auto layers = custom_model->get_all_layers();
+            auto layers = custom_model.get_all_layers();
             for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator)
             {
                 grad_error = (*iterator)->backward(grad_error);
@@ -62,8 +57,8 @@ static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
                 layer->step();
             }
 
-            if (device.is_cuda()) { torch::cuda::synchronize(); }
-            total_processed += data.size(0);
+            cudaDeviceSynchronize();
+            total_processed += batch.images.get_shape()[0];
         }
     }
 
