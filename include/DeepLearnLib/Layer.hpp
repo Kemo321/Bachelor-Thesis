@@ -70,7 +70,7 @@ public:
      * Layers that hold parameters and update them manually should override
      * this method. By default, no action is performed.
      */
-    virtual void step() {}
+    virtual void step() { }
 
     /**
      * @brief Retrieve named parameters owned by the layer.

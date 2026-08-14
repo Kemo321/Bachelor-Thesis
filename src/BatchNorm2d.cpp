@@ -46,7 +46,7 @@ auto add_scaled(dl::Tensor& lhs, const dl::Tensor& rhs, float scale) -> void
     auto dest = thrust::device_pointer_cast(lhs.data());
     auto src = thrust::device_pointer_cast(rhs.data());
     thrust::transform(thrust::device, dest, dest + static_cast<std::ptrdiff_t>(lhs.get_size()), src, dest,
-                      ScaledAdd{ scale });
+        ScaledAdd { scale });
     CHECK_CUDA(cudaGetLastError());
 }
 
@@ -118,7 +118,7 @@ BatchNorm2d::BatchNorm2d(int num_features, float eps, float momentum)
 
 auto BatchNorm2d::configure_descriptors(int batch, int channels, int height, int width) -> void
 {
-    const std::vector<int> shape{ batch, channels, height, width };
+    const std::vector<int> shape { batch, channels, height, width };
     if (descriptors_configured_ && shape == input_shape_cache_)
     {
         return;
@@ -145,8 +145,8 @@ auto BatchNorm2d::forward(const dl::Tensor& input_tensor) -> dl::Tensor
     configure_descriptors(batch, channels, height, width);
 
     dl::Tensor output(input_tensor.get_shape(), dl::Device::GPU);
-    const float alpha{ 1.0F };
-    const float beta_zero{ 0.0F };
+    const float alpha { 1.0F };
+    const float beta_zero { 0.0F };
     const auto handle = dl::get_cudnn_handle();
     const double epsilon = std::max(static_cast<double>(eps_), static_cast<double>(CUDNN_BN_MIN_EPSILON));
 
@@ -186,8 +186,8 @@ auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative) -> dl::Ten
     }
 
     dl::Tensor grad_input(input_cache_->get_shape(), dl::Device::GPU);
-    const float alpha{ 1.0F };
-    const float beta_zero{ 0.0F };
+    const float alpha { 1.0F };
+    const float beta_zero { 0.0F };
     const double epsilon = std::max(static_cast<double>(eps_), static_cast<double>(CUDNN_BN_MIN_EPSILON));
 
     CHECK_CUDNN(cudnnBatchNormalizationBackward(

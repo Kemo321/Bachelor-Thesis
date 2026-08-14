@@ -142,7 +142,7 @@ TEST_F(GpuTensorTest, OneDimensionalAllocationShapeAndStrides)
     EXPECT_EQ(tensor.get_shape(), shape);
     EXPECT_EQ(tensor.get_size(), 8U);
     EXPECT_EQ(tensor.get_device(), Device::GPU);
-    EXPECT_EQ(tensor.get_strides(), (std::vector<int>{ 1 }));
+    EXPECT_EQ(tensor.get_strides(), (std::vector<int> { 1 }));
     EXPECT_NE(tensor.data(), nullptr);
 }
 
@@ -153,7 +153,7 @@ TEST_F(GpuTensorTest, TwoDimensionalAllocationShapeAndStrides)
 
     EXPECT_EQ(tensor.get_shape(), shape);
     EXPECT_EQ(tensor.get_size(), 12U);
-    EXPECT_EQ(tensor.get_strides(), (std::vector<int>{ 4, 1 }));
+    EXPECT_EQ(tensor.get_strides(), (std::vector<int> { 4, 1 }));
 }
 
 TEST_F(GpuTensorTest, ThreeDimensionalAllocationShapeAndStrides)
@@ -163,7 +163,7 @@ TEST_F(GpuTensorTest, ThreeDimensionalAllocationShapeAndStrides)
 
     EXPECT_EQ(tensor.get_shape(), shape);
     EXPECT_EQ(tensor.get_size(), 24U);
-    EXPECT_EQ(tensor.get_strides(), (std::vector<int>{ 12, 4, 1 }));
+    EXPECT_EQ(tensor.get_strides(), (std::vector<int> { 12, 4, 1 }));
 }
 
 TEST_F(GpuTensorTest, NchwStridesMatchNetworkLayout)
@@ -172,7 +172,7 @@ TEST_F(GpuTensorTest, NchwStridesMatchNetworkLayout)
     Tensor tensor(shape, Device::GPU);
 
     EXPECT_EQ(tensor.get_size(), 192U);
-    EXPECT_EQ(tensor.get_strides(), (std::vector<int>{ 192, 64, 8, 1 }));
+    EXPECT_EQ(tensor.get_strides(), (std::vector<int> { 192, 64, 8, 1 }));
 }
 
 TEST_F(GpuTensorTest, FromHostVectorRoundTrip)
@@ -223,7 +223,7 @@ TEST_F(GpuTensorTest, FromHostRejectsNullPointer)
 
 TEST_F(GpuTensorTest, ZerosLikeMatchesShapeDeviceAndValues)
 {
-    Tensor source = Tensor::from_host({ 2, 3 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
+    Tensor source = Tensor::from_host({ 2, 3 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
     Tensor zeros = Tensor::zeros_like(source);
     synchronize_device();
 
@@ -234,39 +234,39 @@ TEST_F(GpuTensorTest, ZerosLikeMatchesShapeDeviceAndValues)
 
 TEST_F(GpuTensorTest, SquareMatmul)
 {
-    Tensor lhs = Tensor::from_host({ 2, 2 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
-    Tensor rhs = Tensor::from_host({ 2, 2 }, std::vector<float>{ 5.0F, 6.0F, 7.0F, 8.0F }, Device::GPU);
+    Tensor lhs = Tensor::from_host({ 2, 2 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
+    Tensor rhs = Tensor::from_host({ 2, 2 }, std::vector<float> { 5.0F, 6.0F, 7.0F, 8.0F }, Device::GPU);
 
     Tensor result = lhs.matmul(rhs);
     synchronize_device();
 
-    EXPECT_EQ(result.get_shape(), (std::vector<int>{ 2, 2 }));
+    EXPECT_EQ(result.get_shape(), (std::vector<int> { 2, 2 }));
     expect_near_vector(result.to_host(), { 19.0F, 22.0F, 43.0F, 50.0F });
 }
 
 TEST_F(GpuTensorTest, RectangularMatmul)
 {
-    Tensor lhs = Tensor::from_host({ 2, 3 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
+    Tensor lhs = Tensor::from_host({ 2, 3 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
     Tensor rhs = Tensor::from_host({ 3, 4 },
-                                   std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F, 8.0F, 9.0F, 10.0F,
-                                                       11.0F, 12.0F },
-                                   Device::GPU);
+        std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F, 8.0F, 9.0F, 10.0F,
+            11.0F, 12.0F },
+        Device::GPU);
 
     Tensor result = lhs.matmul(rhs);
     synchronize_device();
 
-    EXPECT_EQ(result.get_shape(), (std::vector<int>{ 2, 4 }));
+    EXPECT_EQ(result.get_shape(), (std::vector<int> { 2, 4 }));
     expect_near_vector(result.to_host(), { 38.0F, 44.0F, 50.0F, 56.0F, 83.0F, 98.0F, 113.0F, 128.0F });
 }
 
 TEST_F(GpuTensorTest, IdentityMatmulLeavesMatrixUnchanged)
 {
     Tensor matrix = Tensor::from_host({ 3, 3 },
-                                      std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F, 8.0F, 9.0F },
-                                      Device::GPU);
+        std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F, 8.0F, 9.0F },
+        Device::GPU);
     Tensor identity = Tensor::from_host({ 3, 3 },
-                                        std::vector<float>{ 1.0F, 0.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F, 0.0F, 1.0F },
-                                        Device::GPU);
+        std::vector<float> { 1.0F, 0.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F, 0.0F, 1.0F },
+        Device::GPU);
 
     Tensor result = matrix.matmul(identity);
     synchronize_device();
@@ -275,7 +275,7 @@ TEST_F(GpuTensorTest, IdentityMatmulLeavesMatrixUnchanged)
 
 TEST_F(GpuTensorTest, MatmulMismatchedInnerDimensionsThrows)
 {
-    Tensor lhs = Tensor::from_host({ 2, 3 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
+    Tensor lhs = Tensor::from_host({ 2, 3 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
     Tensor rhs = Tensor::from_host({ 4, 5 }, std::vector<float>(20, 1.0F), Device::GPU);
 
     EXPECT_THROW(lhs.matmul(rhs), std::runtime_error);
@@ -283,8 +283,8 @@ TEST_F(GpuTensorTest, MatmulMismatchedInnerDimensionsThrows)
 
 TEST_F(GpuTensorTest, ElementwiseTensorAddition)
 {
-    Tensor lhs = Tensor::from_host({ 2, 2 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
-    Tensor rhs = Tensor::from_host({ 2, 2 }, std::vector<float>{ 10.0F, 20.0F, 30.0F, 40.0F }, Device::GPU);
+    Tensor lhs = Tensor::from_host({ 2, 2 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
+    Tensor rhs = Tensor::from_host({ 2, 2 }, std::vector<float> { 10.0F, 20.0F, 30.0F, 40.0F }, Device::GPU);
 
     Tensor result = lhs + rhs;
     synchronize_device();
@@ -293,8 +293,8 @@ TEST_F(GpuTensorTest, ElementwiseTensorAddition)
 
 TEST_F(GpuTensorTest, ElementwiseTensorSubtraction)
 {
-    Tensor lhs = Tensor::from_host({ 4 }, std::vector<float>{ 5.0F, 4.0F, 3.0F, 2.0F }, Device::GPU);
-    Tensor rhs = Tensor::from_host({ 4 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 8.0F }, Device::GPU);
+    Tensor lhs = Tensor::from_host({ 4 }, std::vector<float> { 5.0F, 4.0F, 3.0F, 2.0F }, Device::GPU);
+    Tensor rhs = Tensor::from_host({ 4 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 8.0F }, Device::GPU);
 
     Tensor result = lhs - rhs;
     synchronize_device();
@@ -303,8 +303,8 @@ TEST_F(GpuTensorTest, ElementwiseTensorSubtraction)
 
 TEST_F(GpuTensorTest, ElementwiseTensorMultiplication)
 {
-    Tensor lhs = Tensor::from_host({ 2, 3 }, std::vector<float>{ 1.0F, -2.0F, 3.0F, 4.0F, 0.5F, 6.0F }, Device::GPU);
-    Tensor rhs = Tensor::from_host({ 2, 3 }, std::vector<float>{ 2.0F, 3.0F, 4.0F, 0.0F, 8.0F, -1.0F }, Device::GPU);
+    Tensor lhs = Tensor::from_host({ 2, 3 }, std::vector<float> { 1.0F, -2.0F, 3.0F, 4.0F, 0.5F, 6.0F }, Device::GPU);
+    Tensor rhs = Tensor::from_host({ 2, 3 }, std::vector<float> { 2.0F, 3.0F, 4.0F, 0.0F, 8.0F, -1.0F }, Device::GPU);
 
     Tensor result = lhs * rhs;
     synchronize_device();
@@ -313,7 +313,7 @@ TEST_F(GpuTensorTest, ElementwiseTensorMultiplication)
 
 TEST_F(GpuTensorTest, TensorScalarMultiplicationAndAddition)
 {
-    Tensor tensor = Tensor::from_host({ 3 }, std::vector<float>{ 1.0F, -2.0F, 4.0F }, Device::GPU);
+    Tensor tensor = Tensor::from_host({ 3 }, std::vector<float> { 1.0F, -2.0F, 4.0F }, Device::GPU);
 
     Tensor scaled = tensor * 2.5F;
     Tensor shifted = tensor + 1.0F;
@@ -325,8 +325,8 @@ TEST_F(GpuTensorTest, TensorScalarMultiplicationAndAddition)
 
 TEST_F(GpuTensorTest, ElementwiseSizeMismatchThrows)
 {
-    Tensor lhs = Tensor::from_host({ 2, 3 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
-    Tensor rhs = Tensor::from_host({ 2, 2 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
+    Tensor lhs = Tensor::from_host({ 2, 3 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
+    Tensor rhs = Tensor::from_host({ 2, 2 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
 
     EXPECT_THROW(lhs + rhs, std::runtime_error);
     EXPECT_THROW(lhs - rhs, std::runtime_error);
@@ -335,8 +335,8 @@ TEST_F(GpuTensorTest, ElementwiseSizeMismatchThrows)
 
 TEST_F(GpuTensorTest, ElementwiseCpuOperandThrows)
 {
-    Tensor gpu = Tensor::from_host({ 2 }, std::vector<float>{ 1.0F, 2.0F }, Device::GPU);
-    Tensor cpu = Tensor::from_host({ 2 }, std::vector<float>{ 3.0F, 4.0F }, Device::CPU);
+    Tensor gpu = Tensor::from_host({ 2 }, std::vector<float> { 1.0F, 2.0F }, Device::GPU);
+    Tensor cpu = Tensor::from_host({ 2 }, std::vector<float> { 3.0F, 4.0F }, Device::CPU);
 
     EXPECT_THROW(gpu + cpu, std::runtime_error);
     EXPECT_THROW(cpu * 2.0F, std::runtime_error);
@@ -344,7 +344,7 @@ TEST_F(GpuTensorTest, ElementwiseCpuOperandThrows)
 
 TEST_F(GpuTensorTest, ClampBoundsValues)
 {
-    Tensor tensor = Tensor::from_host({ 5 }, std::vector<float>{ -4.0F, -0.5F, 0.0F, 0.7F, 3.0F }, Device::GPU);
+    Tensor tensor = Tensor::from_host({ 5 }, std::vector<float> { -4.0F, -0.5F, 0.0F, 0.7F, 3.0F }, Device::GPU);
     Tensor clamped = tensor.clamp(-1.0F, 1.0F);
     synchronize_device();
     expect_near_vector(clamped.to_host(), { -1.0F, -0.5F, 0.0F, 0.7F, 1.0F });
@@ -352,23 +352,23 @@ TEST_F(GpuTensorTest, ClampBoundsValues)
 
 TEST_F(GpuTensorTest, ClampInvalidRangeThrows)
 {
-    Tensor tensor = Tensor::from_host({ 2 }, std::vector<float>{ 1.0F, 2.0F }, Device::GPU);
+    Tensor tensor = Tensor::from_host({ 2 }, std::vector<float> { 1.0F, 2.0F }, Device::GPU);
     EXPECT_THROW(tensor.clamp(1.0F, 0.0F), std::runtime_error);
 }
 
 TEST_F(GpuTensorTest, GlobalSumPositiveValues)
 {
-    Tensor tensor = Tensor::from_host({ 2, 2 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
+    Tensor tensor = Tensor::from_host({ 2, 2 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
     Tensor reduced = tensor.sum();
     synchronize_device();
 
-    EXPECT_EQ(reduced.get_shape(), (std::vector<int>{ 1 }));
+    EXPECT_EQ(reduced.get_shape(), (std::vector<int> { 1 }));
     expect_near_vector(reduced.to_host(), { 10.0F });
 }
 
 TEST_F(GpuTensorTest, GlobalSumNegativeAndMixedValues)
 {
-    Tensor tensor = Tensor::from_host({ 4 }, std::vector<float>{ 1.0F, -2.0F, 3.0F, -4.5F }, Device::GPU);
+    Tensor tensor = Tensor::from_host({ 4 }, std::vector<float> { 1.0F, -2.0F, 3.0F, -4.5F }, Device::GPU);
     Tensor reduced = tensor.sum(-1);
     synchronize_device();
     expect_near_vector(reduced.to_host(), { -2.5F });
@@ -376,17 +376,17 @@ TEST_F(GpuTensorTest, GlobalSumNegativeAndMixedValues)
 
 TEST_F(GpuTensorTest, SumAlongAxisThrows)
 {
-    Tensor tensor = Tensor::from_host({ 3 }, std::vector<float>{ 1.0F, 2.0F, 3.0F }, Device::GPU);
+    Tensor tensor = Tensor::from_host({ 3 }, std::vector<float> { 1.0F, 2.0F, 3.0F }, Device::GPU);
     EXPECT_THROW(tensor.sum(0), std::runtime_error);
 }
 
 TEST_F(GpuTensorTest, ViewReshapeSharesStorageAndValues)
 {
-    Tensor tensor = Tensor::from_host({ 2, 3 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
+    Tensor tensor = Tensor::from_host({ 2, 3 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
     Tensor viewed = tensor.view({ 3, 2 });
 
-    EXPECT_EQ(viewed.get_shape(), (std::vector<int>{ 3, 2 }));
-    EXPECT_EQ(viewed.get_strides(), (std::vector<int>{ 2, 1 }));
+    EXPECT_EQ(viewed.get_shape(), (std::vector<int> { 3, 2 }));
+    EXPECT_EQ(viewed.get_strides(), (std::vector<int> { 2, 1 }));
     EXPECT_EQ(viewed.get_size(), tensor.get_size());
     EXPECT_EQ(viewed.data(), tensor.data());
     expect_near_vector(viewed.to_host(), tensor.to_host());
@@ -394,34 +394,34 @@ TEST_F(GpuTensorTest, ViewReshapeSharesStorageAndValues)
 
 TEST_F(GpuTensorTest, ViewInfersMinusOneDimension)
 {
-    Tensor tensor = Tensor::from_host({ 2, 4 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F, 8.0F },
-                                      Device::GPU);
+    Tensor tensor = Tensor::from_host({ 2, 4 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F, 8.0F },
+        Device::GPU);
     Tensor viewed = tensor.view({ -1, 2 });
 
-    EXPECT_EQ(viewed.get_shape(), (std::vector<int>{ 4, 2 }));
+    EXPECT_EQ(viewed.get_shape(), (std::vector<int> { 4, 2 }));
     expect_near_vector(viewed.to_host(), tensor.to_host());
 }
 
 TEST_F(GpuTensorTest, ViewIncompatibleShapeThrows)
 {
-    Tensor tensor = Tensor::from_host({ 2, 3 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
+    Tensor tensor = Tensor::from_host({ 2, 3 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
     EXPECT_THROW(tensor.view({ 2, 2 }), std::runtime_error);
     EXPECT_THROW(tensor.view({ -1, -1 }), std::runtime_error);
 }
 
 TEST_F(GpuTensorTest, TransposeTwoDimensional)
 {
-    Tensor tensor = Tensor::from_host({ 2, 3 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
+    Tensor tensor = Tensor::from_host({ 2, 3 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
     Tensor transposed = tensor.transpose();
     synchronize_device();
 
-    EXPECT_EQ(transposed.get_shape(), (std::vector<int>{ 3, 2 }));
+    EXPECT_EQ(transposed.get_shape(), (std::vector<int> { 3, 2 }));
     expect_near_vector(transposed.to_host(), { 1.0F, 4.0F, 2.0F, 5.0F, 3.0F, 6.0F });
 }
 
 TEST_F(GpuTensorTest, TransposeThenMatmulMatchesOriginalProductLayout)
 {
-    Tensor matrix = Tensor::from_host({ 2, 2 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
+    Tensor matrix = Tensor::from_host({ 2, 2 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
     Tensor transposed = matrix.transpose();
     synchronize_device();
     expect_near_vector(transposed.to_host(), { 1.0F, 3.0F, 2.0F, 4.0F });
@@ -429,8 +429,8 @@ TEST_F(GpuTensorTest, TransposeThenMatmulMatchesOriginalProductLayout)
 
 TEST_F(GpuTensorTest, TransposeRejectsNonTwoDimensionalTensors)
 {
-    Tensor vector = Tensor::from_host({ 4 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
-    Tensor volume = Tensor::from_host({ 2, 2, 1 }, std::vector<float>{ 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
+    Tensor vector = Tensor::from_host({ 4 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
+    Tensor volume = Tensor::from_host({ 2, 2, 1 }, std::vector<float> { 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
 
     EXPECT_THROW(vector.transpose(), std::runtime_error);
     EXPECT_THROW(volume.transpose(), std::runtime_error);

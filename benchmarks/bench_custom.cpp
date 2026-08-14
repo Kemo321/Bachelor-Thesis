@@ -26,7 +26,8 @@ static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
     CustomDataLoader train_loader(train_paths, batch_size, false);
 
     YOLO custom_model;
-    for (auto& layer : custom_model.get_all_layers()) {
+    for (auto& layer : custom_model.get_all_layers())
+    {
         layer->to(dl::Device::GPU);
     }
 

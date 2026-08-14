@@ -34,11 +34,11 @@ std::vector<Detection> apply_nms(std::vector<Detection>& detections, float nmsTh
  * @param numClasses Number of classes in the model.
  */
 std::vector<Detection> decode_yolo_tensor(const std::vector<float>& output_data, float confThreshold, int imgWidth,
-                                          int imgHeight, int numClasses);
+    int imgHeight, int numClasses);
 
 /**
  * @brief Draws detection results on an image.
  */
 void draw_detections(cv::Mat& img, const std::vector<Detection>& detections,
-                     const std::vector<std::string>& classNames,
-                     const cv::Scalar& defaultColor = cv::Scalar(0, 255, 0));
+    const std::vector<std::string>& classNames,
+    const cv::Scalar& defaultColor = cv::Scalar(0, 255, 0));

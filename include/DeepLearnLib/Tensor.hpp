@@ -51,8 +51,7 @@ inline auto check_cuda(cudaError_t status, const char* file, int line) -> void
 {
     if (status != cudaSuccess)
     {
-        throw std::runtime_error(std::string("CUDA error at ") + file + ":" + std::to_string(line) + ": " +
-                                 cudaGetErrorString(status));
+        throw std::runtime_error(std::string("CUDA error at ") + file + ":" + std::to_string(line) + ": " + cudaGetErrorString(status));
     }
 }
 
@@ -60,8 +59,7 @@ inline auto check_cublas(cublasStatus_t status, const char* file, int line) -> v
 {
     if (status != CUBLAS_STATUS_SUCCESS)
     {
-        throw std::runtime_error(std::string("cuBLAS error at ") + file + ":" + std::to_string(line) + ": " +
-                                 cublasGetStatusString(status));
+        throw std::runtime_error(std::string("cuBLAS error at ") + file + ":" + std::to_string(line) + ": " + cublasGetStatusString(status));
     }
 }
 
@@ -82,7 +80,7 @@ private:
     CublasContext();
     ~CublasContext();
 
-    cublasHandle_t handle_{ nullptr };
+    cublasHandle_t handle_ { nullptr };
 };
 
 auto get_cublas_handle() -> cublasHandle_t;
@@ -134,7 +132,7 @@ public:
 
     auto to_host() const -> std::vector<float>;
     static auto from_host(const std::vector<int>& shape, const std::vector<float>& host_data,
-                          Device device = Device::GPU) -> Tensor;
+        Device device = Device::GPU) -> Tensor;
     static auto from_host(const std::vector<int>& shape, const float* host_data, Device device = Device::GPU)
         -> Tensor;
 

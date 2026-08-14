@@ -70,7 +70,7 @@ TEST_F(GpuLossTest, LossOnEmptyGridIsNearZeroScalar)
     Tensor loss = YOLOLoss::loss(target, prediction, kNumClasses);
     synchronize_device();
 
-    EXPECT_EQ(loss.get_shape(), (std::vector<int>{ 1 }));
+    EXPECT_EQ(loss.get_shape(), (std::vector<int> { 1 }));
     EXPECT_EQ(loss.get_device(), Device::GPU);
     const std::vector<float> host = loss.to_host();
     ASSERT_EQ(host.size(), 1U);
@@ -180,7 +180,7 @@ TEST_F(GpuLossTest, FlattenedLayoutIsAcceptedAndGradientsMatchRank)
     Tensor gradient = YOLOLoss::loss_derivative(target, prediction, kNumClasses);
     synchronize_device();
 
-    EXPECT_EQ(loss.get_shape(), (std::vector<int>{ 1 }));
+    EXPECT_EQ(loss.get_shape(), (std::vector<int> { 1 }));
     EXPECT_TRUE(std::isfinite(loss.to_host().front()));
     EXPECT_EQ(gradient.get_shape(), prediction.get_shape());
     expect_all_finite(gradient.to_host());

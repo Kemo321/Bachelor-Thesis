@@ -83,5 +83,5 @@ private:
 
     dl::CudnnTensorDescriptor x_desc_;
     dl::CudnnTensorDescriptor bn_desc_;
-    bool descriptors_configured_{ false };
+    bool descriptors_configured_ { false };
 };

@@ -18,8 +18,7 @@ inline auto check_cudnn(cudnnStatus_t status, const char* file, int line) -> voi
 {
     if (status != CUDNN_STATUS_SUCCESS)
     {
-        throw std::runtime_error(std::string("cuDNN error at ") + file + ":" + std::to_string(line) + ": " +
-                                 cudnnGetErrorString(status));
+        throw std::runtime_error(std::string("cuDNN error at ") + file + ":" + std::to_string(line) + ": " + cudnnGetErrorString(status));
     }
 }
 
@@ -41,7 +40,7 @@ private:
     CudnnContext();
     ~CudnnContext();
 
-    cudnnHandle_t handle_{ nullptr };
+    cudnnHandle_t handle_ { nullptr };
 };
 
 auto get_cudnn_handle() -> cudnnHandle_t;
@@ -61,7 +60,7 @@ public:
     auto set_nchw(int n, int c, int h, int w) -> void;
 
 private:
-    cudnnTensorDescriptor_t desc_{ nullptr };
+    cudnnTensorDescriptor_t desc_ { nullptr };
 };
 
 class CudnnFilterDescriptor
@@ -79,7 +78,7 @@ public:
     auto set_nchw(int out_channels, int in_channels, int kernel_h, int kernel_w) -> void;
 
 private:
-    cudnnFilterDescriptor_t desc_{ nullptr };
+    cudnnFilterDescriptor_t desc_ { nullptr };
 };
 
 class CudnnConvolutionDescriptor
@@ -97,7 +96,7 @@ public:
     auto set_2d(int padding, int stride) -> void;
 
 private:
-    cudnnConvolutionDescriptor_t desc_{ nullptr };
+    cudnnConvolutionDescriptor_t desc_ { nullptr };
 };
 
 class CudaWorkspace
@@ -114,7 +113,7 @@ private:
     };
 
     std::unique_ptr<void, Deleter> ptr_;
-    size_t bytes_{ 0 };
+    size_t bytes_ { 0 };
 };
 
 } // namespace dl
@@ -140,7 +139,7 @@ public:
      */
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     Conv2d(int in_channels, int out_channels, int kernel_size, int stride_val, int padding_val,
-           float inertia_val = 0.0F);
+        float inertia_val = 0.0F);
 
     /**
      * @brief Forward pass of the convolutional layer.
@@ -211,8 +210,8 @@ private:
     dl::CudnnConvolutionDescriptor conv_desc_;
     dl::CudaWorkspace workspace_;
 
-    cudnnConvolutionFwdAlgo_t fwd_algo_{ CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM };
-    cudnnConvolutionBwdDataAlgo_t bwd_data_algo_{ CUDNN_CONVOLUTION_BWD_DATA_ALGO_0 };
-    cudnnConvolutionBwdFilterAlgo_t bwd_filter_algo_{ CUDNN_CONVOLUTION_BWD_FILTER_ALGO_0 };
-    bool algorithms_selected_{ false };
+    cudnnConvolutionFwdAlgo_t fwd_algo_ { CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM };
+    cudnnConvolutionBwdDataAlgo_t bwd_data_algo_ { CUDNN_CONVOLUTION_BWD_DATA_ALGO_0 };
+    cudnnConvolutionBwdFilterAlgo_t bwd_filter_algo_ { CUDNN_CONVOLUTION_BWD_FILTER_ALGO_0 };
+    bool algorithms_selected_ { false };
 };

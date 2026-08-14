@@ -1,2 +1,7 @@
 unusedFunction
 missingIncludeSystem
+missingInclude
+unmatchedSuppression
+normalCheckLevelMaxBranches
+# CUDA kernel launches use <<<grid, block>>>, which cppcheck parses as shifts.
+shiftTooManyBits:src/YOLOLoss.cpp
