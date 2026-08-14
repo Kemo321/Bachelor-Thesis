@@ -46,3 +46,7 @@ extern/
 combined.cpp
 
 results/
+
+# Machine-specific Windows helpers (hardcoded local paths)
+/build_*.bat
+
