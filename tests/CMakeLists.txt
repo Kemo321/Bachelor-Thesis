@@ -29,7 +29,10 @@ endif()
 option(ENABLE_COVERAGE "Enable gcov/lcov coverage instrumentation" OFF)
 if(ENABLE_COVERAGE AND NOT MSVC)
   message(STATUS "Code coverage enabled for DeepLearnLib and dllib_tests")
-  target_compile_options(DeepLearnLib PRIVATE $<$<COMPILE_LANGUAGE:CXX>:--coverage>)
+  target_compile_options(
+    DeepLearnLib
+    PRIVATE $<$<COMPILE_LANGUAGE:CXX>:--coverage>
+            $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=--coverage>)
   target_compile_options(dllib_tests PRIVATE --coverage)
   target_link_options(dllib_tests PRIVATE --coverage)
 endif()

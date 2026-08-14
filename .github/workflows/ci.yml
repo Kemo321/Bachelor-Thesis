@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  DEBIAN_FRONTEND: noninteractive
+
 jobs:
   static-analysis:
     name: Static Analysis (Format & Lint)
@@ -46,12 +49,21 @@ jobs:
       - name: Install System Dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends git cmake g++ ninja-build ca-certificates
+          apt-get install -y --no-install-recommends \
+            git cmake g++ ninja-build ca-certificates lcov
 
       - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Init required submodules
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git submodule update --init --depth 1 \
+            extern/googletest \
+            extern/highway \
+            extern/benchmark \
+            extern/pugixml \
+            extern/stb
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -73,35 +85,59 @@ jobs:
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
       - name: Build (Debug)
-        run: cmake --build build_debug
+        id: build
+        run: cmake --build build_debug --target dllib_tests
 
       - name: Run unit tests
         run: |
-          cd build_debug
-          ctest --output-on-failure -j $(nproc)
+          test -x build_debug/tests/dllib_tests
+          ./build_debug/tests/dllib_tests | tee gtest.log
+          {
+            echo "## Unit tests"
+            echo
+            echo '```'
+            grep -E '\[==========\]|\[  PASSED  \]|\[  FAILED  \]|\[  SKIPPED \]' gtest.log | tail -n 20
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if grep -qE '\[  SKIPPED \]' gtest.log; then
+            echo "::warning::GPU tests were skipped. This GitHub runner has no NVIDIA device, so CUDA coverage is incomplete."
+          fi
 
       - name: Generate lcov report
-        if: always()
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends lcov
+          lcov --version
+          find build_debug -name '*.gcda' | tee gcda-files.txt
+          if [ ! -s gcda-files.txt ]; then
+            echo "::error::No .gcda files after tests. Coverage instrumentation did not run."
+            exit 1
+          fi
+          # Ubuntu 22.04 ships lcov 1.15: only gcov,source,graph are valid --ignore-errors values.
           lcov --capture --directory build_debug --output-file coverage.info \
-            --rc lcov_branch_coverage=1 --ignore-errors gcov,mismatch,source,unused || true
-          lcov --remove coverage.info \
-            '/usr/*' '*/extern/*' '*/tests/*' '*/googletest/*' '*/highway/*' \
+            --rc lcov_branch_coverage=1 --ignore-errors gcov,source
+          lcov --extract coverage.info '*/src/*' '*/include/*' '*/tests/*' \
             --output-file coverage.filtered.info \
-            --ignore-errors unused || true
-          genhtml coverage.filtered.info --output-directory coverage-html --ignore-errors source || true
-          mkdir -p coverage-html
-          if [ -f coverage.filtered.info ]; then cp coverage.filtered.info coverage-html/; fi
+            --rc lcov_branch_coverage=1
+          test -s coverage.filtered.info
+          genhtml coverage.filtered.info --output-directory coverage-html \
+            --rc lcov_branch_coverage=1 --ignore-errors source \
+            --title "DeepLearnLib coverage"
+          cp coverage.info coverage.filtered.info coverage-html/
+          {
+            echo "## Coverage (lcov 1.15, no GPU)"
+            echo
+            echo '```'
+            lcov --summary coverage.filtered.info
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload coverage artifact
-        if: always()
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: lcov-coverage
           path: coverage-html
-          if-no-files-found: ignore
+          if-no-files-found: error
 
   build-release:
     name: Build & Benchmark (Release)
@@ -111,12 +147,21 @@ jobs:
       - name: Install System Dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends git cmake g++ ninja-build ca-certificates
+          apt-get install -y --no-install-recommends \
+            git cmake g++ ninja-build ca-certificates libopencv-dev pkg-config
 
       - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Init required submodules
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git submodule update --init --depth 1 \
+            extern/googletest \
+            extern/highway \
+            extern/benchmark \
+            extern/pugixml \
+            extern/stb
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -134,13 +179,26 @@ jobs:
             -DCMAKE_CUDA_ARCHITECTURES=75 \
             -DTORCH_CUDA_ARCH_LIST=7.5
 
-      - name: Build (Release)
-        run: cmake --build build_release --target dllib_tests
-
-      - name: Check Benchmarks
+      - name: Build library, tests, and custom benchmarks
         run: |
-          if [ -x ./build_release/benchmarks/bench_custom ]; then
-            ./build_release/benchmarks/bench_custom --benchmark_min_time=0.01 || true
-          else
-            echo "Custom benchmarks not built (OpenCV missing); skipping."
-          fi
+          cmake --build build_release \
+            --target dllib_tests \
+            --target bench_custom \
+            --target short_pipeline_custom \
+            --target overfit_test \
+            --target train_pipeline_custom_synthetic
+
+      - name: Verify benchmark binaries
+        run: |
+          test -x build_release/tests/dllib_tests
+          test -x build_release/benchmarks/bench_custom
+          test -x build_release/benchmarks/short_pipeline_custom
+          test -x build_release/benchmarks/overfit_test
+          test -x build_release/benchmarks/train_pipeline_custom_synthetic
+          ls -l build_release/benchmarks/
+          echo "::notice::Benchmark binaries compiled. Not executed: GitHub-hosted runners have no NVIDIA GPU."
+          {
+            echo "## Release binaries"
+            echo
+            echo "Compiled \`dllib_tests\` and custom benchmarks. GPU execution is local-only."
+          } >> "$GITHUB_STEP_SUMMARY"

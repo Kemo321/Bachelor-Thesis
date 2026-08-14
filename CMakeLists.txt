@@ -128,12 +128,19 @@ endif()
 set(CAFFE2_USE_KINETO OFF CACHE BOOL "" FORCE)
 set(kineto_LIBRARIES "")
 
+set(DEEPLEARN_CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")
+
 find_package(Torch QUIET)
 if(Torch_FOUND)
     message(STATUS "LibTorch found for baseline targets.")
 else()
     message(STATUS "LibTorch not found; torch baseline targets will be skipped.")
 endif()
+
+# LibTorch's CUDA cmake overwrites CMAKE_CUDA_ARCHITECTURES. Restore the
+# architecture requested for DeepLearnLib (sm_120 on local Blackwell, sm_75 in CI).
+set(CMAKE_CUDA_ARCHITECTURES "${DEEPLEARN_CUDA_ARCHITECTURES}" CACHE STRING "CMake CUDA archs" FORCE)
+message(STATUS "DeepLearnLib CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 
 add_subdirectory(extern/googletest EXCLUDE_FROM_ALL)
 

@@ -83,13 +83,26 @@ auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) ->
     CHECK_CUDA(cudaMemcpy(dst.data(), src.data(), src.get_size() * sizeof(float), cudaMemcpyDeviceToDevice));
 }
 
+auto batchnorm_channel_shape(int num_features, float eps) -> std::vector<int>
+{
+    if (num_features <= 0)
+    {
+        throw std::runtime_error("BatchNorm2d requires a positive channel count");
+    }
+    if (eps < 0.0F)
+    {
+        throw std::runtime_error("BatchNorm2d epsilon must be non-negative");
+    }
+    return { 1, num_features, 1, 1 };
+}
+
 } // namespace
 
 BatchNorm2d::BatchNorm2d(int num_features, float eps, float momentum)
     : num_features_(num_features)
     , eps_(eps)
     , momentum_bn_(momentum)
-    , gamma_({ 1, num_features, 1, 1 }, dl::Device::GPU)
+    , gamma_(batchnorm_channel_shape(num_features, eps), dl::Device::GPU)
     , beta_({ 1, num_features, 1, 1 }, dl::Device::GPU)
     , gamma_grad_({ 1, num_features, 1, 1 }, dl::Device::GPU)
     , beta_grad_({ 1, num_features, 1, 1 }, dl::Device::GPU)
@@ -98,15 +111,6 @@ BatchNorm2d::BatchNorm2d(int num_features, float eps, float momentum)
     , save_mean_({ 1, num_features, 1, 1 }, dl::Device::GPU)
     , save_inv_var_({ 1, num_features, 1, 1 }, dl::Device::GPU)
 {
-    if (num_features <= 0)
-    {
-        throw std::runtime_error("BatchNorm2d requires a positive channel count");
-    }
-    if (eps_ < 0.0F)
-    {
-        throw std::runtime_error("BatchNorm2d epsilon must be non-negative");
-    }
-
     device_ = dl::Device::GPU;
     fill_constant(gamma_, 1.0F);
     fill_constant(beta_, 0.0F);

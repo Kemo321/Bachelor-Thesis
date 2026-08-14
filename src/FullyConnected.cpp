@@ -101,10 +101,19 @@ auto require_rank2(const dl::Tensor& tensor, int expected_cols, const char* name
     }
 }
 
+auto fullyconnected_weight_shape(int input_size, int output_size) -> std::vector<int>
+{
+    if (input_size <= 0 || output_size <= 0)
+    {
+        throw std::runtime_error("FullyConnected requires positive input and output sizes");
+    }
+    return { input_size, output_size };
+}
+
 } // namespace
 
 FullyConnected::FullyConnected(int input_size, int output_size, float inertia_val)
-    : weights_({ input_size, output_size }, dl::Device::GPU)
+    : weights_(fullyconnected_weight_shape(input_size, output_size), dl::Device::GPU)
     , biases_({ 1, output_size }, dl::Device::GPU)
     , weights_gradient_({ input_size, output_size }, dl::Device::GPU)
     , biases_gradient_({ 1, output_size }, dl::Device::GPU)
@@ -112,11 +121,6 @@ FullyConnected::FullyConnected(int input_size, int output_size, float inertia_va
     , output_size_(output_size)
     , inertia_(inertia_val)
 {
-    if (input_size <= 0 || output_size <= 0)
-    {
-        throw std::runtime_error("FullyConnected requires positive input and output sizes");
-    }
-
     device_ = dl::Device::GPU;
     const float bound = std::sqrt(1.0F / static_cast<float>(input_size_));
     fill_uniform(weights_, -bound, bound, 0xF00DULL);
