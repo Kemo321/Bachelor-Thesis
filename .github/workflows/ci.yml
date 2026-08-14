@@ -69,6 +69,7 @@ jobs:
             -DCMAKE_CUDA_ARCHITECTURES=75 \
             -DTORCH_CUDA_ARCH_LIST=7.5 \
             -DUSE_SANITIZERS=OFF \
+            -DENABLE_COVERAGE=ON \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
       - name: Build (Debug)
@@ -78,6 +79,29 @@ jobs:
         run: |
           cd build_debug
           ctest --output-on-failure -j $(nproc)
+
+      - name: Generate lcov report
+        if: always()
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends lcov
+          lcov --capture --directory build_debug --output-file coverage.info \
+            --rc lcov_branch_coverage=1 --ignore-errors gcov,mismatch,source,unused || true
+          lcov --remove coverage.info \
+            '/usr/*' '*/extern/*' '*/tests/*' '*/googletest/*' '*/highway/*' \
+            --output-file coverage.filtered.info \
+            --ignore-errors unused || true
+          genhtml coverage.filtered.info --output-directory coverage-html --ignore-errors source || true
+          mkdir -p coverage-html
+          if [ -f coverage.filtered.info ]; then cp coverage.filtered.info coverage-html/; fi
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcov-coverage
+          path: coverage-html
+          if-no-files-found: ignore
 
   build-release:
     name: Build & Benchmark (Release)

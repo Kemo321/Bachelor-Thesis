@@ -50,3 +50,13 @@ results/
 # Machine-specific Windows helpers (hardcoded local paths)
 /build_*.bat
 
+# gcov / lcov
+*.gcda
+*.gcno
+*.gcov
+coverage.info
+coverage.filtered.info
+coverage-html/
+
+dllib_test_network_*.bin
+
