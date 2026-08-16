@@ -31,8 +31,9 @@ services:
     tty: true
     stdin_open: true
 
-    # Incremental builds live in the build_cache volume. Use ./scripts/dev.sh
-    # (ccache + Ninja + tests) instead of rebuilding on every container start.
+    # Incremental builds live in the build_cache volume.
+    # ./scripts/dev.sh  — configure, ninja, unit tests
+    # ./scripts/menu.sh — interactive run menu
     command: ["/bin/bash"]
 
 volumes:

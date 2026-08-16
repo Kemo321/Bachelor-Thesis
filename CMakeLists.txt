@@ -159,6 +159,21 @@ if(NOT pugixml_FOUND)
   add_subdirectory(extern/pugixml EXCLUDE_FROM_ALL)
 endif()
 
+include(FetchContent)
+if(POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)
+endif()
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+set(JSON_Install OFF CACHE INTERNAL "")
+FetchContent_Declare(
+  nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG v3.11.3
+  GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(nlohmann_json)
+
+file(COPY "${CMAKE_SOURCE_DIR}/config" DESTINATION "${CMAKE_BINARY_DIR}")
+
 add_subdirectory(src)
 if(Torch_FOUND)
   add_subdirectory(torch_baseline)
@@ -166,6 +181,19 @@ endif()
 add_subdirectory(tests)
 if(OpenCV_FOUND)
   add_subdirectory(benchmarks)
+endif()
+
+# Tabular demo is non-vision: keep it available when OpenCV (and thus benchmarks/) is missing.
+if(NOT TARGET tabular_demo)
+  add_executable(tabular_demo benchmarks/tabular_demo.cpp)
+  target_link_libraries(tabular_demo PRIVATE DeepLearnLib nlohmann_json::nlohmann_json)
+  target_include_directories(tabular_demo PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}/benchmarks")
+  file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}" _deeplearn_source_dir)
+  target_compile_definitions(tabular_demo PRIVATE DEEPLEARN_SOURCE_DIR="${_deeplearn_source_dir}")
+  set_target_properties(tabular_demo PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/benchmarks"
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON)
 endif()
 
 option(USE_SANITIZERS "Enable ASan and UBSan" ON)

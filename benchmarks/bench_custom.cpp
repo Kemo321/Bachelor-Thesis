@@ -1,12 +1,13 @@
+#include "DeepLearnLib/Network.hpp"
+#include "DeepLearnLib/Profiler.hpp"
+#include "DeepLearnLib/YOLO.hpp"
+#include "DeepLearnLib/YOLOLoss.hpp"
+#include "DeepLearnLib/dataset.hpp"
+
 #include <benchmark/benchmark.h>
 #include <cuda_runtime.h>
 #include <filesystem>
 #include <iostream>
-
-#include "DeepLearnLib/Network.hpp"
-#include "DeepLearnLib/YOLO.hpp"
-#include "DeepLearnLib/YOLOLoss.hpp"
-#include "DeepLearnLib/dataset.hpp"
 
 static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
 {
@@ -33,10 +34,13 @@ static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
 
     Network trainer(custom_model.get_all_layers(), learning_rate);
     int64_t total_processed = 0;
+    float last_gpu_ms = 0.0F;
+    Profiler profiler;
 
     for (auto _ : state)
     {
         train_loader.reset();
+        profiler.start();
         while (train_loader.has_next())
         {
             Batch batch = train_loader.get_batch();
@@ -58,15 +62,17 @@ static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
                 layer->step();
             }
 
-            cudaDeviceSynchronize();
             total_processed += batch.images.get_shape()[0];
         }
+        last_gpu_ms = profiler.stop();
     }
 
     state.SetItemsProcessed(total_processed);
     state.counters["Img/Sec"] = benchmark::Counter(
         static_cast<double>(total_processed),
         benchmark::Counter::kIsRate);
+    state.counters["VRAM_MiB"] = static_cast<double>(Profiler::get_vram_usage_mb());
+    state.counters["GPU_ms"] = static_cast<double>(last_gpu_ms);
 }
 
 BENCHMARK(BM_CustomYOLO_ManualTraining)->Arg(8)->Arg(16)->UseRealTime();

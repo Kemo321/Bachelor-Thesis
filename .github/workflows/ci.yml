@@ -186,7 +186,8 @@ jobs:
             --target bench_custom \
             --target short_pipeline_custom \
             --target overfit_test \
-            --target train_pipeline_custom_synthetic
+            --target train_pipeline_custom_synthetic \
+            --target tabular_demo
 
       - name: Verify benchmark binaries
         run: |
@@ -195,6 +196,7 @@ jobs:
           test -x build_release/benchmarks/short_pipeline_custom
           test -x build_release/benchmarks/overfit_test
           test -x build_release/benchmarks/train_pipeline_custom_synthetic
+          test -x build_release/benchmarks/tabular_demo
           ls -l build_release/benchmarks/
           echo "::notice::Benchmark binaries compiled. Not executed: GitHub-hosted runners have no NVIDIA GPU."
           {

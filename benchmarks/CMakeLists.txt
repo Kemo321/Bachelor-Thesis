@@ -13,6 +13,8 @@ function(dllib_configure_bench_target target)
   if(NOT MSVC)
     target_compile_definitions(${target} PRIVATE _GLIBCXX_USE_CXX11_ABI=1)
   endif()
+  file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}" _deeplearn_source_dir)
+  target_compile_definitions(${target} PRIVATE DEEPLEARN_SOURCE_DIR="${_deeplearn_source_dir}")
   set_target_properties(${target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 endfunction()
 
@@ -22,7 +24,8 @@ set(CUSTOM_BENCH_TARGETS
     bench_custom
     train_pipeline_custom_BCCD
     train_pipeline_custom_synthetic
-    overfit_test)
+    overfit_test
+    tabular_demo)
 
 add_executable(train_pipeline_custom train_pipeline_custom.cpp)
 add_executable(short_pipeline_custom short_pipeline_custom.cpp)
@@ -30,12 +33,15 @@ add_executable(bench_custom bench_custom.cpp)
 add_executable(train_pipeline_custom_BCCD train_pipeline_custom_BCCD.cpp)
 add_executable(train_pipeline_custom_synthetic train_pipeline_custom_synthetic.cpp)
 add_executable(overfit_test overfit_test.cpp)
+add_executable(tabular_demo tabular_demo.cpp)
 
 foreach(target ${CUSTOM_BENCH_TARGETS})
   target_link_libraries(${target} PRIVATE DeepLearnLib Threads::Threads pugixml ${OpenCV_LIBS})
   dllib_configure_bench_target(${target})
 endforeach()
 
+target_link_libraries(train_pipeline_custom PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(tabular_demo PRIVATE nlohmann_json::nlohmann_json)
 target_link_libraries(bench_custom PRIVATE benchmark::benchmark benchmark::benchmark_main)
 
 set(TORCH_BENCH_TARGETS

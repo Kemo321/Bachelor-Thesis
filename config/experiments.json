@@ -1,0 +1,24 @@
+{
+  "voc_custom": {
+    "batch_size": 16,
+    "epochs": 150,
+    "learning_rate": 0.0001,
+    "dataset_root": "data/VOCdevkit",
+    "results_dir": "results/voc",
+    "num_classes": 20,
+    "conf_threshold": 0.25,
+    "nms_threshold": 0.5
+  },
+  "tabular_demo": {
+    "batch_size": 32,
+    "epochs": 25,
+    "learning_rate": 0.05,
+    "dataset_root": "data/tabular",
+    "csv_path": "data/tabular/demo.csv",
+    "num_features": 4,
+    "hidden_size": 16,
+    "num_classes": 3,
+    "num_samples": 96,
+    "skip_header": true
+  }
+}
