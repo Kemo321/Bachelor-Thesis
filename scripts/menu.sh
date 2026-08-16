@@ -4,7 +4,8 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-${ROOT}/build}"
-export EXPERIMENTS_JSON="${EXPERIMENTS_JSON:-${ROOT}/config/experiments.json}"
+DEFAULT_EXPERIMENTS_JSON="${ROOT}/config/experiments.json"
+export EXPERIMENTS_JSON="${EXPERIMENTS_JSON:-${DEFAULT_EXPERIMENTS_JSON}}"
 
 find_bin() {
   local name="$1"
@@ -110,6 +111,30 @@ run_all() {
   echo "[menu] Run All finished."
 }
 
+run_sanity_check() {
+  local previous="${EXPERIMENTS_JSON}"
+  local sanity="${ROOT}/config/sanity.json"
+  restore_experiments_json() {
+    export EXPERIMENTS_JSON="${previous:-${DEFAULT_EXPERIMENTS_JSON}}"
+    echo "[menu] Restored EXPERIMENTS_JSON=${EXPERIMENTS_JSON}"
+    trap - RETURN INT TERM
+  }
+
+  if [[ ! -f "${sanity}" ]]; then
+    echo "[menu] Sanity config not found: ${sanity}" >&2
+    return 1
+  fi
+
+  trap restore_experiments_json RETURN INT TERM
+  echo
+  echo "[menu] === Sanity Check (fast end-to-end via sanity.json) ==="
+  echo "[menu] Overriding EXPERIMENTS_JSON=${sanity}"
+  echo "[menu] Pipelines load this file through load_pipeline_config(); C++ is unchanged."
+  export EXPERIMENTS_JSON="${sanity}"
+  run_optional tabular_demo
+  run_all
+}
+
 print_menu() {
   cat <<'EOF'
 
@@ -127,14 +152,15 @@ DeepLearnLib
   11) Run Synthetic inference
   12) Plot metrics (CSV → PNG)
   13) Run all pipelines & generate plots
-  14) Exit
+  14) Run Sanity Check (fast end-to-end test using sanity.json)
+  15) Exit
 
 EOF
 }
 
 while true; do
   print_menu
-  read -r -p "Select [1-14]: " choice
+  read -r -p "Select [1-15]: " choice
   case "${choice}" in
     1)
       run_bin dllib_tests || true
@@ -176,6 +202,9 @@ while true; do
       run_all
       ;;
     14)
+      run_sanity_check
+      ;;
+    15)
       echo "[menu] Bye."
       exit 0
       ;;
