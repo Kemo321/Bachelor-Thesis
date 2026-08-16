@@ -50,7 +50,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            git cmake g++ ninja-build ca-certificates lcov
+            git cmake g++ ninja-build ca-certificates lcov libtbb-dev
 
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -148,7 +148,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            git cmake g++ ninja-build ca-certificates libopencv-dev pkg-config
+            git cmake g++ ninja-build ca-certificates libopencv-dev pkg-config libtbb-dev
 
       - name: Checkout Code
         uses: actions/checkout@v4
