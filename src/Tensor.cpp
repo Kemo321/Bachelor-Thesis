@@ -1,5 +1,8 @@
 #include "DeepLearnLib/Tensor.hpp"
+#include <cmath>
 #include <cstddef>
+#include <cstring>
+#include <new>
 #include <numeric>
 #include <stdexcept>
 #include <string>
@@ -10,6 +13,7 @@
 #include <thrust/for_each.h>
 #include <thrust/functional.h>
 #include <thrust/iterator/counting_iterator.h>
+#include <thrust/logical.h>
 #include <thrust/reduce.h>
 #include <thrust/transform.h>
 #endif
@@ -128,6 +132,87 @@ namespace
             output[(col * rows) + row] = input[index];
         }
     };
+
+    struct Transpose2DHalf
+    {
+        const __half* input;
+        __half* output;
+        int rows;
+        int cols;
+
+        __host__ __device__ void operator()(int index) const
+        {
+            const int row = index / cols;
+            const int col = index % cols;
+            output[(col * rows) + row] = input[index];
+        }
+    };
+
+    template <typename FloatOp>
+    struct HalfBinaryAdaptor
+    {
+        FloatOp op;
+
+        __device__ auto operator()(__half lhs, __half rhs) const -> __half
+        {
+            return __float2half(op(__half2float(lhs), __half2float(rhs)));
+        }
+    };
+
+    template <typename FloatOp>
+    struct HalfUnaryAdaptor
+    {
+        FloatOp op;
+
+        __device__ auto operator()(__half value) const -> __half
+        {
+            return __float2half(op(__half2float(value)));
+        }
+    };
+
+    struct ScaleValue
+    {
+        float scale;
+
+        __host__ __device__ auto operator()(float value) const -> float
+        {
+            return value * scale;
+        }
+    };
+
+    struct AddScalar
+    {
+        float scalar;
+
+        __host__ __device__ auto operator()(float value) const -> float
+        {
+            return value + scalar;
+        }
+    };
+
+    __global__ void f32_to_f16_kernel(const float* input, __half* output, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            output[index] = __float2half(input[index]);
+        }
+    }
+
+    __global__ void f16_to_f32_kernel(const __half* input, float* output, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            output[index] = __half2float(input[index]);
+        }
+    }
+
+    auto conversion_launch(int count) -> dim3
+    {
+        constexpr int kThreads = 256;
+        return dim3(static_cast<unsigned int>((count + kThreads - 1) / kThreads));
+    }
 #endif
 
 } // namespace
@@ -157,14 +242,49 @@ auto get_cublas_handle() -> cublasHandle_t
 {
     return CublasContext::handle();
 }
+
+namespace
+{
+thread_local cudaStream_t g_current_stream = 0;
+}
+
+auto current_stream() -> cudaStream_t
+{
+    return g_current_stream;
+}
+
+auto set_current_stream(cudaStream_t stream) -> void
+{
+    g_current_stream = stream;
+}
+
+StreamGuard::StreamGuard(cudaStream_t stream)
+    : previous_(current_stream())
+{
+    set_current_stream(stream);
+    CHECK_CUBLAS(cublasSetStream(get_cublas_handle(), stream));
+}
+
+StreamGuard::~StreamGuard()
+{
+    set_current_stream(previous_);
+    static_cast<void>(cublasSetStream(get_cublas_handle(), previous_));
+}
 #endif
 
-Tensor::Tensor(std::vector<int> shape, Device device_type)
+Tensor::Tensor()
+    : Tensor(std::vector<int> {}, Device::CPU, Dtype::Float32)
+{
+}
+
+Tensor::Tensor(std::vector<int> shape, Device device_type, Dtype dtype)
     : shape_(std::move(shape))
     , device_(device_type)
+    , dtype_(dtype)
     , size_(calculate_size(shape_))
 {
     compute_strides();
+    const std::size_t bytes = nbytes();
 #if DEEPLEARNLIB_ENABLE_CUDA
     if (device_ == Device::GPU)
     {
@@ -176,27 +296,33 @@ Tensor::Tensor(std::vector<int> shape, Device device_type)
         }
 
         void* gpu_pointer { nullptr };
-        CHECK_CUDA(cudaMalloc(&gpu_pointer, size_ * sizeof(float)));
+        CHECK_CUDA(cudaMalloc(&gpu_pointer, bytes));
         data_ = std::shared_ptr<float>(static_cast<float*>(gpu_pointer), CudaDeleter());
     }
     else
     {
-        data_ = std::shared_ptr<float>(new float[size_](), CpuDeleter());
+        void* cpu_pointer = ::operator new(bytes);
+        std::memset(cpu_pointer, 0, bytes);
+        data_ = std::shared_ptr<float>(static_cast<float*>(cpu_pointer), CpuDeleter());
     }
 #else
     if (device_ == Device::GPU)
     {
         throw std::runtime_error("CUDA support is not enabled");
     }
-    data_ = std::shared_ptr<float>(new float[size_](), CpuDeleter());
+    void* cpu_pointer = ::operator new(bytes);
+    std::memset(cpu_pointer, 0, bytes);
+    data_ = std::shared_ptr<float>(static_cast<float*>(cpu_pointer), CpuDeleter());
 #endif
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-Tensor::Tensor(std::vector<int> shape, std::vector<int> strides, std::shared_ptr<float> data_ptr, Device device_type)
+Tensor::Tensor(std::vector<int> shape, std::vector<int> strides, std::shared_ptr<float> data_ptr, Device device_type,
+    Dtype dtype)
     : shape_(std::move(shape))
     , strides_(std::move(strides))
     , device_(device_type)
+    , dtype_(dtype)
     , size_(calculate_size(shape_))
     , data_(std::move(data_ptr))
 {
@@ -222,6 +348,21 @@ auto Tensor::get_device() const -> Device
     return device_;
 }
 
+auto Tensor::get_dtype() const -> Dtype
+{
+    return dtype_;
+}
+
+auto Tensor::element_size() const -> std::size_t
+{
+    return ::dl::element_size(dtype_);
+}
+
+auto Tensor::nbytes() const -> std::size_t
+{
+    return size_ * element_size();
+}
+
 auto Tensor::get_data() const -> const float*
 {
     return data();
@@ -236,6 +377,80 @@ auto Tensor::data() const -> const float*
 {
     return data_.get();
 }
+
+#if DEEPLEARNLIB_ENABLE_CUDA
+auto Tensor::half_data() -> __half*
+{
+    if (dtype_ != Dtype::Float16)
+    {
+        throw std::runtime_error("half_data requires a Float16 tensor");
+    }
+    return reinterpret_cast<__half*>(data_.get());
+}
+
+auto Tensor::half_data() const -> const __half*
+{
+    if (dtype_ != Dtype::Float16)
+    {
+        throw std::runtime_error("half_data requires a Float16 tensor");
+    }
+    return reinterpret_cast<const __half*>(data_.get());
+}
+
+auto Tensor::to_dtype(Dtype dtype, cudaStream_t stream) const -> Tensor
+{
+    if (dtype == dtype_)
+    {
+        return view(shape_);
+    }
+    Tensor result(shape_, device_, dtype);
+    if (size_ == 0)
+    {
+        return result;
+    }
+    if (device_ != Device::GPU)
+    {
+        if (dtype_ == Dtype::Float32 && dtype == Dtype::Float16)
+        {
+            const float* input = data();
+            auto* output = result.half_data();
+            for (std::size_t index = 0; index < size_; ++index)
+            {
+                output[index] = __float2half(input[index]);
+            }
+            return result;
+        }
+        if (dtype_ == Dtype::Float16 && dtype == Dtype::Float32)
+        {
+            const __half* input = half_data();
+            float* output = result.data();
+            for (std::size_t index = 0; index < size_; ++index)
+            {
+                output[index] = __half2float(input[index]);
+            }
+            return result;
+        }
+        throw std::runtime_error("to_dtype: unsupported host conversion");
+    }
+
+    constexpr int kThreads = 256;
+    const dim3 grid = conversion_launch(static_cast<int>(size_));
+    if (dtype_ == Dtype::Float32 && dtype == Dtype::Float16)
+    {
+        f32_to_f16_kernel<<<grid, kThreads, 0, stream>>>(data(), result.half_data(), static_cast<int>(size_));
+    }
+    else if (dtype_ == Dtype::Float16 && dtype == Dtype::Float32)
+    {
+        f16_to_f32_kernel<<<grid, kThreads, 0, stream>>>(half_data(), result.data(), static_cast<int>(size_));
+    }
+    else
+    {
+        throw std::runtime_error("to_dtype: unsupported conversion");
+    }
+    CHECK_CUDA(cudaGetLastError());
+    return result;
+}
+#endif
 
 auto Tensor::compute_strides() -> void
 {
@@ -285,6 +500,10 @@ auto Tensor::ensure_binary_op(const Tensor& other, const char* op_name) const ->
     {
         throw std::runtime_error(std::string(op_name) + " requires contiguous tensors");
     }
+    if (dtype_ != other.dtype_)
+    {
+        throw std::runtime_error(std::string(op_name) + " requires tensors of equal dtype");
+    }
 }
 
 auto Tensor::matmul(const Tensor& other) const -> Tensor
@@ -307,6 +526,10 @@ auto Tensor::matmul(const Tensor& other) const -> Tensor
     if (!is_contiguous() || !other.is_contiguous())
     {
         throw std::runtime_error("matmul requires contiguous row-major tensors");
+    }
+    if (dtype_ != other.dtype_)
+    {
+        throw std::runtime_error("matmul requires tensors of equal dtype");
     }
 
     const int k_left { shape_.back() };
@@ -333,7 +556,7 @@ auto Tensor::matmul(const Tensor& other) const -> Tensor
         result_shape.push_back(1);
     }
 
-    Tensor result(result_shape, Device::GPU);
+    Tensor result(result_shape, Device::GPU, dtype_);
 
     if (M == 0 || N == 0)
     {
@@ -345,8 +568,18 @@ auto Tensor::matmul(const Tensor& other) const -> Tensor
     // and using CUBLAS_OP_N for both operands.
     const float alpha { 1.0F };
     const float beta { 0.0F };
-    CHECK_CUBLAS(cublasSgemm(get_cublas_handle(), CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, other.data(), N, data(), K,
-        &beta, result.data(), N));
+    CHECK_CUBLAS(cublasSetStream(get_cublas_handle(), current_stream()));
+    if (dtype_ == Dtype::Float16)
+    {
+        CHECK_CUBLAS(cublasGemmEx(get_cublas_handle(), CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, other.data(),
+            CUDA_R_16F, N, data(), CUDA_R_16F, K, &beta, result.data(), CUDA_R_16F, N, CUBLAS_COMPUTE_32F,
+            CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+    }
+    else
+    {
+        CHECK_CUBLAS(cublasSgemm(get_cublas_handle(), CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, other.data(), N, data(),
+            K, &beta, result.data(), N));
+    }
 
     return result;
 #endif
@@ -358,16 +591,28 @@ auto Tensor::operator+(const Tensor& other) const -> Tensor
     throw std::runtime_error("operator+ requires CUDA/Thrust support");
 #else
     ensure_binary_op(other, "operator+");
-    Tensor result(shape_, Device::GPU);
+    Tensor result(shape_, Device::GPU, dtype_);
     if (size_ == 0)
     {
         return result;
     }
 
-    auto lhs = thrust::device_pointer_cast(data());
-    auto rhs = thrust::device_pointer_cast(other.data());
-    auto out = thrust::device_pointer_cast(result.data());
-    thrust::transform(thrust::device, lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out, thrust::plus<float>());
+    if (dtype_ == Dtype::Float16)
+    {
+        auto lhs = thrust::device_pointer_cast(half_data());
+        auto rhs = thrust::device_pointer_cast(other.half_data());
+        auto out = thrust::device_pointer_cast(result.half_data());
+        thrust::transform(thrust::cuda::par.on(current_stream()), lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out,
+            HalfBinaryAdaptor<thrust::plus<float>> { thrust::plus<float>() });
+    }
+    else
+    {
+        auto lhs = thrust::device_pointer_cast(data());
+        auto rhs = thrust::device_pointer_cast(other.data());
+        auto out = thrust::device_pointer_cast(result.data());
+        thrust::transform(thrust::cuda::par.on(current_stream()), lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out,
+            thrust::plus<float>());
+    }
     CHECK_CUDA(cudaGetLastError());
     return result;
 #endif
@@ -379,16 +624,28 @@ auto Tensor::operator-(const Tensor& other) const -> Tensor
     throw std::runtime_error("operator- requires CUDA/Thrust support");
 #else
     ensure_binary_op(other, "operator-");
-    Tensor result(shape_, Device::GPU);
+    Tensor result(shape_, Device::GPU, dtype_);
     if (size_ == 0)
     {
         return result;
     }
 
-    auto lhs = thrust::device_pointer_cast(data());
-    auto rhs = thrust::device_pointer_cast(other.data());
-    auto out = thrust::device_pointer_cast(result.data());
-    thrust::transform(thrust::device, lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out, thrust::minus<float>());
+    if (dtype_ == Dtype::Float16)
+    {
+        auto lhs = thrust::device_pointer_cast(half_data());
+        auto rhs = thrust::device_pointer_cast(other.half_data());
+        auto out = thrust::device_pointer_cast(result.half_data());
+        thrust::transform(thrust::cuda::par.on(current_stream()), lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out,
+            HalfBinaryAdaptor<thrust::minus<float>> { thrust::minus<float>() });
+    }
+    else
+    {
+        auto lhs = thrust::device_pointer_cast(data());
+        auto rhs = thrust::device_pointer_cast(other.data());
+        auto out = thrust::device_pointer_cast(result.data());
+        thrust::transform(thrust::cuda::par.on(current_stream()), lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out,
+            thrust::minus<float>());
+    }
     CHECK_CUDA(cudaGetLastError());
     return result;
 #endif
@@ -400,17 +657,28 @@ auto Tensor::operator*(const Tensor& other) const -> Tensor
     throw std::runtime_error("operator* requires CUDA/Thrust support");
 #else
     ensure_binary_op(other, "operator*");
-    Tensor result(shape_, Device::GPU);
+    Tensor result(shape_, Device::GPU, dtype_);
     if (size_ == 0)
     {
         return result;
     }
 
-    auto lhs = thrust::device_pointer_cast(data());
-    auto rhs = thrust::device_pointer_cast(other.data());
-    auto out = thrust::device_pointer_cast(result.data());
-    thrust::transform(thrust::device, lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out,
-        thrust::multiplies<float>());
+    if (dtype_ == Dtype::Float16)
+    {
+        auto lhs = thrust::device_pointer_cast(half_data());
+        auto rhs = thrust::device_pointer_cast(other.half_data());
+        auto out = thrust::device_pointer_cast(result.half_data());
+        thrust::transform(thrust::cuda::par.on(current_stream()), lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out,
+            HalfBinaryAdaptor<thrust::multiplies<float>> { thrust::multiplies<float>() });
+    }
+    else
+    {
+        auto lhs = thrust::device_pointer_cast(data());
+        auto rhs = thrust::device_pointer_cast(other.data());
+        auto out = thrust::device_pointer_cast(result.data());
+        thrust::transform(thrust::cuda::par.on(current_stream()), lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out,
+            thrust::multiplies<float>());
+    }
     CHECK_CUDA(cudaGetLastError());
     return result;
 #endif
@@ -427,16 +695,26 @@ auto Tensor::operator*(float scalar) const -> Tensor
         throw std::runtime_error("operator* requires a contiguous tensor");
     }
 
-    Tensor result(shape_, Device::GPU);
+    Tensor result(shape_, Device::GPU, dtype_);
     if (size_ == 0)
     {
         return result;
     }
 
-    auto in = thrust::device_pointer_cast(data());
-    auto out = thrust::device_pointer_cast(result.data());
-    thrust::transform(thrust::device, in, in + static_cast<std::ptrdiff_t>(size_), out,
-        thrust::placeholders::_1 * scalar);
+    if (dtype_ == Dtype::Float16)
+    {
+        auto in = thrust::device_pointer_cast(half_data());
+        auto out = thrust::device_pointer_cast(result.half_data());
+        thrust::transform(thrust::cuda::par.on(current_stream()), in, in + static_cast<std::ptrdiff_t>(size_), out,
+            HalfUnaryAdaptor<ScaleValue> { ScaleValue { scalar } });
+    }
+    else
+    {
+        auto in = thrust::device_pointer_cast(data());
+        auto out = thrust::device_pointer_cast(result.data());
+        thrust::transform(thrust::cuda::par.on(current_stream()), in, in + static_cast<std::ptrdiff_t>(size_), out,
+            thrust::placeholders::_1 * scalar);
+    }
     CHECK_CUDA(cudaGetLastError());
     return result;
 #endif
@@ -453,16 +731,26 @@ auto Tensor::operator+(float scalar) const -> Tensor
         throw std::runtime_error("operator+ requires a contiguous tensor");
     }
 
-    Tensor result(shape_, Device::GPU);
+    Tensor result(shape_, Device::GPU, dtype_);
     if (size_ == 0)
     {
         return result;
     }
 
-    auto in = thrust::device_pointer_cast(data());
-    auto out = thrust::device_pointer_cast(result.data());
-    thrust::transform(thrust::device, in, in + static_cast<std::ptrdiff_t>(size_), out,
-        thrust::placeholders::_1 + scalar);
+    if (dtype_ == Dtype::Float16)
+    {
+        auto in = thrust::device_pointer_cast(half_data());
+        auto out = thrust::device_pointer_cast(result.half_data());
+        thrust::transform(thrust::cuda::par.on(current_stream()), in, in + static_cast<std::ptrdiff_t>(size_), out,
+            HalfUnaryAdaptor<AddScalar> { AddScalar { scalar } });
+    }
+    else
+    {
+        auto in = thrust::device_pointer_cast(data());
+        auto out = thrust::device_pointer_cast(result.data());
+        thrust::transform(thrust::cuda::par.on(current_stream()), in, in + static_cast<std::ptrdiff_t>(size_), out,
+            thrust::placeholders::_1 + scalar);
+    }
     CHECK_CUDA(cudaGetLastError());
     return result;
 #endif
@@ -483,17 +771,92 @@ auto Tensor::clamp(float lo, float hi) const -> Tensor
         throw std::runtime_error("clamp requires lo <= hi");
     }
 
-    Tensor result(shape_, Device::GPU);
+    Tensor result(shape_, Device::GPU, dtype_);
     if (size_ == 0)
     {
         return result;
     }
 
-    auto in = thrust::device_pointer_cast(data());
-    auto out = thrust::device_pointer_cast(result.data());
-    thrust::transform(thrust::device, in, in + static_cast<std::ptrdiff_t>(size_), out, ClampValue { lo, hi });
+    if (dtype_ == Dtype::Float16)
+    {
+        auto in = thrust::device_pointer_cast(half_data());
+        auto out = thrust::device_pointer_cast(result.half_data());
+        thrust::transform(thrust::cuda::par.on(current_stream()), in, in + static_cast<std::ptrdiff_t>(size_), out,
+            HalfUnaryAdaptor<ClampValue> { ClampValue { lo, hi } });
+    }
+    else
+    {
+        auto in = thrust::device_pointer_cast(data());
+        auto out = thrust::device_pointer_cast(result.data());
+        thrust::transform(thrust::cuda::par.on(current_stream()), in, in + static_cast<std::ptrdiff_t>(size_), out,
+            ClampValue { lo, hi });
+    }
     CHECK_CUDA(cudaGetLastError());
     return result;
+#endif
+}
+
+#if DEEPLEARNLIB_ENABLE_CUDA
+namespace
+{
+
+struct IsNonFinite
+{
+    __host__ __device__ auto operator()(float value) const -> bool
+    {
+        return !isfinite(value);
+    }
+};
+
+} // namespace
+#endif
+
+auto Tensor::has_non_finite() const -> bool
+{
+    if (size_ == 0)
+    {
+        return false;
+    }
+#if DEEPLEARNLIB_ENABLE_CUDA
+    if (device_ == Device::GPU)
+    {
+        if (dtype_ == Dtype::Float16)
+        {
+            Tensor as_float = to_dtype(Dtype::Float32, current_stream());
+            auto begin = thrust::device_pointer_cast(as_float.data());
+            const bool found = thrust::any_of(thrust::cuda::par.on(current_stream()), begin,
+                begin + static_cast<std::ptrdiff_t>(size_), IsNonFinite {});
+            CHECK_CUDA(cudaGetLastError());
+            return found;
+        }
+        auto begin = thrust::device_pointer_cast(data());
+        const bool found = thrust::any_of(thrust::cuda::par.on(current_stream()), begin,
+            begin + static_cast<std::ptrdiff_t>(size_), IsNonFinite {});
+        CHECK_CUDA(cudaGetLastError());
+        return found;
+    }
+#endif
+    const float* host = get_data();
+    for (size_t index = 0; index < size_; ++index)
+    {
+        if (!std::isfinite(host[index]))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+auto Tensor::assert_finite(const char* context) const -> void
+{
+#ifdef DEBUG_NUMERICS
+    if (has_non_finite())
+    {
+        const std::string where = context == nullptr ? "Tensor" : context;
+        throw std::runtime_error("NaN detected in " + where);
+    }
+#else
+    (void)context;
 #endif
 }
 
@@ -512,16 +875,27 @@ auto Tensor::sum(int dim) const -> Tensor
         throw std::runtime_error("sum requires a contiguous tensor");
     }
 
-    Tensor result({ 1 }, Device::GPU);
+    Tensor result({ 1 }, Device::GPU, Dtype::Float32);
     float total { 0.0F };
     if (size_ > 0)
     {
-        auto begin = thrust::device_pointer_cast(data());
-        total = thrust::reduce(thrust::device, begin, begin + static_cast<std::ptrdiff_t>(size_), 0.0F,
-            thrust::plus<float>());
+        if (dtype_ == Dtype::Float16)
+        {
+            Tensor as_float = to_dtype(Dtype::Float32, current_stream());
+            auto begin = thrust::device_pointer_cast(as_float.data());
+            total = thrust::reduce(thrust::cuda::par.on(current_stream()), begin,
+                begin + static_cast<std::ptrdiff_t>(size_), 0.0F, thrust::plus<float>());
+        }
+        else
+        {
+            auto begin = thrust::device_pointer_cast(data());
+            total = thrust::reduce(thrust::cuda::par.on(current_stream()), begin,
+                begin + static_cast<std::ptrdiff_t>(size_), 0.0F, thrust::plus<float>());
+        }
         CHECK_CUDA(cudaGetLastError());
     }
-    CHECK_CUDA(cudaMemcpy(result.data(), &total, sizeof(float), cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemcpyAsync(result.data(), &total, sizeof(float), cudaMemcpyHostToDevice, current_stream()));
+    CHECK_CUDA(cudaStreamSynchronize(current_stream()));
     return result;
 #endif
 }
@@ -535,7 +909,7 @@ auto Tensor::view(const std::vector<int>& new_shape) const -> Tensor
 
     std::vector<int> shape = infer_view_shape(new_shape, size_);
     std::vector<int> strides = make_contiguous_strides(shape);
-    return Tensor(std::move(shape), std::move(strides), data_, device_);
+    return Tensor(std::move(shape), std::move(strides), data_, device_, dtype_);
 }
 
 auto Tensor::transpose() const -> Tensor
@@ -555,15 +929,24 @@ auto Tensor::transpose() const -> Tensor
 
     const int rows { shape_[0] };
     const int cols { shape_[1] };
-    Tensor result({ cols, rows }, Device::GPU);
+    Tensor result({ cols, rows }, Device::GPU, dtype_);
     if (size_ == 0 || rows == 0 || cols == 0)
     {
         return result;
     }
 
-    thrust::for_each(thrust::device, thrust::make_counting_iterator(0),
-        thrust::make_counting_iterator(static_cast<int>(size_)),
-        Transpose2D { data(), result.data(), rows, cols });
+    if (dtype_ == Dtype::Float16)
+    {
+        thrust::for_each(thrust::cuda::par.on(current_stream()), thrust::make_counting_iterator(0),
+            thrust::make_counting_iterator(static_cast<int>(size_)),
+            Transpose2DHalf { half_data(), result.half_data(), rows, cols });
+    }
+    else
+    {
+        thrust::for_each(thrust::cuda::par.on(current_stream()), thrust::make_counting_iterator(0),
+            thrust::make_counting_iterator(static_cast<int>(size_)),
+            Transpose2D { data(), result.data(), rows, cols });
+    }
     CHECK_CUDA(cudaGetLastError());
     return result;
 #endif
@@ -571,20 +954,23 @@ auto Tensor::transpose() const -> Tensor
 
 auto Tensor::zeros_like(const Tensor& other) -> Tensor
 {
-    Tensor result(other.shape_, other.device_);
+    Tensor result(other.shape_, other.device_, other.dtype_);
 #if DEEPLEARNLIB_ENABLE_CUDA
     if (result.device_ == Device::GPU && result.size_ > 0)
     {
-        auto out = thrust::device_pointer_cast(result.data());
-        thrust::fill(thrust::device, out, out + static_cast<std::ptrdiff_t>(result.size_), 0.0F);
+        CHECK_CUDA(cudaMemsetAsync(result.data(), 0, result.nbytes(), current_stream()));
         CHECK_CUDA(cudaGetLastError());
     }
 #endif
     return result;
 }
 
-auto Tensor::to_host() const -> std::vector<float>
+auto Tensor::to_host(cudaStream_t stream) const -> std::vector<float>
 {
+    if (dtype_ == Dtype::Float16)
+    {
+        return to_dtype(Dtype::Float32, stream).to_host(stream);
+    }
     std::vector<float> host(size_);
     if (size_ == 0)
     {
@@ -597,7 +983,12 @@ auto Tensor::to_host() const -> std::vector<float>
 #if DEEPLEARNLIB_ENABLE_CUDA
     if (device_ == Device::GPU)
     {
-        CHECK_CUDA(cudaMemcpy(host.data(), data_.get(), size_ * sizeof(float), cudaMemcpyDeviceToHost));
+        float* pinned { nullptr };
+        CHECK_CUDA(cudaMallocHost(&pinned, size_ * sizeof(float)));
+        std::unique_ptr<float, PinnedHostDeleter> staging(pinned, PinnedHostDeleter { stream });
+        CHECK_CUDA(cudaMemcpyAsync(staging.get(), data_.get(), size_ * sizeof(float), cudaMemcpyDeviceToHost, stream));
+        CHECK_CUDA(cudaStreamSynchronize(stream));
+        std::memcpy(host.data(), staging.get(), size_ * sizeof(float));
         return host;
     }
 #endif
@@ -605,7 +996,8 @@ auto Tensor::to_host() const -> std::vector<float>
     return host;
 }
 
-auto Tensor::from_host(const std::vector<int>& shape, const std::vector<float>& host_data, Device device) -> Tensor
+auto Tensor::from_host(const std::vector<int>& shape, const std::vector<float>& host_data, Device device,
+    cudaStream_t stream, Dtype dtype) -> Tensor
 {
     size_t expected { 1 };
     for (int dimension : shape)
@@ -616,15 +1008,20 @@ auto Tensor::from_host(const std::vector<int>& shape, const std::vector<float>& 
     {
         throw std::runtime_error("from_host: host buffer size does not match the requested shape");
     }
-    return from_host(shape, host_data.data(), device);
+    return from_host(shape, host_data.data(), device, stream, dtype);
 }
 
-auto Tensor::from_host(const std::vector<int>& shape, const float* host_data, Device device) -> Tensor
+auto Tensor::from_host(const std::vector<int>& shape, const float* host_data, Device device, cudaStream_t stream,
+    Dtype dtype) -> Tensor
 {
-    Tensor result(shape, device);
+    Tensor result(shape, device, Dtype::Float32);
     if (result.size_ == 0)
     {
-        return result;
+        if (dtype == Dtype::Float32)
+        {
+            return result;
+        }
+        return result.to_dtype(dtype, stream);
     }
     if (host_data == nullptr)
     {
@@ -633,11 +1030,39 @@ auto Tensor::from_host(const std::vector<int>& shape, const float* host_data, De
 #if DEEPLEARNLIB_ENABLE_CUDA
     if (device == Device::GPU)
     {
-        CHECK_CUDA(cudaMemcpy(result.data(), host_data, result.size_ * sizeof(float), cudaMemcpyHostToDevice));
+        float* pinned { nullptr };
+        CHECK_CUDA(cudaMallocHost(&pinned, result.size_ * sizeof(float)));
+        std::unique_ptr<float, PinnedHostDeleter> staging(pinned, PinnedHostDeleter { stream });
+        std::memcpy(staging.get(), host_data, result.size_ * sizeof(float));
+        CHECK_CUDA(cudaMemcpyAsync(result.data(), staging.get(), result.size_ * sizeof(float), cudaMemcpyHostToDevice,
+            stream));
+        if (stream == 0)
+        {
+            CHECK_CUDA(cudaStreamSynchronize(stream));
+            staging.reset();
+        }
+        else
+        {
+            result.h2d_staging_ = std::move(staging);
+        }
+        if (dtype == Dtype::Float16)
+        {
+            Tensor half = result.to_dtype(Dtype::Float16, stream);
+            if (stream != 0)
+            {
+                CHECK_CUDA(cudaStreamSynchronize(stream));
+            }
+            return half;
+        }
         return result;
     }
 #endif
+    (void)stream;
     std::copy(host_data, host_data + static_cast<std::ptrdiff_t>(result.size_), result.data());
+    if (dtype == Dtype::Float16)
+    {
+        return result.to_dtype(Dtype::Float16, 0);
+    }
     return result;
 }
 

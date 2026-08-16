@@ -3,8 +3,11 @@
 #include "DeepLearnLib/Nvtx.hpp"
 
 #include <algorithm>
+#include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <numeric>
 #include <opencv2/opencv.hpp>
 #include <pugixml.hpp>
@@ -351,8 +354,8 @@ auto CustomDataLoader::batch_size() const -> int
     return batch_size_;
 }
 
-auto CustomDataLoader::load_sample(std::size_t sample_index, std::vector<float>& image_chw, std::vector<float>& target)
-    -> void
+auto CustomDataLoader::load_sample(std::size_t sample_index, std::vector<float>& image_chw, std::vector<float>& target,
+    std::mt19937& rng) -> void
 {
     const std::size_t image_elems = static_cast<std::size_t>(IMAGE_CHANNELS * img_size_ * img_size_);
     image_chw.assign(image_elems, 0.0F);
@@ -377,11 +380,11 @@ auto CustomDataLoader::load_sample(std::size_t sample_index, std::vector<float>&
         std::uniform_real_distribution<float> scale_dist(0.8F, 1.2F);
         std::uniform_real_distribution<float> shift_dist(-0.2F, 0.2F);
         std::uniform_real_distribution<float> jitter_dist(0.66F, 1.5F);
-        scale = scale_dist(rng_);
-        dx = shift_dist(rng_);
-        dy = shift_dist(rng_);
+        scale = scale_dist(rng);
+        dx = shift_dist(rng);
+        dy = shift_dist(rng);
         apply_affine(image, scale, dx, dy);
-        apply_hsv_jitter(image, jitter_dist(rng_), jitter_dist(rng_));
+        apply_hsv_jitter(image, jitter_dist(rng), jitter_dist(rng));
     }
 
     if (!image.isContinuous())
@@ -392,7 +395,7 @@ auto CustomDataLoader::load_sample(std::size_t sample_index, std::vector<float>&
     encode_targets(paths_.labels[sample_index], is_train_, scale, dx, dy, num_classes_, target);
 }
 
-auto CustomDataLoader::get_batch() -> Batch
+auto CustomDataLoader::get_batch(cudaStream_t stream) -> Batch
 {
     const dl::NvtxRange nvtx_range("DataLoader_GetBatch");
     if (!has_next())
@@ -408,18 +411,63 @@ auto CustomDataLoader::get_batch() -> Batch
 
     std::vector<float> images_host(static_cast<std::size_t>(this_batch) * image_elems, 0.0F);
     std::vector<float> targets_host(static_cast<std::size_t>(this_batch) * target_elems, 0.0F);
-
-    std::vector<float> sample_image;
-    std::vector<float> sample_target;
+    std::vector<std::size_t> sample_indices(static_cast<std::size_t>(this_batch));
+    std::vector<std::uint32_t> rng_seeds(static_cast<std::size_t>(this_batch));
     for (int batch_idx = 0; batch_idx < this_batch; ++batch_idx)
     {
-        const std::size_t sample_index = order_[cursor_++];
-        load_sample(sample_index, sample_image, sample_target);
-        std::copy(sample_image.begin(), sample_image.end(), images_host.begin() + static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(image_elems));
-        std::copy(sample_target.begin(), sample_target.end(),
-            targets_host.begin() + static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(target_elems));
+        sample_indices[static_cast<std::size_t>(batch_idx)] = order_[cursor_++];
+        rng_seeds[static_cast<std::size_t>(batch_idx)] = rng_();
     }
 
-    return Batch { dl::Tensor::from_host({ this_batch, IMAGE_CHANNELS, img_size_, img_size_ }, images_host),
-        dl::Tensor::from_host({ this_batch, GRID_SIZE, GRID_SIZE, attributes }, targets_host) };
+    std::vector<std::future<void>> workers;
+    workers.reserve(static_cast<std::size_t>(this_batch));
+    for (int batch_idx = 0; batch_idx < this_batch; ++batch_idx)
+    {
+        workers.emplace_back(std::async(std::launch::async,
+            [this, batch_idx, image_elems, target_elems, &images_host, &targets_host, &sample_indices, &rng_seeds]()
+            {
+                std::mt19937 local_rng(rng_seeds[static_cast<std::size_t>(batch_idx)]);
+                std::vector<float> sample_image;
+                std::vector<float> sample_target;
+                load_sample(sample_indices[static_cast<std::size_t>(batch_idx)], sample_image, sample_target,
+                    local_rng);
+
+                const auto image_offset = static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(image_elems);
+                const auto target_offset =
+                    static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(target_elems);
+                if (sample_image.size() == image_elems)
+                {
+                    std::copy(sample_image.begin(), sample_image.end(), images_host.begin() + image_offset);
+                }
+                if (sample_target.size() == target_elems)
+                {
+                    std::copy(sample_target.begin(), sample_target.end(), targets_host.begin() + target_offset);
+                }
+            }));
+    }
+
+    std::exception_ptr first_error;
+    for (auto& worker : workers)
+    {
+        try
+        {
+            worker.get();
+        }
+        catch (...)
+        {
+            if (!first_error)
+            {
+                first_error = std::current_exception();
+            }
+        }
+    }
+    if (first_error)
+    {
+        std::rethrow_exception(first_error);
+    }
+
+    return Batch { dl::Tensor::from_host({ this_batch, IMAGE_CHANNELS, img_size_, img_size_ }, images_host,
+                       dl::Device::GPU, stream, dl::compute_dtype()),
+        dl::Tensor::from_host({ this_batch, GRID_SIZE, GRID_SIZE, attributes }, targets_host, dl::Device::GPU, stream,
+            dl::compute_dtype()) };
 }

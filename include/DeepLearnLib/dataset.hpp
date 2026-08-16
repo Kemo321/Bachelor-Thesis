@@ -55,7 +55,7 @@ public:
 
     auto reset() -> void;
     [[nodiscard]] auto has_next() const -> bool;
-    auto get_batch() -> Batch;
+    auto get_batch(cudaStream_t stream = 0) -> Batch;
     [[nodiscard]] auto size() const -> std::size_t;
     [[nodiscard]] auto batch_size() const -> int;
 
@@ -69,5 +69,6 @@ private:
     std::vector<std::size_t> order_;
     std::mt19937 rng_;
 
-    auto load_sample(std::size_t sample_index, std::vector<float>& image_chw, std::vector<float>& target) -> void;
+    auto load_sample(std::size_t sample_index, std::vector<float>& image_chw, std::vector<float>& target,
+        std::mt19937& rng) -> void;
 };

@@ -48,6 +48,11 @@ private:
 
 auto get_cudnn_handle() -> cudnnHandle_t;
 
+inline auto bind_cudnn_stream(cudaStream_t stream) -> void
+{
+    CHECK_CUDNN(cudnnSetStream(get_cudnn_handle(), stream));
+}
+
 class CudnnTensorDescriptor
 {
 public:
@@ -60,7 +65,7 @@ public:
     auto operator=(CudnnTensorDescriptor&& other) noexcept -> CudnnTensorDescriptor&;
 
     auto get() const -> cudnnTensorDescriptor_t;
-    auto set_nchw(int n, int c, int h, int w) -> void;
+    auto set_nchw(int n, int c, int h, int w, cudnnDataType_t data_type = CUDNN_DATA_FLOAT) -> void;
 
 private:
     cudnnTensorDescriptor_t desc_ { nullptr };
@@ -78,7 +83,8 @@ public:
     auto operator=(CudnnFilterDescriptor&& other) noexcept -> CudnnFilterDescriptor&;
 
     auto get() const -> cudnnFilterDescriptor_t;
-    auto set_nchw(int out_channels, int in_channels, int kernel_h, int kernel_w) -> void;
+    auto set_nchw(int out_channels, int in_channels, int kernel_h, int kernel_w,
+        cudnnDataType_t data_type = CUDNN_DATA_FLOAT) -> void;
 
 private:
     cudnnFilterDescriptor_t desc_ { nullptr };
@@ -96,10 +102,29 @@ public:
     auto operator=(CudnnConvolutionDescriptor&& other) noexcept -> CudnnConvolutionDescriptor&;
 
     auto get() const -> cudnnConvolutionDescriptor_t;
-    auto set_2d(int padding, int stride) -> void;
+    auto set_2d(int padding, int stride, cudnnDataType_t compute_type = CUDNN_DATA_FLOAT) -> void;
+    auto set_math_type(cudnnMathType_t math_type) -> void;
 
 private:
     cudnnConvolutionDescriptor_t desc_ { nullptr };
+};
+
+class CudnnActivationDescriptor
+{
+public:
+    CudnnActivationDescriptor();
+    ~CudnnActivationDescriptor();
+
+    CudnnActivationDescriptor(const CudnnActivationDescriptor&) = delete;
+    auto operator=(const CudnnActivationDescriptor&) -> CudnnActivationDescriptor& = delete;
+    CudnnActivationDescriptor(CudnnActivationDescriptor&& other) noexcept;
+    auto operator=(CudnnActivationDescriptor&& other) noexcept -> CudnnActivationDescriptor&;
+
+    auto get() const -> cudnnActivationDescriptor_t;
+    auto set(cudnnActivationMode_t mode, cudnnNanPropagation_t nan_opt, double coef) -> void;
+
+private:
+    cudnnActivationDescriptor_t desc_ { nullptr };
 };
 
 class CudaWorkspace
@@ -121,6 +146,11 @@ private:
 
 } // namespace dl
 
+[[nodiscard]] inline auto cudnn_data_type(dl::Dtype dtype) -> cudnnDataType_t
+{
+    return dtype == dl::Dtype::Float16 ? CUDNN_DATA_HALF : CUDNN_DATA_FLOAT;
+}
+
 /**
  * 2D convolution via cuDNN (cross-correlation).
  *
@@ -134,9 +164,11 @@ public:
     Conv2d(int in_channels, int out_channels, int kernel_size, int stride_val, int padding_val,
         float inertia_val = 0.0F);
 
-    [[nodiscard]] auto forward(const dl::Tensor& input_tensor) -> dl::Tensor override;
-    [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative) -> dl::Tensor override;
-    void step() override;
+    [[nodiscard]] auto forward(const dl::Tensor& input_tensor, cudaStream_t stream = 0) -> dl::Tensor override;
+    [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative, cudaStream_t stream = 0)
+        -> dl::Tensor override;
+    void step(cudaStream_t stream = 0) override;
+    void clip_gradients(float abs_bound, cudaStream_t stream = 0) override;
     auto get_parameters() -> std::map<std::string, dl::Tensor> override;
     void set_parameters(const std::map<std::string, dl::Tensor>& params) override;
     auto to(dl::Device device) -> void override;
@@ -167,6 +199,7 @@ private:
     dl::CudnnTensorDescriptor bias_desc_;
     dl::CudnnFilterDescriptor filter_desc_;
     dl::CudnnConvolutionDescriptor conv_desc_;
+    dl::CudnnActivationDescriptor activation_desc_;
     dl::CudaWorkspace workspace_;
 
     cudnnConvolutionFwdAlgo_t fwd_algo_ { CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM };

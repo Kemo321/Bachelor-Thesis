@@ -34,7 +34,7 @@ auto fill_constant(dl::Tensor& tensor, float value) -> void
         return;
     }
     auto out = thrust::device_pointer_cast(tensor.data());
-    thrust::fill(thrust::device, out, out + static_cast<std::ptrdiff_t>(tensor.get_size()), value);
+    thrust::fill(thrust::cuda::par.on(dl::current_stream()), out, out + static_cast<std::ptrdiff_t>(tensor.get_size()), value);
     CHECK_CUDA(cudaGetLastError());
 }
 
@@ -46,7 +46,7 @@ auto add_scaled(dl::Tensor& lhs, const dl::Tensor& rhs, float scale) -> void
     }
     auto dest = thrust::device_pointer_cast(lhs.data());
     auto src = thrust::device_pointer_cast(rhs.data());
-    thrust::transform(thrust::device, dest, dest + static_cast<std::ptrdiff_t>(lhs.get_size()), src, dest,
+    thrust::transform(thrust::cuda::par.on(dl::current_stream()), dest, dest + static_cast<std::ptrdiff_t>(lhs.get_size()), src, dest,
         ScaledAdd { scale });
     CHECK_CUDA(cudaGetLastError());
 }
@@ -81,7 +81,7 @@ auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) ->
     {
         return;
     }
-    CHECK_CUDA(cudaMemcpy(dst.data(), src.data(), src.get_size() * sizeof(float), cudaMemcpyDeviceToDevice));
+    dl::memcpy_d2d_on_current(dst.data(), src.data(), src.nbytes());
 }
 
 auto batchnorm_channel_shape(int num_features, float eps) -> std::vector<int>
@@ -121,36 +121,34 @@ BatchNorm2d::BatchNorm2d(int num_features, float eps, float momentum)
     fill_constant(running_var_, 1.0F);
 }
 
-auto BatchNorm2d::configure_descriptors(int batch, int channels, int height, int width) -> void
+auto BatchNorm2d::configure_descriptors(int batch, int channels, int height, int width, dl::Dtype dtype) -> void
 {
     const std::vector<int> shape { batch, channels, height, width };
-    if (descriptors_configured_ && shape == input_shape_cache_)
-    {
-        return;
-    }
     if (channels != num_features_)
     {
         throw std::runtime_error("BatchNorm2d channel count does not match the layer");
     }
 
-    x_desc_.set_nchw(batch, channels, height, width);
+    x_desc_.set_nchw(batch, channels, height, width, cudnn_data_type(dtype));
     CHECK_CUDNN(cudnnDeriveBNTensorDescriptor(bn_desc_.get(), x_desc_.get(), CUDNN_BATCHNORM_SPATIAL));
     input_shape_cache_ = shape;
     descriptors_configured_ = true;
 }
 
-auto BatchNorm2d::forward(const dl::Tensor& input_tensor) -> dl::Tensor
+auto BatchNorm2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("BatchNorm2d_Forward");
+    const dl::StreamGuard stream_guard(stream);
+    dl::bind_cudnn_stream(stream);
     require_gpu_nchw(input_tensor, "BatchNorm2d::forward input");
 
     const int batch = input_tensor.get_shape()[0];
     const int channels = input_tensor.get_shape()[1];
     const int height = input_tensor.get_shape()[2];
     const int width = input_tensor.get_shape()[3];
-    configure_descriptors(batch, channels, height, width);
+    configure_descriptors(batch, channels, height, width, input_tensor.get_dtype());
 
-    dl::Tensor output(input_tensor.get_shape(), dl::Device::GPU);
+    dl::Tensor output(input_tensor.get_shape(), dl::Device::GPU, input_tensor.get_dtype());
     const float alpha { 1.0F };
     const float beta_zero { 0.0F };
     const auto handle = dl::get_cudnn_handle();
@@ -158,7 +156,7 @@ auto BatchNorm2d::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 
     if (is_training_)
     {
-        input_cache_ = dl::Tensor(input_tensor.get_shape(), dl::Device::GPU);
+        input_cache_ = dl::Tensor(input_tensor.get_shape(), dl::Device::GPU, input_tensor.get_dtype());
         copy_same_size(*input_cache_, input_tensor, "BatchNorm2d::forward input cache");
 
         const double average_factor = static_cast<double>(momentum_bn_);
@@ -179,9 +177,11 @@ auto BatchNorm2d::forward(const dl::Tensor& input_tensor) -> dl::Tensor
     return output;
 }
 
-auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
+auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("BatchNorm2d_Backward");
+    const dl::StreamGuard stream_guard(stream);
+    dl::bind_cudnn_stream(stream);
     if (!is_training_ || !input_cache_.has_value())
     {
         throw std::runtime_error("BatchNorm2d::backward requires a preceding training forward pass");
@@ -192,7 +192,7 @@ auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative) -> dl::Ten
         throw std::runtime_error("BatchNorm2d::backward grad_output shape does not match the cached input");
     }
 
-    dl::Tensor grad_input(input_cache_->get_shape(), dl::Device::GPU);
+    dl::Tensor grad_input(input_cache_->get_shape(), dl::Device::GPU, input_cache_->get_dtype());
     const float alpha { 1.0F };
     const float beta_zero { 0.0F };
     const double epsilon = std::max(static_cast<double>(eps_), static_cast<double>(CUDNN_BN_MIN_EPSILON));
@@ -209,11 +209,23 @@ auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative) -> dl::Ten
     return grad_input;
 }
 
-void BatchNorm2d::step()
+void BatchNorm2d::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("BatchNorm2d_Step");
-    gamma_ = gamma_ - (gamma_grad_ * learning_rate);
-    beta_ = beta_ - (beta_grad_ * learning_rate);
+    const dl::StreamGuard stream_guard(stream);
+    gamma_ = gamma_ - (gamma_grad_ * scaled_learning_rate());
+    beta_ = beta_ - (beta_grad_ * scaled_learning_rate());
+}
+
+void BatchNorm2d::clip_gradients(float abs_bound, cudaStream_t stream)
+{
+    const dl::StreamGuard stream_guard(stream);
+    if (abs_bound <= 0.0F)
+    {
+        return;
+    }
+    gamma_grad_ = gamma_grad_.clamp(-abs_bound, abs_bound);
+    beta_grad_ = beta_grad_.clamp(-abs_bound, abs_bound);
 }
 
 auto BatchNorm2d::get_parameters() -> std::map<std::string, dl::Tensor>

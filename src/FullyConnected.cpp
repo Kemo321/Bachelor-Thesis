@@ -43,7 +43,7 @@ auto fill_uniform(dl::Tensor& tensor, float low, float high, unsigned long long 
         return;
     }
     auto out = thrust::device_pointer_cast(tensor.data());
-    thrust::transform(thrust::device, thrust::make_counting_iterator(0),
+    thrust::transform(thrust::cuda::par.on(dl::current_stream()), thrust::make_counting_iterator(0),
         thrust::make_counting_iterator(static_cast<int>(tensor.get_size())), out,
         UniformFill { low, high, seed });
     CHECK_CUDA(cudaGetLastError());
@@ -56,7 +56,7 @@ auto fill_constant(dl::Tensor& tensor, float value) -> void
         return;
     }
     auto out = thrust::device_pointer_cast(tensor.data());
-    thrust::fill(thrust::device, out, out + static_cast<std::ptrdiff_t>(tensor.get_size()), value);
+    thrust::fill(thrust::cuda::par.on(dl::current_stream()), out, out + static_cast<std::ptrdiff_t>(tensor.get_size()), value);
     CHECK_CUDA(cudaGetLastError());
 }
 
@@ -86,7 +86,13 @@ auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) ->
     {
         return;
     }
-    CHECK_CUDA(cudaMemcpy(dst.data(), src.data(), src.get_size() * sizeof(float), cudaMemcpyDeviceToDevice));
+    if (src.get_dtype() == dst.get_dtype())
+    {
+        dl::memcpy_d2d_on_current(dst.data(), src.data(), src.nbytes());
+        return;
+    }
+    const dl::Tensor converted = src.to_dtype(dst.get_dtype(), dl::current_stream());
+    dl::memcpy_d2d_on_current(dst.data(), converted.data(), dst.nbytes());
 }
 
 auto require_rank2(const dl::Tensor& tensor, int expected_cols, const char* name) -> void
@@ -123,31 +129,53 @@ FullyConnected::FullyConnected(int input_size, int output_size, float inertia_va
     , inertia_(inertia_val)
 {
     device_ = dl::Device::GPU;
-    const float bound = std::sqrt(1.0F / static_cast<float>(input_size_));
+    const float bound = std::sqrt(dl::safe_inv(static_cast<float>(input_size_)));
     fill_uniform(weights_, -bound, bound, 0xF00DULL);
     fill_uniform(biases_, -bound, bound, 0xBEEFULL);
     fill_constant(weights_gradient_, 0.0F);
     fill_constant(biases_gradient_, 0.0F);
+
+    if (dl::compute_dtype() == dl::Dtype::Float16)
+    {
+        weights_ = weights_.to_dtype(dl::Dtype::Float16);
+        biases_ = biases_.to_dtype(dl::Dtype::Float16);
+        weights_gradient_ = weights_gradient_.to_dtype(dl::Dtype::Float16);
+        biases_gradient_ = biases_gradient_.to_dtype(dl::Dtype::Float16);
+    }
 }
 
-auto FullyConnected::forward(const dl::Tensor& input_tensor) -> dl::Tensor
+auto FullyConnected::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("FullyConnected_Forward");
+    const dl::StreamGuard stream_guard(stream);
     require_rank2(input_tensor, input_size_, "FullyConnected::forward input");
 
-    input_cache_ = dl::Tensor(input_tensor.get_shape(), dl::Device::GPU);
-    copy_same_size(*input_cache_, input_tensor, "FullyConnected::forward input cache");
+    const dl::Tensor* input = &input_tensor;
+    dl::Tensor converted_input;
+    if (input_tensor.get_dtype() != weights_.get_dtype())
+    {
+        converted_input = input_tensor.to_dtype(weights_.get_dtype(), stream);
+        input = &converted_input;
+    }
 
-    const int batch = input_tensor.get_shape()[0];
+    input_cache_ = dl::Tensor(input->get_shape(), dl::Device::GPU, input->get_dtype());
+    copy_same_size(*input_cache_, *input, "FullyConnected::forward input cache");
+
+    const int batch = input->get_shape()[0];
     dl::Tensor batch_ones({ batch, 1 }, dl::Device::GPU);
     fill_constant(batch_ones, 1.0F);
+    if (weights_.get_dtype() == dl::Dtype::Float16)
+    {
+        batch_ones = batch_ones.to_dtype(dl::Dtype::Float16, stream);
+    }
 
-    return input_tensor.matmul(weights_) + batch_ones.matmul(biases_);
+    return input->matmul(weights_) + batch_ones.matmul(biases_);
 }
 
-auto FullyConnected::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
+auto FullyConnected::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("FullyConnected_Backward");
+    const dl::StreamGuard stream_guard(stream);
     if (!input_cache_.has_value())
     {
         throw std::runtime_error("FullyConnected::backward requires a preceding forward pass");
@@ -159,11 +187,23 @@ auto FullyConnected::backward(const dl::Tensor& output_error_derivative) -> dl::
     }
 
     const int batch = output_error_derivative.get_shape()[0];
+    const dl::Tensor* grad_output = &output_error_derivative;
+    dl::Tensor converted_grad;
+    if (output_error_derivative.get_dtype() != weights_.get_dtype())
+    {
+        converted_grad = output_error_derivative.to_dtype(weights_.get_dtype(), stream);
+        grad_output = &converted_grad;
+    }
+
     dl::Tensor ones_row({ 1, batch }, dl::Device::GPU);
     fill_constant(ones_row, 1.0F);
+    if (weights_.get_dtype() == dl::Dtype::Float16)
+    {
+        ones_row = ones_row.to_dtype(dl::Dtype::Float16, stream);
+    }
 
-    dl::Tensor cur_weights_grad = input_cache_->transpose().matmul(output_error_derivative);
-    dl::Tensor cur_biases_grad = ones_row.matmul(output_error_derivative);
+    dl::Tensor cur_weights_grad = input_cache_->transpose().matmul(*grad_output);
+    dl::Tensor cur_biases_grad = ones_row.matmul(*grad_output);
 
     cur_weights_grad = cur_weights_grad + (weights_ * kWeightDecay);
     cur_biases_grad = cur_biases_grad + (biases_ * kWeightDecay);
@@ -171,16 +211,28 @@ auto FullyConnected::backward(const dl::Tensor& output_error_derivative) -> dl::
     weights_gradient_ = cur_weights_grad + (weights_gradient_ * inertia_);
     biases_gradient_ = cur_biases_grad + (biases_gradient_ * inertia_);
 
-    dl::Tensor grad_input = output_error_derivative.matmul(weights_.transpose());
+    dl::Tensor grad_input = grad_output->matmul(weights_.transpose());
     input_cache_.reset();
     return grad_input;
 }
 
-void FullyConnected::step()
+void FullyConnected::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("FullyConnected_Step");
-    weights_ = weights_ - (weights_gradient_ * learning_rate);
-    biases_ = biases_ - (biases_gradient_ * learning_rate);
+    const dl::StreamGuard stream_guard(stream);
+    weights_ = weights_ - (weights_gradient_ * scaled_learning_rate());
+    biases_ = biases_ - (biases_gradient_ * scaled_learning_rate());
+}
+
+void FullyConnected::clip_gradients(float abs_bound, cudaStream_t stream)
+{
+    const dl::StreamGuard stream_guard(stream);
+    if (abs_bound <= 0.0F)
+    {
+        return;
+    }
+    weights_gradient_ = weights_gradient_.clamp(-abs_bound, abs_bound);
+    biases_gradient_ = biases_gradient_.clamp(-abs_bound, abs_bound);
 }
 
 auto FullyConnected::get_parameters() -> std::map<std::string, dl::Tensor>

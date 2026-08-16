@@ -24,18 +24,13 @@ auto require_gpu(const dl::Tensor& tensor, const char* name) -> void
 auto Softmax::configure_descriptor(const dl::Tensor& tensor) -> void
 {
     const auto& shape = tensor.get_shape();
-    if (descriptor_configured_ && shape == input_shape_cache_)
-    {
-        return;
-    }
-
     if (shape.size() == 2)
     {
-        tensor_desc_.set_nchw(shape[0], shape[1], 1, 1);
+        tensor_desc_.set_nchw(shape[0], shape[1], 1, 1, cudnn_data_type(tensor.get_dtype()));
     }
     else if (shape.size() == 4)
     {
-        tensor_desc_.set_nchw(shape[0], shape[1], shape[2], shape[3]);
+        tensor_desc_.set_nchw(shape[0], shape[1], shape[2], shape[3], cudnn_data_type(tensor.get_dtype()));
     }
     else
     {
@@ -46,13 +41,15 @@ auto Softmax::configure_descriptor(const dl::Tensor& tensor) -> void
     descriptor_configured_ = true;
 }
 
-auto Softmax::forward(const dl::Tensor& input_tensor) -> dl::Tensor
+auto Softmax::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("Softmax_Forward");
+    const dl::StreamGuard stream_guard(stream);
+    dl::bind_cudnn_stream(stream);
     require_gpu(input_tensor, "Softmax::forward input");
     configure_descriptor(input_tensor);
 
-    dl::Tensor output(input_tensor.get_shape(), dl::Device::GPU);
+    dl::Tensor output(input_tensor.get_shape(), dl::Device::GPU, input_tensor.get_dtype());
     if (input_tensor.get_size() == 0)
     {
         output_cache_ = output.view(output.get_shape());
@@ -63,15 +60,16 @@ auto Softmax::forward(const dl::Tensor& input_tensor) -> dl::Tensor
     const float beta = 0.0F;
     CHECK_CUDNN(cudnnSoftmaxForward(dl::get_cudnn_handle(), CUDNN_SOFTMAX_ACCURATE, CUDNN_SOFTMAX_MODE_CHANNEL, &alpha,
         tensor_desc_.get(), input_tensor.data(), &beta, tensor_desc_.get(), output.data()));
-    output_cache_ = dl::Tensor(output.get_shape(), dl::Device::GPU);
-    CHECK_CUDA(cudaMemcpy(output_cache_->data(), output.data(), output.get_size() * sizeof(float),
-        cudaMemcpyDeviceToDevice));
+    output_cache_ = dl::Tensor(output.get_shape(), dl::Device::GPU, output.get_dtype());
+    dl::memcpy_d2d_on_current(output_cache_->data(), output.data(), output.nbytes());
     return output;
 }
 
-auto Softmax::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
+auto Softmax::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("Softmax_Backward");
+    const dl::StreamGuard stream_guard(stream);
+    dl::bind_cudnn_stream(stream);
     if (!output_cache_.has_value())
     {
         throw std::runtime_error("Softmax::backward requires a preceding forward pass");
@@ -82,7 +80,7 @@ auto Softmax::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
         throw std::runtime_error("Softmax::backward grad_output shape does not match the cached softmax output");
     }
 
-    dl::Tensor grad_input(output_cache_->get_shape(), dl::Device::GPU);
+    dl::Tensor grad_input(output_cache_->get_shape(), dl::Device::GPU, output_cache_->get_dtype());
     if (output_error_derivative.get_size() == 0)
     {
         output_cache_.reset();

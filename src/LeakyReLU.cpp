@@ -54,7 +54,7 @@ auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) ->
     {
         return;
     }
-    CHECK_CUDA(cudaMemcpy(dst.data(), src.data(), src.get_size() * sizeof(float), cudaMemcpyDeviceToDevice));
+    dl::memcpy_d2d_on_current(dst.data(), src.data(), src.nbytes());
 }
 
 } // namespace
@@ -65,31 +65,50 @@ LeakyReLU::LeakyReLU(float slope_val)
     device_ = dl::Device::GPU;
 }
 
-auto LeakyReLU::forward(const dl::Tensor& input_tensor) -> dl::Tensor
+auto LeakyReLU::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("LeakyReLU_Forward");
+    const dl::StreamGuard stream_guard(stream);
     require_gpu(input_tensor, "LeakyReLU::forward input");
 
-    input_cache_ = dl::Tensor(input_tensor.get_shape(), dl::Device::GPU);
-    copy_same_size(*input_cache_, input_tensor, "LeakyReLU::forward input cache");
-
-    dl::Tensor output(input_tensor.get_shape(), dl::Device::GPU);
-    if (input_tensor.get_size() == 0)
+    const dl::Dtype dtype = input_tensor.get_dtype();
+    const dl::Tensor* input = &input_tensor;
+    dl::Tensor converted;
+    if (dtype == dl::Dtype::Float16)
     {
+        converted = input_tensor.to_dtype(dl::Dtype::Float32, stream);
+        input = &converted;
+    }
+
+    input_cache_ = dl::Tensor(input->get_shape(), dl::Device::GPU, input->get_dtype());
+    copy_same_size(*input_cache_, *input, "LeakyReLU::forward input cache");
+
+    dl::Tensor output(input->get_shape(), dl::Device::GPU, input->get_dtype());
+    if (input->get_size() == 0)
+    {
+        if (dtype == dl::Dtype::Float16)
+        {
+            return output.to_dtype(dl::Dtype::Float16, stream);
+        }
         return output;
     }
 
-    auto in = thrust::device_pointer_cast(input_tensor.data());
+    auto in = thrust::device_pointer_cast(input->data());
     auto out = thrust::device_pointer_cast(output.data());
-    thrust::transform(thrust::device, in, in + static_cast<std::ptrdiff_t>(input_tensor.get_size()), out,
-        LeakyReluForward { slope_ });
+    thrust::transform(thrust::cuda::par.on(dl::current_stream()), in, in + static_cast<std::ptrdiff_t>(input->get_size()),
+        out, LeakyReluForward { slope_ });
     CHECK_CUDA(cudaGetLastError());
+    if (dtype == dl::Dtype::Float16)
+    {
+        return output.to_dtype(dl::Dtype::Float16, stream);
+    }
     return output;
 }
 
-auto LeakyReLU::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
+auto LeakyReLU::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("LeakyReLU_Backward");
+    const dl::StreamGuard stream_guard(stream);
     if (!input_cache_.has_value())
     {
         throw std::runtime_error("LeakyReLU::backward requires a preceding forward pass");
@@ -100,19 +119,36 @@ auto LeakyReLU::backward(const dl::Tensor& output_error_derivative) -> dl::Tenso
         throw std::runtime_error("LeakyReLU::backward grad_output size does not match the cached input");
     }
 
-    dl::Tensor grad_input(input_cache_->get_shape(), dl::Device::GPU);
-    if (output_error_derivative.get_size() == 0)
+    const dl::Dtype dtype = output_error_derivative.get_dtype();
+    const dl::Tensor* grad_output = &output_error_derivative;
+    dl::Tensor converted_grad;
+    if (dtype == dl::Dtype::Float16)
+    {
+        converted_grad = output_error_derivative.to_dtype(dl::Dtype::Float32, stream);
+        grad_output = &converted_grad;
+    }
+
+    dl::Tensor grad_input(input_cache_->get_shape(), dl::Device::GPU, input_cache_->get_dtype());
+    if (grad_output->get_size() == 0)
     {
         input_cache_.reset();
+        if (dtype == dl::Dtype::Float16)
+        {
+            return grad_input.to_dtype(dl::Dtype::Float16, stream);
+        }
         return grad_input;
     }
 
-    auto dy = thrust::device_pointer_cast(output_error_derivative.data());
+    auto dy = thrust::device_pointer_cast(grad_output->data());
     auto x = thrust::device_pointer_cast(input_cache_->data());
     auto dx = thrust::device_pointer_cast(grad_input.data());
-    thrust::transform(thrust::device, dy, dy + static_cast<std::ptrdiff_t>(output_error_derivative.get_size()), x, dx,
-        LeakyReluBackward { slope_ });
+    thrust::transform(thrust::cuda::par.on(dl::current_stream()), dy, dy + static_cast<std::ptrdiff_t>(grad_output->get_size()),
+        x, dx, LeakyReluBackward { slope_ });
     CHECK_CUDA(cudaGetLastError());
     input_cache_.reset();
+    if (dtype == dl::Dtype::Float16)
+    {
+        return grad_input.to_dtype(dl::Dtype::Float16, stream);
+    }
     return grad_input;
 }

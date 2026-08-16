@@ -6,49 +6,12 @@
 #include <map>
 #include <stdexcept>
 #include <string>
+#include <typeinfo>
 #include <utility>
 #include <vector>
 
-#include <thrust/device_ptr.h>
-#include <thrust/execution_policy.h>
-#include <thrust/transform.h>
-
 namespace
 {
-
-struct ClampValue
-{
-    float lo;
-    float hi;
-
-    __host__ __device__ auto operator()(float value) const -> float
-    {
-        if (value < lo)
-        {
-            return lo;
-        }
-        if (value > hi)
-        {
-            return hi;
-        }
-        return value;
-    }
-};
-
-auto clamp_gpu(const dl::Tensor& tensor, float lo, float hi) -> dl::Tensor
-{
-    dl::Tensor clamped(tensor.get_shape(), tensor.get_device());
-    if (tensor.get_size() == 0)
-    {
-        return clamped;
-    }
-    auto in = thrust::device_pointer_cast(tensor.data());
-    auto out = thrust::device_pointer_cast(clamped.data());
-    thrust::transform(thrust::device, in, in + static_cast<std::ptrdiff_t>(tensor.get_size()), out,
-        ClampValue { lo, hi });
-    CHECK_CUDA(cudaGetLastError());
-    return clamped;
-}
 
 template <typename T>
 auto write_pod(std::ostream& stream, const T& value, const std::string& path) -> void
@@ -98,8 +61,9 @@ auto read_bytes(std::istream& stream, void* data, std::size_t bytes, const std::
 
 } // namespace
 
-Network::Network(std::vector<std::shared_ptr<Layer>> layers_vector, float learning_rate_val)
+Network::Network(std::vector<std::shared_ptr<Layer>> layers_vector, float learning_rate_val, float gradient_clip)
     : layers_(std::move(layers_vector))
+    , gradient_clip_(gradient_clip)
 {
     for (const auto& layer_pointer : layers_)
     {
@@ -111,13 +75,54 @@ Network::Network(std::vector<std::shared_ptr<Layer>> layers_vector, float learni
     }
 }
 
-auto Network::forward(const dl::Tensor& input_tensor) -> dl::Tensor
+void Network::set_gradient_clip(float abs_bound)
 {
-    dl::Tensor current = input_tensor.view(input_tensor.get_shape());
-    for (const auto& layer_pointer : layers_)
+    gradient_clip_ = abs_bound;
+}
+
+auto Network::gradient_clip() const -> float
+{
+    return gradient_clip_;
+}
+
+auto Network::clip_loss_gradient(const dl::Tensor& gradient) const -> dl::Tensor
+{
+    if (gradient_clip_ <= 0.0F)
     {
-        current = layer_pointer->forward(current);
+        return gradient.view(gradient.get_shape());
+    }
+    const float clip = dl::scaled_gradient_clip(gradient_clip_);
+    return gradient.clamp(-clip, clip);
+}
+
+void Network::clip_parameter_gradients(cudaStream_t stream)
+{
+    if (gradient_clip_ <= 0.0F)
+    {
+        return;
+    }
+    const float clip = dl::scaled_gradient_clip(gradient_clip_);
+    for (auto& layer : layers_)
+    {
+        layer->clip_gradients(clip, stream);
+    }
+}
+
+auto Network::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
+{
+    const dl::StreamGuard stream_guard(stream);
+    dl::Tensor current = input_tensor.view(input_tensor.get_shape());
+    for (std::size_t index = 0; index < layers_.size(); ++index)
+    {
+        current = layers_[index]->forward(current, stream);
         current = current.view(current.get_shape());
+#ifdef DEBUG_NUMERICS
+        const std::string context = "Layer " + std::to_string(index) + " (" + typeid(*layers_[index]).name()
+            + ") forward";
+        current.assert_finite(context.c_str());
+#else
+        (void)index;
+#endif
     }
     return current;
 }
@@ -140,14 +145,23 @@ auto Network::fit(const dl::Tensor& x_train, const dl::Tensor& y_train, int epoc
         }
         const float loss_value = loss_host.front();
 
-        dl::Tensor gradient_error = YOLOLoss::loss_derivative(y_train, prediction);
-        gradient_error = clamp_gpu(gradient_error, -5.0F, 5.0F);
+        dl::Tensor gradient_error = clip_loss_gradient(YOLOLoss::loss_derivative(y_train, prediction));
 
+        std::size_t reverse_index = layers_.size();
         for (auto iterator = layers_.rbegin(); iterator != layers_.rend(); ++iterator)
         {
+            --reverse_index;
             gradient_error = (*iterator)->backward(gradient_error);
+#ifdef DEBUG_NUMERICS
+            const std::string context = "Layer " + std::to_string(reverse_index) + " (" + typeid(**iterator).name()
+                + ") backward";
+            gradient_error.assert_finite(context.c_str());
+#else
+            (void)reverse_index;
+#endif
         }
 
+        clip_parameter_gradients();
         for (auto& layer : layers_)
         {
             layer->step();

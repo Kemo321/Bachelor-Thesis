@@ -19,8 +19,8 @@ class SimpleCNN
 public:
     explicit SimpleCNN(int num_classes, int image_size = 32);
 
-    [[nodiscard]] auto forward_logits(const dl::Tensor& input_tensor) -> dl::Tensor;
-    [[nodiscard]] auto forward(const dl::Tensor& input_tensor) -> dl::Tensor;
+    [[nodiscard]] auto forward_logits(const dl::Tensor& input_tensor, cudaStream_t stream = 0) -> dl::Tensor;
+    [[nodiscard]] auto forward(const dl::Tensor& input_tensor, cudaStream_t stream = 0) -> dl::Tensor;
     [[nodiscard]] auto get_all_layers() -> std::vector<std::shared_ptr<Layer>>;
     [[nodiscard]] auto num_classes() const -> int;
     [[nodiscard]] auto image_size() const -> int;

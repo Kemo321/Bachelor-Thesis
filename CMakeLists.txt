@@ -7,6 +7,7 @@ endif()
 project(MiniC_DL LANGUAGES CXX CUDA)
 
 option(USE_CUDA "Enable CUDA" ON)
+option(DEBUG_NUMERICS "Check tensors for NaN/Inf after layer forward/backward" OFF)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -198,6 +199,18 @@ FetchContent_Declare(
   GIT_TAG v1.12.0
   GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(spdlog)
+
+find_package(TBB QUIET)
+if(NOT TBB_FOUND AND NOT MSVC)
+  set(TBB_TEST OFF CACHE BOOL "" FORCE)
+  set(TBB_STRICT OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    onetbb
+    GIT_REPOSITORY https://github.com/oneapi-src/oneTBB.git
+    GIT_TAG v2021.11.0
+    GIT_SHALLOW TRUE)
+  FetchContent_MakeAvailable(onetbb)
+endif()
 
 file(COPY "${CMAKE_SOURCE_DIR}/config" DESTINATION "${CMAKE_BINARY_DIR}")
 

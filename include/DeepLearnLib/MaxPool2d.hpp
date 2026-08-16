@@ -41,11 +41,12 @@ class MaxPool2d : public Layer
 public:
     MaxPool2d(int kernel_size_val, int stride_val);
 
-    [[nodiscard]] auto forward(const dl::Tensor& input_tensor) -> dl::Tensor override;
-    [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative) -> dl::Tensor override;
+    [[nodiscard]] auto forward(const dl::Tensor& input_tensor, cudaStream_t stream = 0) -> dl::Tensor override;
+    [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative, cudaStream_t stream = 0)
+        -> dl::Tensor override;
 
 private:
-    auto configure_descriptors(int batch, int channels, int height, int width) -> void;
+    auto configure_descriptors(int batch, int channels, int height, int width, dl::Dtype dtype) -> void;
 
     int kernel_size_;
     int stride_;

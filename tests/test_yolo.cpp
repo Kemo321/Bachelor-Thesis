@@ -1,5 +1,7 @@
 #include "test_helpers.hpp"
 
+#include "DeepLearnLib/FusedCBR2d.hpp"
+#include "DeepLearnLib/MaxPool2d.hpp"
 #include "DeepLearnLib/Tensor.hpp"
 #include "DeepLearnLib/YOLO.hpp"
 
@@ -31,6 +33,23 @@ TEST_F(YoloTest, ConstructsNonEmptyBackboneAndHead)
     {
         ASSERT_NE(layer, nullptr);
     }
+    EXPECT_NE(dynamic_cast<FusedCBR2d*>(model.backbone_layers.front().get()), nullptr);
+    int fused_blocks = 0;
+    int pool_blocks = 0;
+    for (const auto& layer : model.backbone_layers)
+    {
+        if (dynamic_cast<FusedCBR2d*>(layer.get()) != nullptr)
+        {
+            ++fused_blocks;
+        }
+        if (dynamic_cast<MaxPool2d*>(layer.get()) != nullptr)
+        {
+            ++pool_blocks;
+        }
+    }
+    EXPECT_EQ(fused_blocks, 24);
+    EXPECT_EQ(pool_blocks, 4);
+    EXPECT_EQ(model.backbone_layers.size(), 28U);
 }
 
 TEST_F(YoloTest, CustomClassCountChangesOutputWidth)

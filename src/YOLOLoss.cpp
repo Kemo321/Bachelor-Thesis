@@ -1,5 +1,6 @@
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/Nvtx.hpp"
+#include "DeepLearnLib/SafeMath.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -22,8 +23,6 @@ constexpr int kBoxAttrs = 4;
 constexpr int kThreads = 256;
 constexpr float kLambdaCoord = 5.0F;
 constexpr float kLambdaNoobj = 0.5F;
-constexpr float kEps = 1e-6F;
-constexpr float kSafeEps = 1e-8F;
 
 __host__ __device__ auto ceil_div(int value, int divisor) -> int
 {
@@ -51,9 +50,9 @@ __device__ auto box_iou(float cx1, float cy1, float w1, float h1, float cx2, flo
     const float inter_h = clampf(fminf(b1_y2, b2_y2) - fmaxf(b1_y1, b2_y1), 0.0F);
     const float inter_area = inter_w * inter_h;
 
-    const float area1 = clampf(w1 * h1, kEps);
-    const float area2 = clampf(w2 * h2, kEps);
-    return inter_area / (area1 + area2 - inter_area + kEps);
+    const float area1 = clampf(w1 * h1, dl::kSafeEps);
+    const float area2 = clampf(w2 * h2, dl::kSafeEps);
+    return dl::safe_div(inter_area, area1 + area2 - inter_area);
 }
 
 __device__ auto decode_center(float raw, int grid_index) -> float
@@ -123,12 +122,12 @@ __global__ void yolo_loss_forward_kernel(const float* pred, const float* tgt, fl
     const float noobj_b1 = 1.0F - resp_b1;
     const float noobj_b2 = 1.0F - resp_b2;
 
-    const float sqrt_p1_w = sqrtf(clampf(p1_w, kEps));
-    const float sqrt_p1_h = sqrtf(clampf(p1_h, kEps));
-    const float sqrt_p2_w = sqrtf(clampf(p2_w, kEps));
-    const float sqrt_p2_h = sqrtf(clampf(p2_h, kEps));
-    const float sqrt_t_w = sqrtf(clampf(t_w, kEps));
-    const float sqrt_t_h = sqrtf(clampf(t_h, kEps));
+    const float sqrt_p1_w = dl::safe_sqrt(p1_w);
+    const float sqrt_p1_h = dl::safe_sqrt(p1_h);
+    const float sqrt_p2_w = dl::safe_sqrt(p2_w);
+    const float sqrt_p2_h = dl::safe_sqrt(p2_h);
+    const float sqrt_t_w = dl::safe_sqrt(t_w);
+    const float sqrt_t_h = dl::safe_sqrt(t_h);
 
     const float xy_b1 = ((p1_x - t_x) * (p1_x - t_x)) + ((p1_y - t_y) * (p1_y - t_y));
     const float xy_b2 = ((p2_x - t_x) * (p2_x - t_x)) + ((p2_y - t_y) * (p2_y - t_y));
@@ -201,21 +200,21 @@ __global__ void yolo_loss_backward_kernel(const float* pred, const float* tgt, f
     grad[base + 5] = 2.0F * kLambdaCoord * (p2_x - t_x) * resp_b2 * inv_batch;
     grad[base + 6] = 2.0F * kLambdaCoord * (p2_y - t_y) * resp_b2 * inv_batch;
 
-    const float sqrt_p1_w = sqrtf(clampf(p1_w, kSafeEps));
-    const float sqrt_p1_h = sqrtf(clampf(p1_h, kSafeEps));
-    const float sqrt_p2_w = sqrtf(clampf(p2_w, kSafeEps));
-    const float sqrt_p2_h = sqrtf(clampf(p2_h, kSafeEps));
-    const float sqrt_t_w = sqrtf(clampf(t_w, kSafeEps));
-    const float sqrt_t_h = sqrtf(clampf(t_h, kSafeEps));
-    const float mask_p1_w = p1_w > kSafeEps ? 1.0F : 0.0F;
-    const float mask_p1_h = p1_h > kSafeEps ? 1.0F : 0.0F;
-    const float mask_p2_w = p2_w > kSafeEps ? 1.0F : 0.0F;
-    const float mask_p2_h = p2_h > kSafeEps ? 1.0F : 0.0F;
+    const float sqrt_p1_w = dl::safe_sqrt(p1_w);
+    const float sqrt_p1_h = dl::safe_sqrt(p1_h);
+    const float sqrt_p2_w = dl::safe_sqrt(p2_w);
+    const float sqrt_p2_h = dl::safe_sqrt(p2_h);
+    const float sqrt_t_w = dl::safe_sqrt(t_w);
+    const float sqrt_t_h = dl::safe_sqrt(t_h);
+    const float mask_p1_w = p1_w > dl::kSafeEps ? 1.0F : 0.0F;
+    const float mask_p1_h = p1_h > dl::kSafeEps ? 1.0F : 0.0F;
+    const float mask_p2_w = p2_w > dl::kSafeEps ? 1.0F : 0.0F;
+    const float mask_p2_h = p2_h > dl::kSafeEps ? 1.0F : 0.0F;
 
-    grad[base + 2] = kLambdaCoord * (sqrt_p1_w - sqrt_t_w) / (sqrt_p1_w + kSafeEps) * mask_p1_w * resp_b1 * inv_batch;
-    grad[base + 3] = kLambdaCoord * (sqrt_p1_h - sqrt_t_h) / (sqrt_p1_h + kSafeEps) * mask_p1_h * resp_b1 * inv_batch;
-    grad[base + 7] = kLambdaCoord * (sqrt_p2_w - sqrt_t_w) / (sqrt_p2_w + kSafeEps) * mask_p2_w * resp_b2 * inv_batch;
-    grad[base + 8] = kLambdaCoord * (sqrt_p2_h - sqrt_t_h) / (sqrt_p2_h + kSafeEps) * mask_p2_h * resp_b2 * inv_batch;
+    grad[base + 2] = kLambdaCoord * dl::safe_div(sqrt_p1_w - sqrt_t_w, sqrt_p1_w) * mask_p1_w * resp_b1 * inv_batch;
+    grad[base + 3] = kLambdaCoord * dl::safe_div(sqrt_p1_h - sqrt_t_h, sqrt_p1_h) * mask_p1_h * resp_b1 * inv_batch;
+    grad[base + 7] = kLambdaCoord * dl::safe_div(sqrt_p2_w - sqrt_t_w, sqrt_p2_w) * mask_p2_w * resp_b2 * inv_batch;
+    grad[base + 8] = kLambdaCoord * dl::safe_div(sqrt_p2_h - sqrt_t_h, sqrt_p2_h) * mask_p2_h * resp_b2 * inv_batch;
 
     grad[base + 4] = ((2.0F * (p1_c - iou1) * resp_b1) + (2.0F * kLambdaNoobj * p1_c * noobj_b1)) * inv_batch;
     grad[base + 9] = ((2.0F * (p2_c - iou2) * resp_b2) + (2.0F * kLambdaNoobj * p2_c * noobj_b2)) * inv_batch;
@@ -284,23 +283,29 @@ auto YOLOLoss::calculate_iou(const dl::Tensor& box1, const dl::Tensor& box2) -> 
         return iou;
     }
 
-    yolo_iou_kernel<<<launch_config(box_count), kThreads>>>(box1.data(), box2.data(), iou.data(), box_count);
+    yolo_iou_kernel<<<launch_config(box_count), kThreads, 0, dl::current_stream()>>>(box1.data(), box2.data(), iou.data(),
+        box_count);
     CHECK_CUDA(cudaGetLastError());
     return iou;
 }
 
-auto YOLOLoss::loss(const dl::Tensor& target, const dl::Tensor& prediction, int num_classes) -> dl::Tensor
+auto YOLOLoss::loss(const dl::Tensor& target, const dl::Tensor& prediction, int num_classes, cudaStream_t stream)
+    -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("YOLOLoss_Loss");
+    const dl::StreamGuard stream_guard(stream);
     if (num_classes <= 0)
     {
         throw std::runtime_error("YOLOLoss::loss requires a positive class count");
     }
     require_gpu_pair(target, prediction);
 
+    const dl::Tensor pred_f32 = prediction.to_dtype(dl::Dtype::Float32, stream);
+    const dl::Tensor tgt_f32 = target.to_dtype(dl::Dtype::Float32, stream);
+
     const int final_dim = 10 + num_classes;
-    const dl::Tensor pred = as_yolo_grid(prediction, final_dim, "YOLOLoss::loss prediction");
-    const dl::Tensor tgt = as_yolo_grid(target, final_dim, "YOLOLoss::loss target");
+    const dl::Tensor pred = as_yolo_grid(pred_f32, final_dim, "YOLOLoss::loss prediction");
+    const dl::Tensor tgt = as_yolo_grid(tgt_f32, final_dim, "YOLOLoss::loss target");
     if (pred.get_shape()[0] != tgt.get_shape()[0])
     {
         throw std::runtime_error("YOLOLoss::loss batch sizes do not match");
@@ -310,32 +315,38 @@ auto YOLOLoss::loss(const dl::Tensor& target, const dl::Tensor& prediction, int 
     const int cell_count = batch_size * kCellsPerImage;
     dl::Tensor cell_loss({ cell_count }, dl::Device::GPU);
 
-    yolo_loss_forward_kernel<<<launch_config(cell_count), kThreads>>>(pred.data(), tgt.data(), cell_loss.data(),
-        batch_size, final_dim);
+    yolo_loss_forward_kernel<<<launch_config(cell_count), kThreads, 0, stream>>>(pred.data(), tgt.data(),
+        cell_loss.data(), batch_size, final_dim);
     CHECK_CUDA(cudaGetLastError());
 
     auto begin = thrust::device_pointer_cast(cell_loss.data());
-    const float total = thrust::reduce(thrust::device, begin, begin + static_cast<std::ptrdiff_t>(cell_count), 0.0F,
-        thrust::plus<float>());
+    const float total = thrust::reduce(thrust::cuda::par.on(stream), begin,
+        begin + static_cast<std::ptrdiff_t>(cell_count), 0.0F, thrust::plus<float>());
     CHECK_CUDA(cudaGetLastError());
 
-    const float mean_loss = total / static_cast<float>(batch_size);
-    return dl::Tensor::from_host({ 1 }, { mean_loss }, dl::Device::GPU);
+    const float mean_loss = dl::safe_div(total, static_cast<float>(batch_size));
+    return dl::Tensor::from_host({ 1 }, { mean_loss }, dl::Device::GPU, stream);
 }
 
-auto YOLOLoss::loss_derivative(const dl::Tensor& target, const dl::Tensor& prediction, int num_classes) -> dl::Tensor
+auto YOLOLoss::loss_derivative(const dl::Tensor& target, const dl::Tensor& prediction, int num_classes,
+    cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("YOLOLoss_LossDerivative");
+    const dl::StreamGuard stream_guard(stream);
     if (num_classes <= 0)
     {
         throw std::runtime_error("YOLOLoss::loss_derivative requires a positive class count");
     }
     require_gpu_pair(target, prediction);
 
+    const dl::Dtype result_dtype = prediction.get_dtype();
+    const dl::Tensor pred_f32 = prediction.to_dtype(dl::Dtype::Float32, stream);
+    const dl::Tensor tgt_f32 = target.to_dtype(dl::Dtype::Float32, stream);
+
     const int final_dim = 10 + num_classes;
     const bool flattened = prediction.get_shape().size() == 2;
-    const dl::Tensor pred = as_yolo_grid(prediction, final_dim, "YOLOLoss::loss_derivative prediction");
-    const dl::Tensor tgt = as_yolo_grid(target, final_dim, "YOLOLoss::loss_derivative target");
+    const dl::Tensor pred = as_yolo_grid(pred_f32, final_dim, "YOLOLoss::loss_derivative prediction");
+    const dl::Tensor tgt = as_yolo_grid(tgt_f32, final_dim, "YOLOLoss::loss_derivative target");
     if (pred.get_shape()[0] != tgt.get_shape()[0])
     {
         throw std::runtime_error("YOLOLoss::loss_derivative batch sizes do not match");
@@ -344,15 +355,16 @@ auto YOLOLoss::loss_derivative(const dl::Tensor& target, const dl::Tensor& predi
     const int batch_size = pred.get_shape()[0];
     const int cell_count = batch_size * kCellsPerImage;
     dl::Tensor grad = dl::Tensor::zeros_like(pred);
-    const float inv_batch = 1.0F / static_cast<float>(batch_size);
+    const float inv_batch = dl::safe_inv(static_cast<float>(batch_size));
 
-    yolo_loss_backward_kernel<<<launch_config(cell_count), kThreads>>>(pred.data(), tgt.data(), grad.data(), batch_size,
-        final_dim, inv_batch);
+    yolo_loss_backward_kernel<<<launch_config(cell_count), kThreads, 0, stream>>>(pred.data(), tgt.data(), grad.data(),
+        batch_size, final_dim, inv_batch);
     CHECK_CUDA(cudaGetLastError());
 
+    grad = grad * dl::loss_scale();
     if (flattened)
     {
-        return grad.view({ batch_size, kCellsPerImage * final_dim });
+        grad = grad.view({ batch_size, kCellsPerImage * final_dim });
     }
-    return grad;
+    return grad.to_dtype(result_dtype, stream);
 }

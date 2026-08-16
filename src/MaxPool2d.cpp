@@ -86,7 +86,7 @@ auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) ->
     {
         return;
     }
-    CHECK_CUDA(cudaMemcpy(dst.data(), src.data(), src.get_size() * sizeof(float), cudaMemcpyDeviceToDevice));
+    dl::memcpy_d2d_on_current(dst.data(), src.data(), src.nbytes());
 }
 
 } // namespace
@@ -104,15 +104,10 @@ MaxPool2d::MaxPool2d(int kernel_size_val, int stride_val)
     pooling_desc_.set_max_2d(kernel_size_, stride_);
 }
 
-auto MaxPool2d::configure_descriptors(int batch, int channels, int height, int width) -> void
+auto MaxPool2d::configure_descriptors(int batch, int channels, int height, int width, dl::Dtype dtype) -> void
 {
     const std::vector<int> input_shape { batch, channels, height, width };
-    if (descriptors_configured_ && input_shape == input_shape_cache_)
-    {
-        return;
-    }
-
-    input_desc_.set_nchw(batch, channels, height, width);
+    input_desc_.set_nchw(batch, channels, height, width, cudnn_data_type(dtype));
 
     int n_out { 0 };
     int c_out { 0 };
@@ -120,28 +115,30 @@ auto MaxPool2d::configure_descriptors(int batch, int channels, int height, int w
     int w_out { 0 };
     CHECK_CUDNN(cudnnGetPooling2dForwardOutputDim(pooling_desc_.get(), input_desc_.get(), &n_out, &c_out, &h_out,
         &w_out));
-    output_desc_.set_nchw(n_out, c_out, h_out, w_out);
+    output_desc_.set_nchw(n_out, c_out, h_out, w_out, cudnn_data_type(dtype));
 
     input_shape_cache_ = input_shape;
     output_shape_cache_ = { n_out, c_out, h_out, w_out };
     descriptors_configured_ = true;
 }
 
-auto MaxPool2d::forward(const dl::Tensor& input_tensor) -> dl::Tensor
+auto MaxPool2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("MaxPool2d_Forward");
+    const dl::StreamGuard stream_guard(stream);
+    dl::bind_cudnn_stream(stream);
     require_gpu_nchw(input_tensor, "MaxPool2d::forward input");
 
     const int batch = input_tensor.get_shape()[0];
     const int channels = input_tensor.get_shape()[1];
     const int height = input_tensor.get_shape()[2];
     const int width = input_tensor.get_shape()[3];
-    configure_descriptors(batch, channels, height, width);
+    configure_descriptors(batch, channels, height, width, input_tensor.get_dtype());
 
-    input_cache_ = dl::Tensor(input_tensor.get_shape(), dl::Device::GPU);
+    input_cache_ = dl::Tensor(input_tensor.get_shape(), dl::Device::GPU, input_tensor.get_dtype());
     copy_same_size(*input_cache_, input_tensor, "MaxPool2d::forward input cache");
 
-    output_cache_ = dl::Tensor(output_shape_cache_, dl::Device::GPU);
+    output_cache_ = dl::Tensor(output_shape_cache_, dl::Device::GPU, input_tensor.get_dtype());
     const float alpha { 1.0F };
     const float beta_zero { 0.0F };
     CHECK_CUDNN(cudnnPoolingForward(dl::get_cudnn_handle(), pooling_desc_.get(), &alpha, input_desc_.get(),
@@ -150,9 +147,11 @@ auto MaxPool2d::forward(const dl::Tensor& input_tensor) -> dl::Tensor
     return output_cache_->view(output_cache_->get_shape());
 }
 
-auto MaxPool2d::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
+auto MaxPool2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("MaxPool2d_Backward");
+    const dl::StreamGuard stream_guard(stream);
+    dl::bind_cudnn_stream(stream);
     if (!input_cache_.has_value() || !output_cache_.has_value())
     {
         throw std::runtime_error("MaxPool2d::backward requires a preceding forward pass");
@@ -163,7 +162,7 @@ auto MaxPool2d::backward(const dl::Tensor& output_error_derivative) -> dl::Tenso
         throw std::runtime_error("MaxPool2d::backward grad_output shape does not match the cached pooling output");
     }
 
-    dl::Tensor grad_input(input_cache_->get_shape(), dl::Device::GPU);
+    dl::Tensor grad_input(input_cache_->get_shape(), dl::Device::GPU, input_cache_->get_dtype());
     const float alpha { 1.0F };
     const float beta_zero { 0.0F };
     CHECK_CUDNN(cudnnPoolingBackward(dl::get_cudnn_handle(), pooling_desc_.get(), &alpha, output_desc_.get(),

@@ -11,11 +11,11 @@
 class YOLOLoss
 {
 public:
-    [[nodiscard]] static auto loss(const dl::Tensor& target, const dl::Tensor& prediction, int num_classes = 20)
-        -> dl::Tensor;
+    [[nodiscard]] static auto loss(const dl::Tensor& target, const dl::Tensor& prediction, int num_classes = 20,
+        cudaStream_t stream = 0) -> dl::Tensor;
 
     [[nodiscard]] static auto loss_derivative(const dl::Tensor& target, const dl::Tensor& prediction,
-        int num_classes = 20) -> dl::Tensor;
+        int num_classes = 20, cudaStream_t stream = 0) -> dl::Tensor;
 
 private:
     static auto calculate_iou(const dl::Tensor& box1, const dl::Tensor& box2) -> dl::Tensor;

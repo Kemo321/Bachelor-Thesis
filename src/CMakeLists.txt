@@ -17,6 +17,8 @@ set(DEEPLEARN_SOURCES
     CSVLoader.cpp
     SimpleCNN.cpp
     Logger.cpp
+    Precision.cpp
+    FusedCBR2d.cpp
 )
 
 if(OpenCV_FOUND)
@@ -24,6 +26,11 @@ if(OpenCV_FOUND)
 endif()
 
 add_library(DeepLearnLib ${DEEPLEARN_SOURCES})
+
+if(DEBUG_NUMERICS)
+  target_compile_definitions(DeepLearnLib PUBLIC DEBUG_NUMERICS)
+  message(STATUS "DEBUG_NUMERICS enabled: NaN/Inf checks after layer passes")
+endif()
 
 set(DEEPLEARN_CUDA_SOURCES
     Tensor.cpp
@@ -37,6 +44,8 @@ set(DEEPLEARN_CUDA_SOURCES
     Profiler.cpp
     Losses.cpp
     Softmax.cpp
+    Precision.cpp
+    FusedCBR2d.cpp
 )
 
 foreach(_cuda_src IN LISTS DEEPLEARN_CUDA_SOURCES)
@@ -69,13 +78,20 @@ if(MSVC)
             $<$<COMPILE_LANGUAGE:CUDA>:--allow-unsupported-compiler;-Xcompiler=/Zc:preprocessor,-bigobj>)
 endif()
 
+find_package(Threads REQUIRED)
+
 target_link_libraries(
   DeepLearnLib
   PUBLIC CUDA::cudart
          CUDA::cublas
          CUDA::cudnn
          hwy
-         spdlog::spdlog)
+         spdlog::spdlog
+         Threads::Threads)
+
+if(TARGET TBB::tbb)
+  target_link_libraries(DeepLearnLib PUBLIC TBB::tbb)
+endif()
 
 if(TARGET CUDA::nvtx3)
   target_link_libraries(DeepLearnLib PUBLIC CUDA::nvtx3)

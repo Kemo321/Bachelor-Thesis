@@ -193,6 +193,7 @@ auto ClassificationLoader::get_batch() -> Batch
         targets_host[(static_cast<std::size_t>(batch_idx) * target_elems) + static_cast<std::size_t>(clamped)] = 1.0F;
     }
 
-    return Batch { dl::Tensor::from_host({ this_batch, kChannels, image_size_, image_size_ }, images_host),
-        dl::Tensor::from_host({ this_batch, classes }, targets_host) };
+    return Batch { dl::Tensor::from_host({ this_batch, kChannels, image_size_, image_size_ }, images_host,
+                       dl::Device::GPU, 0, dl::compute_dtype()),
+        dl::Tensor::from_host({ this_batch, classes }, targets_host, dl::Device::GPU, 0, dl::compute_dtype()) };
 }

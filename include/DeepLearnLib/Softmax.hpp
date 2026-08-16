@@ -8,18 +8,19 @@
 #include <vector>
 
 /**
- * Softmax layer via cuDNN (CUDNN_SOFTMAX_ACCURATE, MODE_CHANNEL).
+ * Softmax layer via cuDNN (`CUDNN_SOFTMAX_ACCURATE`, `MODE_CHANNEL`).
  *
- * Rank-2 inputs [N, C] softmax over C. Rank-4 NCHW inputs softmax over the
- * channel dimension at each spatial location.
+ * `CUDNN_SOFTMAX_ACCURATE` applies the stable max-subtraction form
+ * `exp(x - max(x)) / sum(exp(x - max(x)))` to avoid exponential overflow.
  */
 class Softmax : public Layer
 {
 public:
     Softmax() = default;
 
-    [[nodiscard]] auto forward(const dl::Tensor& input_tensor) -> dl::Tensor override;
-    [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative) -> dl::Tensor override;
+    [[nodiscard]] auto forward(const dl::Tensor& input_tensor, cudaStream_t stream = 0) -> dl::Tensor override;
+    [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative, cudaStream_t stream = 0)
+        -> dl::Tensor override;
 
 private:
     auto configure_descriptor(const dl::Tensor& tensor) -> void;

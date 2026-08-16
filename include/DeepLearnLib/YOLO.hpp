@@ -19,6 +19,6 @@ public:
 
     explicit YOLO(int num_classes = 20);
 
-    [[nodiscard]] auto forward(const dl::Tensor& input_tensor) -> dl::Tensor;
+    [[nodiscard]] auto forward(const dl::Tensor& input_tensor, cudaStream_t stream = 0) -> dl::Tensor;
     [[nodiscard]] auto get_all_layers() -> std::vector<std::shared_ptr<Layer>>;
 };

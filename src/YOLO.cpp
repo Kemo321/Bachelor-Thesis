@@ -1,10 +1,9 @@
 #include "DeepLearnLib/YOLO.hpp"
 
-#include "DeepLearnLib/BatchNorm2d.hpp"
-#include "DeepLearnLib/Conv2d.hpp"
 #include "DeepLearnLib/Dropout.hpp"
 #include "DeepLearnLib/Flatten.hpp"
 #include "DeepLearnLib/FullyConnected.hpp"
+#include "DeepLearnLib/FusedCBR2d.hpp"
 #include "DeepLearnLib/LeakyReLU.hpp"
 #include "DeepLearnLib/MaxPool2d.hpp"
 
@@ -12,9 +11,8 @@ YOLO::YOLO(int num_classes)
 {
     auto add_block = [&](int in_channels, int out_channels, int kernel, int stride, int padding)
     {
-        backbone_layers.push_back(std::make_shared<Conv2d>(in_channels, out_channels, kernel, stride, padding));
-        backbone_layers.push_back(std::make_shared<BatchNorm2d>(out_channels));
-        backbone_layers.push_back(std::make_shared<LeakyReLU>(0.1F));
+        backbone_layers.push_back(
+            std::make_shared<FusedCBR2d>(in_channels, out_channels, kernel, stride, padding, 0.1F));
     };
 
     add_block(3, 64, 7, 2, 3);
@@ -55,17 +53,19 @@ YOLO::YOLO(int num_classes)
     head_layers.push_back(std::make_shared<FullyConnected>(4096, 7 * 7 * (10 + num_classes), 0.9F));
 }
 
-auto YOLO::forward(const dl::Tensor& input_tensor) -> dl::Tensor
+auto YOLO::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
+    const dl::StreamGuard stream_guard(stream);
+    dl::bind_cudnn_stream(stream);
     dl::Tensor current = input_tensor.view(input_tensor.get_shape());
     for (auto& layer : backbone_layers)
     {
-        current = layer->forward(current);
+        current = layer->forward(current, stream);
         current = current.view(current.get_shape());
     }
     for (auto& layer : head_layers)
     {
-        current = layer->forward(current);
+        current = layer->forward(current, stream);
         current = current.view(current.get_shape());
     }
     return current;

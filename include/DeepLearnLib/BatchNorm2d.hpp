@@ -21,15 +21,17 @@ class BatchNorm2d : public Layer
 public:
     BatchNorm2d(int num_features, float eps = 1e-5F, float momentum = 0.1F);
 
-    [[nodiscard]] auto forward(const dl::Tensor& input_tensor) -> dl::Tensor override;
-    [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative) -> dl::Tensor override;
-    void step() override;
+    [[nodiscard]] auto forward(const dl::Tensor& input_tensor, cudaStream_t stream = 0) -> dl::Tensor override;
+    [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative, cudaStream_t stream = 0)
+        -> dl::Tensor override;
+    void step(cudaStream_t stream = 0) override;
+    void clip_gradients(float abs_bound, cudaStream_t stream = 0) override;
     auto get_parameters() -> std::map<std::string, dl::Tensor> override;
     void set_parameters(const std::map<std::string, dl::Tensor>& params) override;
     auto to(dl::Device device) -> void override;
 
 private:
-    auto configure_descriptors(int batch, int channels, int height, int width) -> void;
+    auto configure_descriptors(int batch, int channels, int height, int width, dl::Dtype dtype) -> void;
 
     int num_features_;
     float eps_;

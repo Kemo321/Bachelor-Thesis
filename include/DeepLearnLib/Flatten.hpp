@@ -13,8 +13,9 @@ class Flatten : public Layer
 public:
     Flatten() = default;
 
-    [[nodiscard]] auto forward(const dl::Tensor& input_tensor) -> dl::Tensor override;
-    [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative) -> dl::Tensor override;
+    [[nodiscard]] auto forward(const dl::Tensor& input_tensor, cudaStream_t stream = 0) -> dl::Tensor override;
+    [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative, cudaStream_t stream = 0)
+        -> dl::Tensor override;
 
 private:
     std::vector<int> input_shape_cache_;

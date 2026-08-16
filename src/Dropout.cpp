@@ -1,5 +1,6 @@
 #include "DeepLearnLib/Dropout.hpp"
 #include "DeepLearnLib/Nvtx.hpp"
+#include "DeepLearnLib/SafeMath.hpp"
 
 #include <cstddef>
 #include <stdexcept>
@@ -57,9 +58,10 @@ Dropout::Dropout(float probability)
     device_ = dl::Device::GPU;
 }
 
-auto Dropout::forward(const dl::Tensor& input_tensor) -> dl::Tensor
+auto Dropout::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("Dropout_Forward");
+    const dl::StreamGuard stream_guard(stream);
     require_gpu(input_tensor, "Dropout::forward input");
 
     if (!is_training_)
@@ -69,26 +71,32 @@ auto Dropout::forward(const dl::Tensor& input_tensor) -> dl::Tensor
     }
 
     const float keep_probability = 1.0F - probability_;
-    const float scale = 1.0F / keep_probability;
+    const float scale = dl::safe_inv(keep_probability);
     ++seed_;
 
     mask_ = dl::Tensor(input_tensor.get_shape(), dl::Device::GPU);
     if (input_tensor.get_size() == 0)
     {
-        return dl::Tensor(input_tensor.get_shape(), dl::Device::GPU);
+        return dl::Tensor(input_tensor.get_shape(), dl::Device::GPU, input_tensor.get_dtype());
     }
 
     auto mask_ptr = thrust::device_pointer_cast(mask_->data());
-    thrust::transform(thrust::device, thrust::make_counting_iterator(0),
+    thrust::transform(thrust::cuda::par.on(dl::current_stream()), thrust::make_counting_iterator(0),
         thrust::make_counting_iterator(static_cast<int>(input_tensor.get_size())), mask_ptr,
         BernoulliMask { keep_probability, scale, seed_ });
     CHECK_CUDA(cudaGetLastError());
+    if (input_tensor.get_dtype() == dl::Dtype::Float16)
+    {
+        dl::Tensor mask_half = mask_->to_dtype(dl::Dtype::Float16, stream);
+        return input_tensor * mask_half;
+    }
     return input_tensor * (*mask_);
 }
 
-auto Dropout::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
+auto Dropout::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("Dropout_Backward");
+    const dl::StreamGuard stream_guard(stream);
     require_gpu(output_error_derivative, "Dropout::backward grad_output");
     if (!is_training_ || !mask_.has_value())
     {
@@ -99,6 +107,13 @@ auto Dropout::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
         throw std::runtime_error("Dropout::backward grad_output size does not match the cached mask");
     }
 
+    if (output_error_derivative.get_dtype() == dl::Dtype::Float16)
+    {
+        dl::Tensor mask_half = mask_->to_dtype(dl::Dtype::Float16, stream);
+        dl::Tensor grad_input = output_error_derivative * mask_half;
+        mask_.reset();
+        return grad_input;
+    }
     dl::Tensor grad_input = output_error_derivative * (*mask_);
     mask_.reset();
     return grad_input;

@@ -51,20 +51,22 @@ SimpleCNN::SimpleCNN(int num_classes, int image_size)
     layers_.push_back(std::make_shared<FullyConnected>(flatten_features(image_size_), num_classes_));
 }
 
-auto SimpleCNN::forward_logits(const dl::Tensor& input_tensor) -> dl::Tensor
+auto SimpleCNN::forward_logits(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
+    const dl::StreamGuard stream_guard(stream);
+    dl::bind_cudnn_stream(stream);
     dl::Tensor current = input_tensor.view(input_tensor.get_shape());
     for (auto& layer : layers_)
     {
-        current = layer->forward(current);
+        current = layer->forward(current, stream);
         current = current.view(current.get_shape());
     }
     return current;
 }
 
-auto SimpleCNN::forward(const dl::Tensor& input_tensor) -> dl::Tensor
+auto SimpleCNN::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
-    return softmax_->forward(forward_logits(input_tensor));
+    return softmax_->forward(forward_logits(input_tensor, stream), stream);
 }
 
 auto SimpleCNN::get_all_layers() -> std::vector<std::shared_ptr<Layer>>
