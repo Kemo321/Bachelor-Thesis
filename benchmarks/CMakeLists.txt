@@ -9,7 +9,10 @@ find_package(Threads REQUIRED)
 function(dllib_configure_bench_target target)
   target_include_directories(
     ${target}
-    PRIVATE "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}/extern/stb")
+    PRIVATE "${CMAKE_SOURCE_DIR}/src"
+            "${CMAKE_SOURCE_DIR}/include"
+            "${CMAKE_SOURCE_DIR}/benchmarks"
+            "${CMAKE_SOURCE_DIR}/extern/stb")
   if(NOT MSVC)
     target_compile_definitions(${target} PRIVATE _GLIBCXX_USE_CXX11_ABI=1)
   endif()
@@ -36,12 +39,12 @@ add_executable(overfit_test overfit_test.cpp)
 add_executable(tabular_demo tabular_demo.cpp)
 
 foreach(target ${CUSTOM_BENCH_TARGETS})
-  target_link_libraries(${target} PRIVATE DeepLearnLib Threads::Threads pugixml ${OpenCV_LIBS})
+  target_link_libraries(
+    ${target}
+    PRIVATE DeepLearnLib Threads::Threads pugixml ${OpenCV_LIBS} nlohmann_json::nlohmann_json)
   dllib_configure_bench_target(${target})
 endforeach()
 
-target_link_libraries(train_pipeline_custom PRIVATE nlohmann_json::nlohmann_json)
-target_link_libraries(tabular_demo PRIVATE nlohmann_json::nlohmann_json)
 target_link_libraries(bench_custom PRIVATE benchmark::benchmark benchmark::benchmark_main)
 
 set(TORCH_BENCH_TARGETS
@@ -72,7 +75,8 @@ if(TARGET TorchBaseline)
               ${TORCH_LIBRARIES}
               Threads::Threads
               pugixml
-              ${OpenCV_LIBS})
+              ${OpenCV_LIBS}
+              nlohmann_json::nlohmann_json)
     target_include_directories(${target} SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})
     dllib_configure_bench_target(${target})
     if(TORCH_CUDA_AVAILABLE)

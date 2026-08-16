@@ -4,10 +4,91 @@
     "epochs": 150,
     "learning_rate": 0.0001,
     "dataset_root": "data/VOCdevkit",
+    "voc_subset": "VOC2012",
     "results_dir": "results/voc",
     "num_classes": 20,
     "conf_threshold": 0.25,
     "nms_threshold": 0.5
+  },
+  "voc_torch": {
+    "batch_size": 16,
+    "epochs": 150,
+    "learning_rate": 0.00001,
+    "dataset_root": "data/VOCdevkit",
+    "voc_subset": "VOC2012",
+    "results_dir": "results/voc",
+    "num_classes": 20,
+    "dataloader_workers": 4,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
+    "lr_schedule": [
+      { "until_epoch": 5, "learning_rate": 0.00001 },
+      { "until_epoch": 80, "learning_rate": 0.00001 },
+      { "until_epoch": 120, "learning_rate": 0.000001 },
+      { "until_epoch": 150, "learning_rate": 0.000001 }
+    ]
+  },
+  "bccd_custom": {
+    "batch_size": 16,
+    "epochs": 800,
+    "learning_rate": 0.0001,
+    "dataset_root": "data/BCCD_Dataset/BCCD",
+    "results_dir": "results/bccd",
+    "num_classes": 3,
+    "lr_schedule": [
+      { "until_epoch": 30, "learning_rate": 0.00001 },
+      { "until_epoch": 300, "learning_rate": 0.00005 },
+      { "until_epoch": 400, "learning_rate": 0.00004 },
+      { "until_epoch": 800, "learning_rate": 0.00001 }
+    ]
+  },
+  "bccd_torch": {
+    "batch_size": 16,
+    "epochs": 800,
+    "learning_rate": 0.0001,
+    "dataset_root": "data/BCCD_Dataset/BCCD",
+    "results_dir": "results/bccd",
+    "num_classes": 3,
+    "dataloader_workers": 4,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
+    "lr_schedule": [
+      { "until_epoch": 30, "learning_rate": 0.00001 },
+      { "until_epoch": 300, "learning_rate": 0.00005 },
+      { "until_epoch": 400, "learning_rate": 0.00004 },
+      { "until_epoch": 800, "learning_rate": 0.00001 }
+    ]
+  },
+  "synthetic_custom": {
+    "batch_size": 16,
+    "epochs": 800,
+    "learning_rate": 0.0001,
+    "dataset_root": "data/Synthetic3/train",
+    "results_dir": "results/synthetic",
+    "num_classes": 3,
+    "lr_schedule": [
+      { "until_epoch": 30, "learning_rate": 0.00001 },
+      { "until_epoch": 300, "learning_rate": 0.00005 },
+      { "until_epoch": 400, "learning_rate": 0.00004 },
+      { "until_epoch": 800, "learning_rate": 0.00001 }
+    ]
+  },
+  "synthetic_torch": {
+    "batch_size": 16,
+    "epochs": 800,
+    "learning_rate": 0.0001,
+    "dataset_root": "data/Synthetic3/train",
+    "results_dir": "results/synthetic",
+    "num_classes": 3,
+    "dataloader_workers": 4,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
+    "lr_schedule": [
+      { "until_epoch": 30, "learning_rate": 0.00001 },
+      { "until_epoch": 300, "learning_rate": 0.00005 },
+      { "until_epoch": 400, "learning_rate": 0.00004 },
+      { "until_epoch": 800, "learning_rate": 0.00001 }
+    ]
   },
   "tabular_demo": {
     "batch_size": 32,
