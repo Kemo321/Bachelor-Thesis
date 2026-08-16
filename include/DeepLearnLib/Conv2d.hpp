@@ -18,7 +18,10 @@ inline auto check_cudnn(cudnnStatus_t status, const char* file, int line) -> voi
 {
     if (status != CUDNN_STATUS_SUCCESS)
     {
-        throw std::runtime_error(std::string("cuDNN error at ") + file + ":" + std::to_string(line) + ": " + cudnnGetErrorString(status));
+        const std::string message = std::string("cuDNN error at ") + file + ":" + std::to_string(line) + ": "
+            + cudnnGetErrorString(status);
+        log_error_message(message);
+        throw std::runtime_error(message);
     }
 }
 

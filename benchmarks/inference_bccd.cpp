@@ -1,6 +1,7 @@
+#include "DeepLearnLib/Logger.hpp"
+
 #include <algorithm>
 #include <filesystem>
-#include <iostream>
 #include <opencv2/opencv.hpp>
 #include <random>
 #include <string>
@@ -20,9 +21,9 @@ const std::vector<std::string> BCCD_CLASSES = { "RBC", "WBC", "Platelets" };
 int main()
 {
     torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
-    std::cout << "==========================================\n";
-    std::cout << "[BCCD INFERENCE] Starting inference...\n";
-    std::cout << "==========================================\n";
+    LOG_INFO("==========================================");
+    LOG_INFO("[BCCD INFERENCE] Starting inference...");
+    LOG_INFO("==========================================");
 
     const std::string data_root = "../../data/BCCD_Dataset/BCCD";
     const std::string results_dir = "../../results/bccd";
@@ -36,11 +37,11 @@ int main()
         torch::load(torch_model, torch_path);
         torch_model->to(device);
         torch_model->eval();
-        std::cout << "[OK] Torch model loaded.\n";
+        LOG_INFO("[OK] Torch model loaded.");
     }
     else
     {
-        std::cerr << "[ERROR] Not found: " << torch_path << "\n";
+        LOG_ERROR("Not found: {}", torch_path);
         return -1;
     }
 
@@ -55,11 +56,11 @@ int main()
             l->to(device);
             l->eval();
         }
-        std::cout << "[OK] Custom model loaded.\n";
+        LOG_INFO("[OK] Custom model loaded.");
     }
     else
     {
-        std::cerr << "[ERROR] Not found: " << custom_path << "\n";
+        LOG_ERROR("Not found: {}", custom_path);
         return -1;
     }
 
@@ -68,7 +69,7 @@ int main()
 
     if (test_paths.images.empty())
     {
-        std::cerr << "[ERROR] No test data found!\n";
+        LOG_ERROR("No test data found!");
         return -1;
     }
 
@@ -118,9 +119,9 @@ int main()
         draw_detections(img_custom, final_custom, BCCD_CLASSES, cv::Scalar(0, 0, 255));
         cv::imwrite(out_dir + "/custom_" + filename, img_custom);
 
-        std::cout << "Generated pairs for: " << filename << "\n";
+        LOG_INFO("Generated pairs for: {}", filename);
     }
 
-    std::cout << "[SUCCESS] Comparison completed. Images are located in " << out_dir << "\n";
+    LOG_INFO("[SUCCESS] Comparison completed. Images are located in {}", out_dir);
     return 0;
 }

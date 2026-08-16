@@ -1,5 +1,6 @@
 #include "experiment_config.hpp"
 
+#include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/YOLO.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
@@ -12,8 +13,6 @@
 #include <cuda_runtime.h>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
-#include <iostream>
 #include <string>
 #include <vector>
 
@@ -35,9 +34,9 @@ int main()
 
     int gpu_count = 0;
     cudaGetDeviceCount(&gpu_count);
-    std::cout << "[SYNTHETIC CUSTOM PIPELINE] Starting on device: " << (gpu_count > 0 ? "GPU" : "CPU") << "\n";
-    std::cout << "[CONFIG] batch_size=" << batch_size << " epochs=" << total_epochs
-              << " learning_rate=" << learning_rate << " dataset_root=" << data_root << "\n";
+    LOG_INFO("[SYNTHETIC CUSTOM PIPELINE] Starting on device: {}", gpu_count > 0 ? "GPU" : "CPU");
+    LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} dataset_root={}", batch_size, total_epochs,
+        learning_rate, data_root.string());
 
     DataPaths train_paths, val_paths, test_paths;
     split_dataset(data_root.string(), train_paths, val_paths, test_paths, SYNTH_CLASSES);
@@ -120,9 +119,8 @@ int main()
         auto epoch_end_time = std::chrono::steady_clock::now();
         auto epoch_duration = std::chrono::duration_cast<std::chrono::seconds>(epoch_end_time - epoch_start_time).count();
 
-        std::cout << "Synth Custom | Epoch [" << std::setw(3) << epoch << "/" << total_epochs << "] | Train Loss: "
-                  << std::fixed << std::setprecision(4) << avg_train_loss << " | Test Loss: " << avg_test_loss
-                  << " | Time: " << epoch_duration << "s\n";
+        LOG_INFO("Synth Custom | Epoch [{}/{}] | Train Loss: {:.4f} | Test Loss: {:.4f} | Time: {}s", epoch,
+            total_epochs, avg_train_loss, avg_test_loss, epoch_duration);
 
         csv_file << epoch << ";" << avg_train_loss << ";" << avg_test_loss << ";" << epoch_duration << "\n";
         csv_file.flush();
@@ -130,6 +128,6 @@ int main()
 
     std::string save_path = (results_dir / "yolov1_synthetic_custom_final.pt").string();
     trainer.save(save_path);
-    std::cout << "[INFO] Final model saved: " << save_path << "\n";
+    LOG_INFO("Final model saved: {}", save_path);
     return 0;
 }

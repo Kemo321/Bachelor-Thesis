@@ -1,9 +1,9 @@
+#include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
 #include "TorchDataset.hpp"
 #include "TorchYOLO.hpp"
 #include <fstream>
-#include <iostream>
 #include <torch/torch.h>
 
 int main()
@@ -38,7 +38,7 @@ int main()
             opt.step();
             l_sum += loss.item<float>();
         }
-        std::cout << "[SHORT TORCH] Epoch " << epoch << " Loss: " << l_sum << "\n";
+        LOG_INFO("[SHORT TORCH] Epoch {} Loss: {}", epoch, l_sum);
         csv << epoch << ";" << l_sum << "\n";
     }
     return 0;

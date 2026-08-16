@@ -1,6 +1,7 @@
+#include "DeepLearnLib/Logger.hpp"
+
 #include <algorithm>
 #include <filesystem>
-#include <iostream>
 #include <opencv2/opencv.hpp>
 #include <random>
 #include <string>
@@ -20,9 +21,9 @@ const std::vector<std::string> SYNTH_CLASSES = { "square", "circle", "triangle" 
 int main()
 {
     torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
-    std::cout << "==========================================\n";
-    std::cout << "[SYNTHETIC INFERENCE] Starting inference...\n";
-    std::cout << "==========================================\n";
+    LOG_INFO("==========================================");
+    LOG_INFO("[SYNTHETIC INFERENCE] Starting inference...");
+    LOG_INFO("==========================================");
 
     const std::string data_root = "../../data/Synthetic3/train";
     const std::string results_dir = "../../results/synthetic";
@@ -36,11 +37,11 @@ int main()
         torch::load(torch_model, torch_path);
         torch_model->to(device);
         torch_model->eval();
-        std::cout << "[OK] Torch model loaded.\n";
+        LOG_INFO("[OK] Torch model loaded.");
     }
     else
     {
-        std::cerr << "[ERROR] Not found: " << torch_path << "\n";
+        LOG_ERROR("Not found: {}", torch_path);
         return -1;
     }
 
@@ -55,11 +56,11 @@ int main()
             l->to(device);
             l->eval();
         }
-        std::cout << "[OK] Custom model loaded.\n";
+        LOG_INFO("[OK] Custom model loaded.");
     }
     else
     {
-        std::cerr << "[ERROR] Not found: " << custom_path << "\n";
+        LOG_ERROR("Not found: {}", custom_path);
         return -1;
     }
 
@@ -69,7 +70,7 @@ int main()
     std::vector<std::string> sample_images = test_paths.images.empty() ? train_paths.images : test_paths.images;
     if (sample_images.empty())
     {
-        std::cerr << "[ERROR] No data!\n";
+        LOG_ERROR("No data!");
         return -1;
     }
 
@@ -118,9 +119,9 @@ int main()
         draw_detections(img_custom, final_custom, SYNTH_CLASSES);
         cv::imwrite(out_dir + "/custom_" + filename, img_custom);
 
-        std::cout << "Generated pairs for: " << filename << "\n";
+        LOG_INFO("Generated pairs for: {}", filename);
     }
 
-    std::cout << "[SUCCESS] Comparison completed. Images are located in " << out_dir << "\n";
+    LOG_INFO("[SUCCESS] Comparison completed. Images are located in {}", out_dir);
     return 0;
 }

@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
-#include <iostream>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -157,7 +156,8 @@ auto Network::fit(const dl::Tensor& x_train, const dl::Tensor& y_train, int epoc
         constexpr int log_interval = 10;
         if (verbose != 0 && (epoch_idx % log_interval == 0 || epoch_idx == epochs - 1))
         {
-            std::cout << "[INFO] Epoka " << epoch_idx << "/" << epochs << " | Blad (Loss): " << loss_value << "\n";
+            dl::log_info_message("Epoka " + std::to_string(epoch_idx) + "/" + std::to_string(epochs)
+                + " | Blad (Loss): " + std::to_string(loss_value));
         }
     }
 }
@@ -203,7 +203,7 @@ auto Network::save(const std::string& path) -> void
     {
         throw std::runtime_error("Failed to flush model file '" + path + "'");
     }
-    std::cout << "[INFO] Model saved to: " << path << "\n";
+    dl::log_info_message("Model saved to: " + path);
 }
 
 auto Network::load(const std::string& path) -> void
@@ -268,5 +268,5 @@ auto Network::load(const std::string& path) -> void
         layer->set_parameters(loaded);
     }
 
-    std::cout << "[INFO] Model loaded from: " << path << "\n";
+    dl::log_info_message("Model loaded from: " + path);
 }

@@ -4,6 +4,7 @@
 #include "DeepLearnLib/FullyConnected.hpp"
 #include "DeepLearnLib/Layer.hpp"
 #include "DeepLearnLib/LeakyReLU.hpp"
+#include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Losses.hpp"
 #include "DeepLearnLib/Profiler.hpp"
 #include "DeepLearnLib/Softmax.hpp"
@@ -13,7 +14,6 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <memory>
 #include <random>
 #include <stdexcept>
@@ -96,7 +96,7 @@ int main()
 
     if (!fs::exists(csv_path))
     {
-        std::cout << "[tabular_demo] Writing dummy CSV at " << csv_path << "\n";
+        LOG_INFO("[tabular_demo] Writing dummy CSV at {}", csv_path.string());
         write_dummy_csv(csv_path, num_samples, num_features, num_classes, 42U);
     }
 
@@ -104,8 +104,7 @@ int main()
     const int feature_count = loader.features().get_shape()[1];
     const int available = static_cast<int>(loader.size());
     const int batch = std::min(batch_size, available);
-    std::cout << "[tabular_demo] csv=" << csv_path << " epochs=" << epochs << " batch_size=" << batch
-              << " lr=" << learning_rate << "\n";
+    LOG_INFO("[tabular_demo] csv={} epochs={} batch_size={} lr={}", csv_path.string(), epochs, batch, learning_rate);
     std::vector<float> feature_host = loader.features().to_host();
     std::vector<float> label_host = loader.targets().to_host();
     feature_host.resize(static_cast<std::size_t>(batch) * static_cast<std::size_t>(feature_count));
@@ -158,11 +157,9 @@ int main()
             layer->step();
         }
 
-        std::cout << "Tabular | Epoch [" << epoch << "/" << epochs << "] | CE: " << loss
-                  << " | Acc: " << accuracy << "\n";
+        LOG_INFO("Tabular | Epoch [{}/{}] | CE: {} | Acc: {}", epoch, epochs, loss, accuracy);
     }
     const float gpu_ms = profiler.stop();
-    std::cout << "[tabular_demo] GPU time: " << gpu_ms << " ms | VRAM: " << Profiler::get_vram_usage_mb()
-              << " MiB\n";
+    LOG_INFO("[tabular_demo] GPU time: {} ms | VRAM: {} MiB", gpu_ms, Profiler::get_vram_usage_mb());
     return 0;
 }

@@ -80,3 +80,28 @@ inline auto resolve_from_source(const std::string& maybe_relative) -> std::files
     return std::filesystem::current_path() / path;
 #endif
 }
+
+/**
+ * @brief Piecewise-constant LR from config["lr_schedule"] (ordered by until_epoch).
+ *
+ * Falls back to config["learning_rate"] when the schedule is absent or empty.
+ */
+inline auto scheduled_learning_rate(const nlohmann::json& config, int epoch) -> float
+{
+    const float fallback = config.value("learning_rate", 1.0e-4F);
+    if (!config.contains("lr_schedule") || !config.at("lr_schedule").is_array() || config.at("lr_schedule").empty())
+    {
+        return fallback;
+    }
+
+    float last = fallback;
+    for (const auto& step : config.at("lr_schedule"))
+    {
+        last = step.value("learning_rate", last);
+        if (epoch <= step.value("until_epoch", epoch))
+        {
+            return last;
+        }
+    }
+    return last;
+}

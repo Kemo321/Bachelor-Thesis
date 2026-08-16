@@ -7,7 +7,6 @@
 #include <benchmark/benchmark.h>
 #include <cuda_runtime.h>
 #include <filesystem>
-#include <iostream>
 
 static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
 {

@@ -1,6 +1,7 @@
+#include "DeepLearnLib/Logger.hpp"
+
 #include <algorithm>
 #include <filesystem>
-#include <iostream>
 #include <memory>
 #include <opencv2/opencv.hpp>
 #include <string>
@@ -24,7 +25,7 @@ int main(int argc, char* argv[])
 {
     if (argc < 4)
     {
-        std::cerr << "Usage: ./inference <--torch|--custom> <model_path.pt> <image_path_or_dir>\n";
+        LOG_ERROR("Usage: ./inference <--torch|--custom> <model_path.pt> <image_path_or_dir>");
         return -1;
     }
 
@@ -65,7 +66,7 @@ int main(int argc, char* argv[])
 
     if (images.empty())
     {
-        std::cerr << "[ERROR] No images found!\n";
+        LOG_ERROR("No images found!");
         return -1;
     }
 
@@ -90,7 +91,7 @@ int main(int argc, char* argv[])
     }
     else
     {
-        std::cerr << "[ERROR] Unknown mode. Use --torch or --custom.\n";
+        LOG_ERROR("Unknown mode. Use --torch or --custom.");
         return -1;
     }
 
@@ -99,7 +100,7 @@ int main(int argc, char* argv[])
         cv::Mat img = cv::imread(image_file.string());
         if (img.empty())
         {
-            std::cerr << "[ERROR] Failed to load image: " << image_file.string() << "\n";
+            LOG_ERROR("Failed to load image: {}", image_file.string());
             continue;
         }
 
@@ -153,7 +154,7 @@ int main(int argc, char* argv[])
 
         std::string save_path = out_dir + "/inference_" + image_file.filename().string();
         cv::imwrite(save_path, img);
-        std::cout << "[INFO] Image (" << final_detections.size() << " clean detections) saved at: " << save_path << "\n";
+        LOG_INFO("Image ({} clean detections) saved at: {}", final_detections.size(), save_path);
     }
 
     return 0;

@@ -189,6 +189,16 @@ FetchContent_Declare(
   GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(nlohmann_json)
 
+set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  spdlog
+  GIT_REPOSITORY https://github.com/gabime/spdlog.git
+  GIT_TAG v1.12.0
+  GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(spdlog)
+
 file(COPY "${CMAKE_SOURCE_DIR}/config" DESTINATION "${CMAKE_BINARY_DIR}")
 
 add_subdirectory(src)
@@ -203,7 +213,7 @@ endif()
 # Tabular demo is non-vision: keep it available when OpenCV (and thus benchmarks/) is missing.
 if(NOT TARGET tabular_demo)
   add_executable(tabular_demo benchmarks/tabular_demo.cpp)
-  target_link_libraries(tabular_demo PRIVATE DeepLearnLib nlohmann_json::nlohmann_json)
+  target_link_libraries(tabular_demo PRIVATE DeepLearnLib nlohmann_json::nlohmann_json spdlog::spdlog)
   target_include_directories(tabular_demo PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}/benchmarks")
   file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}" _deeplearn_source_dir)
   target_compile_definitions(tabular_demo PRIVATE DEEPLEARN_SOURCE_DIR="${_deeplearn_source_dir}")

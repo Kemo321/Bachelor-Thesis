@@ -18,6 +18,9 @@
 namespace dl
 {
 
+auto log_error_message(const std::string& message) -> void;
+auto log_info_message(const std::string& message) -> void;
+
 enum class Device
 {
     CPU,
@@ -51,8 +54,10 @@ inline auto check_cuda(cudaError_t status, const char* file, int line) -> void
 {
     if (status != cudaSuccess)
     {
-        throw std::runtime_error(std::string("CUDA error at ") + file + ":" + std::to_string(line) + ": "
-            + cudaGetErrorString(status));
+        const std::string message = std::string("CUDA error at ") + file + ":" + std::to_string(line) + ": "
+            + cudaGetErrorString(status);
+        log_error_message(message);
+        throw std::runtime_error(message);
     }
 }
 
@@ -60,8 +65,10 @@ inline auto check_cublas(cublasStatus_t status, const char* file, int line) -> v
 {
     if (status != CUBLAS_STATUS_SUCCESS)
     {
-        throw std::runtime_error(std::string("cuBLAS error at ") + file + ":" + std::to_string(line) + ": "
-            + cublasGetStatusString(status));
+        const std::string message = std::string("cuBLAS error at ") + file + ":" + std::to_string(line) + ": "
+            + cublasGetStatusString(status);
+        log_error_message(message);
+        throw std::runtime_error(message);
     }
 }
 

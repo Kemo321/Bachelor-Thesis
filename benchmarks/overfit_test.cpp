@@ -1,11 +1,10 @@
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
-#include <iostream>
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
 
+#include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/Tensor.hpp"
 #include "DeepLearnLib/YOLO.hpp"
@@ -24,14 +23,14 @@ int main(int argc, char* argv[])
 {
     if (argc < 2)
     {
-        std::cerr << "Usage: ./overfit_test <--torch|--custom>\n";
+        LOG_ERROR("Usage: ./overfit_test <--torch|--custom>");
         return -1;
     }
 
     std::string mode = argv[1];
     if (mode != "--torch" && mode != "--custom")
     {
-        std::cerr << "[ERROR] Unknown mode: " << mode << "\n";
+        LOG_ERROR("Unknown mode: {}", mode);
         return -1;
     }
 
@@ -41,16 +40,16 @@ int main(int argc, char* argv[])
     const std::string results_dir = "../../results";
     const float learning_rate = 2e-5F;
 
-    std::cout << "========================================\n";
-    std::cout << "[OVERFIT TEST] Mode: " << mode << " | Batch: " << batch_size << "\n";
-    std::cout << "========================================\n";
+    LOG_INFO("========================================");
+    LOG_INFO("[OVERFIT TEST] Mode: {} | Batch: {}", mode, batch_size);
+    LOG_INFO("========================================");
 
     DataPaths train_paths, val_paths, test_paths;
     split_dataset(data_root + "/VOC2012", train_paths, val_paths, test_paths, VOC_CLASSES);
 
     if (train_paths.images.empty())
     {
-        std::cerr << "[ERROR] No data in the data folder!\n";
+        LOG_ERROR("No data in the data folder!");
         return -1;
     }
 
@@ -63,7 +62,7 @@ int main(int argc, char* argv[])
 
     if (mode == "--torch")
     {
-        std::cerr << "[ERROR] --torch overfit still expects a LibTorch loss. YOLOLoss is dl::Tensor-only; use --custom.\n";
+        LOG_ERROR("--torch overfit still expects a LibTorch loss. YOLOLoss is dl::Tensor-only; use --custom.");
         return -1;
     }
 
@@ -102,13 +101,13 @@ int main(int argc, char* argv[])
         }
         if (epoch % 10 == 0 || epoch == 1)
         {
-            std::cout << "Epoch [" << std::setw(3) << epoch << "/" << total_epochs << "] Loss: " << epoch_loss << "\n";
+            LOG_INFO("Epoch [{}/{}] Loss: {}", epoch, total_epochs, epoch_loss);
         }
     }
     Network trainer(custom_model.get_all_layers(), learning_rate);
     std::string save_path = results_dir + "/yolov1_custom_overfitted.pt";
     trainer.save(save_path);
-    std::cout << "\n[INFO] Custom model saved: " << save_path << "\n";
+    LOG_INFO("Custom model saved: {}", save_path);
 
     for (auto& layer : custom_model.get_all_layers())
     {
@@ -153,7 +152,7 @@ int main(int argc, char* argv[])
         fs::path p(img_path);
         cv::imwrite(drawn_dir + "/" + p.filename().string(), img);
     }
-    std::cout << "[SUCCESS] Custom-generated images saved in: " << drawn_dir << "\n";
+    LOG_INFO("Custom-generated images saved in: {}", drawn_dir);
 
     return 0;
 }

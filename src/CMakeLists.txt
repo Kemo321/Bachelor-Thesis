@@ -16,6 +16,7 @@ set(DEEPLEARN_SOURCES
     Softmax.cpp
     CSVLoader.cpp
     SimpleCNN.cpp
+    Logger.cpp
 )
 
 if(OpenCV_FOUND)
@@ -73,7 +74,8 @@ target_link_libraries(
   PUBLIC CUDA::cudart
          CUDA::cublas
          CUDA::cudnn
-         hwy)
+         hwy
+         spdlog::spdlog)
 
 if(OpenCV_FOUND)
   target_link_libraries(DeepLearnLib PUBLIC ${OpenCV_LIBS} pugixml)

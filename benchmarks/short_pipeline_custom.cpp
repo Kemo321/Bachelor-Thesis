@@ -1,6 +1,6 @@
 #include <fstream>
-#include <iostream>
 
+#include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/YOLO.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
@@ -44,7 +44,7 @@ int main()
                 layer->step();
             }
         }
-        std::cout << "[SHORT CUSTOM] Epoch " << epoch << " Loss: " << l_sum << "\n";
+        LOG_INFO("[SHORT CUSTOM] Epoch {} Loss: {}", epoch, l_sum);
         csv << epoch << ";" << l_sum << "\n";
     }
     return 0;

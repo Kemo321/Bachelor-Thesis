@@ -1,9 +1,9 @@
 #include "DeepLearnLib/dataset.hpp"
+#include "DeepLearnLib/Logger.hpp"
 
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <numeric>
 #include <opencv2/opencv.hpp>
 #include <pugixml.hpp>
@@ -107,7 +107,7 @@ auto convert_voc_to_yolo(const std::string& annot_dir, const std::string& label_
     }
     if (converted_count > 0)
     {
-        std::cout << "[INFO] Konwersja XML -> YOLO: " << converted_count << " plikow .txt utworzonych\n";
+        LOG_INFO("Konwersja XML -> YOLO: {} plikow .txt utworzonych", converted_count);
     }
 }
 
@@ -222,11 +222,11 @@ auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths
     std::string annot_dir = voc_root + "/Annotations";
     std::string label_dir = voc_root + "/labels";
 
-    std::cout << "[INFO] Szukam danych w: " << voc_root << "\n";
+    LOG_INFO("Szukam danych w: {}", voc_root);
 
     if (!std::filesystem::exists(jpeg_dir) || !std::filesystem::exists(annot_dir))
     {
-        std::cerr << "[BLAD] Nie znaleziono JPEGImages lub Annotations!\n";
+        LOG_ERROR("Nie znaleziono JPEGImages lub Annotations!");
         return;
     }
 
@@ -263,7 +263,7 @@ auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths
 
     if (all_pairs.empty())
     {
-        std::cerr << "[BLAD] Brak sparowanych obrazow i etykiet!\n";
+        LOG_ERROR("Brak sparowanych obrazow i etykiet!");
         return;
     }
 
@@ -294,9 +294,9 @@ auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths
         }
     }
 
-    std::cout << "[INFO] Podzial zakonczony! Razem: " << total_elements << " obrazow\n";
-    std::cout << "   Train: " << train_data.images.size() << " | Val: " << val_data.images.size()
-              << " | Test: " << test_data.images.size() << "\n\n";
+    LOG_INFO("Podzial zakonczony! Razem: {} obrazow", total_elements);
+    LOG_INFO("Train: {} | Val: {} | Test: {}", train_data.images.size(), val_data.images.size(),
+        test_data.images.size());
 }
 
 CustomDataLoader::CustomDataLoader(const DataPaths& paths, int batch_size, bool is_train,

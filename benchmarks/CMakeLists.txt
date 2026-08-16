@@ -18,6 +18,7 @@ function(dllib_configure_bench_target target)
   endif()
   file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}" _deeplearn_source_dir)
   target_compile_definitions(${target} PRIVATE DEEPLEARN_SOURCE_DIR="${_deeplearn_source_dir}")
+  target_link_libraries(${target} PRIVATE spdlog::spdlog)
   set_target_properties(${target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 endfunction()
 

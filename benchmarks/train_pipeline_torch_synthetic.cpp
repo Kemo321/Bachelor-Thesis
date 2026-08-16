@@ -1,5 +1,6 @@
 #include "experiment_config.hpp"
 
+#include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
 #include "TorchDataset.hpp"
@@ -12,8 +13,6 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
-#include <iostream>
 #include <random>
 #include <string>
 #include <torch/torch.h>
@@ -38,9 +37,8 @@ int main()
     const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/synthetic"));
 
     torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
-    std::cout << "[SYNTHETIC TORCH PIPELINE] Starting on device: " << (device.is_cuda() ? "GPU" : "CPU") << "\n";
-    std::cout << "[CONFIG] batch_size=" << batch_size << " epochs=" << total_epochs
-              << " dataset_root=" << data_root << "\n";
+    LOG_INFO("[SYNTHETIC TORCH PIPELINE] Starting on device: {}", device.is_cuda() ? "GPU" : "CPU");
+    LOG_INFO("[CONFIG] batch_size={} epochs={} dataset_root={}", batch_size, total_epochs, data_root.string());
 
     if (device.is_cuda())
     {
@@ -121,9 +119,8 @@ int main()
         auto epoch_end_time = std::chrono::steady_clock::now();
         auto epoch_duration = std::chrono::duration_cast<std::chrono::seconds>(epoch_end_time - epoch_start_time).count();
 
-        std::cout << "Synth Torch | Epoch [" << std::setw(3) << epoch << "/" << total_epochs << "] | Train Loss: "
-                  << std::fixed << std::setprecision(4) << avg_train_loss << " | Test Loss: " << avg_test_loss
-                  << " | Time: " << epoch_duration << "s\n";
+        LOG_INFO("Synth Torch | Epoch [{}/{}] | Train Loss: {:.4f} | Test Loss: {:.4f} | Time: {}s", epoch, total_epochs,
+            avg_train_loss, avg_test_loss, epoch_duration);
 
         csv_file << epoch << ";" << avg_train_loss << ";" << avg_test_loss << ";" << epoch_duration << "\n";
         csv_file.flush();
@@ -131,6 +128,6 @@ int main()
 
     std::string save_path = (results_dir / "yolov1_synthetic_torch_final.pt").string();
     torch::save(model, save_path);
-    std::cout << "[INFO] Final model saved: " << save_path << "\n";
+    LOG_INFO("Final model saved: {}", save_path);
     return 0;
 }

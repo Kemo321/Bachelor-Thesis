@@ -1,6 +1,7 @@
 #include "experiment_config.hpp"
 
 #include "DeepLearnLib/ClassificationLoader.hpp"
+#include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Losses.hpp"
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/Profiler.hpp"
@@ -11,8 +12,6 @@
 #include <cuda_runtime.h>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
-#include <iostream>
 #include <string>
 #include <vector>
 
@@ -66,15 +65,14 @@ int main()
 
     int gpu_count = 0;
     cudaGetDeviceCount(&gpu_count);
-    std::cout << "[CIFAR-10 CLASSIFICATION] Starting on device: " << (gpu_count > 0 ? "GPU" : "CPU") << "\n";
-    std::cout << "[CONFIG] batch_size=" << batch_size << " epochs=" << total_epochs
-              << " learning_rate=" << learning_rate << " dataset_root=" << data_root << "\n";
+    LOG_INFO("[CIFAR-10 CLASSIFICATION] Starting on device: {}", gpu_count > 0 ? "GPU" : "CPU");
+    LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} dataset_root={}", batch_size, total_epochs,
+        learning_rate, data_root.string());
 
     ClassificationLoader train_loader(data_root.string(), train_split, batch_size, image_size, true);
     ClassificationLoader test_loader(data_root.string(), test_split, batch_size, image_size, false);
     const int num_classes = train_loader.num_classes();
-    std::cout << "[CONFIG] classes=" << num_classes << " train=" << train_loader.size()
-              << " test=" << test_loader.size() << "\n";
+    LOG_INFO("[CONFIG] classes={} train={} test={}", num_classes, train_loader.size(), test_loader.size());
 
     SimpleCNN model(num_classes, image_size);
     Network trainer(model.get_all_layers(), learning_rate);
@@ -152,10 +150,9 @@ int main()
         const float avg_train_acc = train_acc / static_cast<float>(std::max(1, train_batches));
         const float avg_test_acc = test_acc / static_cast<float>(std::max(1, test_batches));
 
-        std::cout << "CIFAR-10 | Epoch [" << std::setw(3) << epoch << "/" << total_epochs << "] | Train Loss: "
-                  << std::fixed << std::setprecision(4) << avg_train << " | Test Loss: " << avg_test
-                  << " | Train Acc: " << avg_train_acc << " | Test Acc: " << avg_test_acc << " | Time: " << elapsed
-                  << "s | GPU: " << gpu_ms << " ms\n";
+        LOG_INFO("CIFAR-10 | Epoch [{}/{}] | Train Loss: {:.4f} | Test Loss: {:.4f} | Train Acc: {} | Test Acc: {} | "
+                 "Time: {}s | GPU: {} ms",
+            epoch, total_epochs, avg_train, avg_test, avg_train_acc, avg_test_acc, elapsed, gpu_ms);
         csv_file << epoch << ";" << avg_train << ";" << avg_test << ";" << avg_train_acc << ";" << avg_test_acc << ";"
                  << elapsed << "\n";
         csv_file.flush();
@@ -163,6 +160,6 @@ int main()
 
     const std::string save_path = (results_dir / "simplecnn_cifar10_final.bin").string();
     trainer.save(save_path);
-    std::cout << "[INFO] Final model saved: " << save_path << "\n";
+    LOG_INFO("Final model saved: {}", save_path);
     return 0;
 }

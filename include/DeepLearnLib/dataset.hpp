@@ -32,8 +32,8 @@ inline void splitDataset(const std::string& voc_root, DataPaths& train, DataPath
 /**
  * One GPU-resident training/evaluation batch.
  *
- * images:  [Batch, 3, 448, 448] CHW.
- * targets: [Batch, 7, 7, 10 + num_classes] YOLOv1 grid.
+ * Detection loaders use images [N, 3, 448, 448] and YOLO grids as targets.
+ * ClassificationLoader uses images [N, 3, H, W] and one-hot targets [N, C].
  */
 struct Batch
 {

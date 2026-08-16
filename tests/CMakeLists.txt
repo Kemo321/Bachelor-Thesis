@@ -14,11 +14,12 @@ add_executable(
   test_yolo.cpp
   test_network.cpp
   test_generic.cpp
-  test_profiler_map.cpp)
+  test_profiler_map.cpp
+  test_simplecnn.cpp)
 
 target_include_directories(dllib_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(dllib_tests PRIVATE DeepLearnLib GTest::gtest)
+target_link_libraries(dllib_tests PRIVATE DeepLearnLib GTest::gtest spdlog::spdlog)
 
 if(CUDAToolkit_FOUND)
   target_link_libraries(dllib_tests PRIVATE CUDA::cudart)
