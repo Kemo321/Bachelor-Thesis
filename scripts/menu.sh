@@ -70,6 +70,16 @@ python_bin() {
   return 1
 }
 
+run_setup_datasets() {
+  local py
+  if ! py="$(python_bin)"; then
+    echo "[menu] Python not found; cannot run setup_datasets.py." >&2
+    return 1
+  fi
+  echo "[menu] Running ${ROOT}/scripts/setup_datasets.py"
+  "${py}" "${ROOT}/scripts/setup_datasets.py" --data-root "${ROOT}/data"
+}
+
 run_plots() {
   local py
   if ! py="$(python_bin)"; then
@@ -85,6 +95,9 @@ run_all() {
   echo "[menu] === Run All Pipelines & Generate Plots ==="
   echo "[menu] Missing Torch binaries are skipped. Failures do not abort the sequence."
   echo
+
+  echo "[menu] -- Training: CIFAR-10 classification --"
+  run_optional train_classification
 
   echo "[menu] -- Training: VOC --"
   run_optional train_pipeline_custom
@@ -139,6 +152,7 @@ print_menu() {
   cat <<'EOF'
 
 DeepLearnLib
+  0)  Setup datasets (download & generate)
   1)  Run unit tests
   2)  Train custom YOLO on VOC
   3)  Train Torch YOLO on VOC
@@ -147,21 +161,25 @@ DeepLearnLib
   6)  Train custom YOLO on Synthetic
   7)  Train Torch YOLO on Synthetic
   8)  Run tabular demo
-  9)  Run custom performance benchmarks
-  10) Run BCCD inference
-  11) Run Synthetic inference
-  12) Plot metrics (CSV → PNG)
-  13) Run all pipelines & generate plots
-  14) Run Sanity Check (fast end-to-end test using sanity.json)
-  15) Exit
+  9)  Train image classification (CIFAR-10)
+  10) Run custom performance benchmarks
+  11) Run BCCD inference
+  12) Run Synthetic inference
+  13) Plot metrics (CSV → PNG)
+  14) Run all pipelines & generate plots
+  15) Run Sanity Check (fast end-to-end test using sanity.json)
+  16) Exit
 
 EOF
 }
 
 while true; do
   print_menu
-  read -r -p "Select [1-15]: " choice
+  read -r -p "Select [0-16]: " choice
   case "${choice}" in
+    0)
+      run_setup_datasets || true
+      ;;
     1)
       run_bin dllib_tests || true
       ;;
@@ -187,24 +205,27 @@ while true; do
       run_bin tabular_demo || true
       ;;
     9)
-      run_bin bench_custom --benchmark_min_time=0.1 || true
+      run_bin train_classification || true
       ;;
     10)
-      run_bin inference_bccd || true
+      run_bin bench_custom --benchmark_min_time=0.1 || true
       ;;
     11)
-      run_bin inference_synthetic || true
+      run_bin inference_bccd || true
       ;;
     12)
-      run_plots || true
+      run_bin inference_synthetic || true
       ;;
     13)
-      run_all
+      run_plots || true
       ;;
     14)
-      run_sanity_check
+      run_all
       ;;
     15)
+      run_sanity_check
+      ;;
+    16)
       echo "[menu] Bye."
       exit 0
       ;;

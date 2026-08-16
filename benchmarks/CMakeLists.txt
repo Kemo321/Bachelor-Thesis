@@ -28,7 +28,8 @@ set(CUSTOM_BENCH_TARGETS
     train_pipeline_custom_BCCD
     train_pipeline_custom_synthetic
     overfit_test
-    tabular_demo)
+    tabular_demo
+    train_classification)
 
 add_executable(train_pipeline_custom train_pipeline_custom.cpp)
 add_executable(short_pipeline_custom short_pipeline_custom.cpp)
@@ -37,6 +38,7 @@ add_executable(train_pipeline_custom_BCCD train_pipeline_custom_BCCD.cpp)
 add_executable(train_pipeline_custom_synthetic train_pipeline_custom_synthetic.cpp)
 add_executable(overfit_test overfit_test.cpp)
 add_executable(tabular_demo tabular_demo.cpp)
+add_executable(train_classification train_classification.cpp)
 
 foreach(target ${CUSTOM_BENCH_TARGETS})
   target_link_libraries(

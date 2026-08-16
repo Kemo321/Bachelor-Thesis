@@ -101,5 +101,16 @@
     "num_classes": 3,
     "num_samples": 96,
     "skip_header": true
+  },
+  "cifar10_classification": {
+    "batch_size": 64,
+    "epochs": 20,
+    "learning_rate": 0.001,
+    "dataset_root": "data/cifar10",
+    "train_split": "train",
+    "test_split": "test",
+    "results_dir": "results/cifar10",
+    "num_classes": 10,
+    "image_size": 32
   }
 }
