@@ -19,12 +19,18 @@ RUN apt-get update \
         ccache \
         git \
         pkg-config \
+        python3 \
+        python3-pip \
         libpugixml-dev \
         libopencv-dev \
         clang-tidy \
         cppcheck \
         doxygen \
         graphviz \
+    && python3 -c "from PIL import Image" 2>/dev/null \
+        || python3 -m pip install --no-cache-dir Pillow \
+    && python3 -c "import cv2" 2>/dev/null \
+        || python3 -m pip install --no-cache-dir opencv-python-headless \
     && rm -rf /var/lib/apt/lists/* \
     && ccache --set-config=max_size=10G \
     && ccache --set-config=compression=true
