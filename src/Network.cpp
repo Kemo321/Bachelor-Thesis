@@ -156,8 +156,8 @@ auto Network::fit(const dl::Tensor& x_train, const dl::Tensor& y_train, int epoc
         constexpr int log_interval = 10;
         if (verbose != 0 && (epoch_idx % log_interval == 0 || epoch_idx == epochs - 1))
         {
-            dl::log_info_message("Epoka " + std::to_string(epoch_idx) + "/" + std::to_string(epochs)
-                + " | Blad (Loss): " + std::to_string(loss_value));
+            dl::log_info_message("Epoch " + std::to_string(epoch_idx) + "/" + std::to_string(epochs)
+                + " | Loss: " + std::to_string(loss_value));
         }
     }
 }

@@ -107,7 +107,7 @@ auto convert_voc_to_yolo(const std::string& annot_dir, const std::string& label_
     }
     if (converted_count > 0)
     {
-        LOG_INFO("Konwersja XML -> YOLO: {} plikow .txt utworzonych", converted_count);
+        LOG_INFO("XML -> YOLO conversion: {} .txt files created", converted_count);
     }
 }
 
@@ -222,11 +222,11 @@ auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths
     std::string annot_dir = voc_root + "/Annotations";
     std::string label_dir = voc_root + "/labels";
 
-    LOG_INFO("Szukam danych w: {}", voc_root);
+    LOG_INFO("Looking for data in: {}", voc_root);
 
     if (!std::filesystem::exists(jpeg_dir) || !std::filesystem::exists(annot_dir))
     {
-        LOG_ERROR("Nie znaleziono JPEGImages lub Annotations!");
+        LOG_ERROR("JPEGImages or Annotations not found!");
         return;
     }
 
@@ -263,7 +263,7 @@ auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths
 
     if (all_pairs.empty())
     {
-        LOG_ERROR("Brak sparowanych obrazow i etykiet!");
+        LOG_ERROR("No paired images and labels found!");
         return;
     }
 
@@ -294,7 +294,7 @@ auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths
         }
     }
 
-    LOG_INFO("Podzial zakonczony! Razem: {} obrazow", total_elements);
+    LOG_INFO("Split complete. Total images: {}", total_elements);
     LOG_INFO("Train: {} | Val: {} | Test: {}", train_data.images.size(), val_data.images.size(),
         test_data.images.size());
 }

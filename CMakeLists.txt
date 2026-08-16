@@ -134,11 +134,11 @@ execute_process(
 
 if(TORCH_CMAKE_PATH)
     list(APPEND CMAKE_PREFIX_PATH "${TORCH_CMAKE_PATH}")
-    message(STATUS "Szukanie LibTorch (Python): ${TORCH_CMAKE_PATH}")
+    message(STATUS "Looking for LibTorch (Python): ${TORCH_CMAKE_PATH}")
 else()
     file(GLOB FALLBACK_TORCH_PATH "/usr/local/lib/python3.*/dist-packages/torch/share/cmake/Torch")
     list(APPEND CMAKE_PREFIX_PATH ${FALLBACK_TORCH_PATH})
-    message(STATUS "Szukanie LibTorch (Fallback ścieżka): ${FALLBACK_TORCH_PATH}")
+    message(STATUS "Looking for LibTorch (fallback path): ${FALLBACK_TORCH_PATH}")
 endif()
 
 set(CAFFE2_USE_KINETO OFF CACHE BOOL "" FORCE)
