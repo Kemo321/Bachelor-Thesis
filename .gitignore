@@ -32,6 +32,7 @@ combined.cpp
 # Runtime outputs and datasets
 results/
 data/
+logs/
 ccache_data/
 *.pt
 *.pth
