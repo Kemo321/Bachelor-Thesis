@@ -1,5 +1,6 @@
 #include "DeepLearnLib/dataset.hpp"
 #include "DeepLearnLib/Logger.hpp"
+#include "DeepLearnLib/Nvtx.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -393,6 +394,7 @@ auto CustomDataLoader::load_sample(std::size_t sample_index, std::vector<float>&
 
 auto CustomDataLoader::get_batch() -> Batch
 {
+    const dl::NvtxRange nvtx_range("DataLoader_GetBatch");
     if (!has_next())
     {
         throw std::runtime_error("CustomDataLoader::get_batch called with no remaining samples");

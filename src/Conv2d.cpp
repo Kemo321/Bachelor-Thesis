@@ -1,4 +1,5 @@
 #include "DeepLearnLib/Conv2d.hpp"
+#include "DeepLearnLib/Nvtx.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -459,6 +460,7 @@ auto Conv2d::ensure_workspace(size_t bytes) -> void
 
 auto Conv2d::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("Conv2d_Forward");
     require_gpu_nchw(input_tensor, "Conv2d::forward input");
     if (input_tensor.get_shape()[1] != in_channels_)
     {
@@ -493,6 +495,7 @@ auto Conv2d::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 
 auto Conv2d::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("Conv2d_Backward");
     if (!input_cache_.has_value())
     {
         throw std::runtime_error("Conv2d::backward requires a preceding forward pass");
@@ -533,6 +536,7 @@ auto Conv2d::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
 
 void Conv2d::step()
 {
+    const dl::NvtxRange nvtx_range("Conv2d_Step");
     weights_ = weights_ - (weights_gradient_ * learning_rate);
     biases_ = biases_ - (biases_gradient_ * learning_rate);
 }

@@ -1,4 +1,5 @@
 #include "DeepLearnLib/Softmax.hpp"
+#include "DeepLearnLib/Nvtx.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -47,6 +48,7 @@ auto Softmax::configure_descriptor(const dl::Tensor& tensor) -> void
 
 auto Softmax::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("Softmax_Forward");
     require_gpu(input_tensor, "Softmax::forward input");
     configure_descriptor(input_tensor);
 
@@ -69,6 +71,7 @@ auto Softmax::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 
 auto Softmax::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("Softmax_Backward");
     if (!output_cache_.has_value())
     {
         throw std::runtime_error("Softmax::backward requires a preceding forward pass");

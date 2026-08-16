@@ -1,4 +1,5 @@
 #include "DeepLearnLib/Dropout.hpp"
+#include "DeepLearnLib/Nvtx.hpp"
 
 #include <cstddef>
 #include <stdexcept>
@@ -58,6 +59,7 @@ Dropout::Dropout(float probability)
 
 auto Dropout::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("Dropout_Forward");
     require_gpu(input_tensor, "Dropout::forward input");
 
     if (!is_training_)
@@ -86,6 +88,7 @@ auto Dropout::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 
 auto Dropout::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("Dropout_Backward");
     require_gpu(output_error_derivative, "Dropout::backward grad_output");
     if (!is_training_ || !mask_.has_value())
     {

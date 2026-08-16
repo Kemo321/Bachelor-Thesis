@@ -1,4 +1,5 @@
 #include "DeepLearnLib/LeakyReLU.hpp"
+#include "DeepLearnLib/Nvtx.hpp"
 
 #include <cstddef>
 #include <stdexcept>
@@ -66,6 +67,7 @@ LeakyReLU::LeakyReLU(float slope_val)
 
 auto LeakyReLU::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("LeakyReLU_Forward");
     require_gpu(input_tensor, "LeakyReLU::forward input");
 
     input_cache_ = dl::Tensor(input_tensor.get_shape(), dl::Device::GPU);
@@ -87,6 +89,7 @@ auto LeakyReLU::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 
 auto LeakyReLU::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("LeakyReLU_Backward");
     if (!input_cache_.has_value())
     {
         throw std::runtime_error("LeakyReLU::backward requires a preceding forward pass");

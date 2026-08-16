@@ -1,4 +1,5 @@
 #include "DeepLearnLib/YOLOLoss.hpp"
+#include "DeepLearnLib/Nvtx.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -290,6 +291,7 @@ auto YOLOLoss::calculate_iou(const dl::Tensor& box1, const dl::Tensor& box2) -> 
 
 auto YOLOLoss::loss(const dl::Tensor& target, const dl::Tensor& prediction, int num_classes) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("YOLOLoss_Loss");
     if (num_classes <= 0)
     {
         throw std::runtime_error("YOLOLoss::loss requires a positive class count");
@@ -323,6 +325,7 @@ auto YOLOLoss::loss(const dl::Tensor& target, const dl::Tensor& prediction, int 
 
 auto YOLOLoss::loss_derivative(const dl::Tensor& target, const dl::Tensor& prediction, int num_classes) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("YOLOLoss_LossDerivative");
     if (num_classes <= 0)
     {
         throw std::runtime_error("YOLOLoss::loss_derivative requires a positive class count");

@@ -77,6 +77,12 @@ target_link_libraries(
          hwy
          spdlog::spdlog)
 
+if(TARGET CUDA::nvtx3)
+  target_link_libraries(DeepLearnLib PUBLIC CUDA::nvtx3)
+elseif(TARGET CUDA::nvToolsExt)
+  target_link_libraries(DeepLearnLib PUBLIC CUDA::nvToolsExt)
+endif()
+
 if(OpenCV_FOUND)
   target_link_libraries(DeepLearnLib PUBLIC ${OpenCV_LIBS} pugixml)
 endif()

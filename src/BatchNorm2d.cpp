@@ -1,4 +1,5 @@
 #include "DeepLearnLib/BatchNorm2d.hpp"
+#include "DeepLearnLib/Nvtx.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -140,6 +141,7 @@ auto BatchNorm2d::configure_descriptors(int batch, int channels, int height, int
 
 auto BatchNorm2d::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("BatchNorm2d_Forward");
     require_gpu_nchw(input_tensor, "BatchNorm2d::forward input");
 
     const int batch = input_tensor.get_shape()[0];
@@ -179,6 +181,7 @@ auto BatchNorm2d::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 
 auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("BatchNorm2d_Backward");
     if (!is_training_ || !input_cache_.has_value())
     {
         throw std::runtime_error("BatchNorm2d::backward requires a preceding training forward pass");
@@ -208,6 +211,7 @@ auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative) -> dl::Ten
 
 void BatchNorm2d::step()
 {
+    const dl::NvtxRange nvtx_range("BatchNorm2d_Step");
     gamma_ = gamma_ - (gamma_grad_ * learning_rate);
     beta_ = beta_ - (beta_grad_ * learning_rate);
 }

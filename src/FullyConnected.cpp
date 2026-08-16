@@ -1,4 +1,5 @@
 #include "DeepLearnLib/FullyConnected.hpp"
+#include "DeepLearnLib/Nvtx.hpp"
 
 #include <cmath>
 #include <cstddef>
@@ -131,6 +132,7 @@ FullyConnected::FullyConnected(int input_size, int output_size, float inertia_va
 
 auto FullyConnected::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("FullyConnected_Forward");
     require_rank2(input_tensor, input_size_, "FullyConnected::forward input");
 
     input_cache_ = dl::Tensor(input_tensor.get_shape(), dl::Device::GPU);
@@ -145,6 +147,7 @@ auto FullyConnected::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 
 auto FullyConnected::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("FullyConnected_Backward");
     if (!input_cache_.has_value())
     {
         throw std::runtime_error("FullyConnected::backward requires a preceding forward pass");
@@ -175,6 +178,7 @@ auto FullyConnected::backward(const dl::Tensor& output_error_derivative) -> dl::
 
 void FullyConnected::step()
 {
+    const dl::NvtxRange nvtx_range("FullyConnected_Step");
     weights_ = weights_ - (weights_gradient_ * learning_rate);
     biases_ = biases_ - (biases_gradient_ * learning_rate);
 }

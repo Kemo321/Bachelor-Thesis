@@ -1,4 +1,5 @@
 #include "DeepLearnLib/MaxPool2d.hpp"
+#include "DeepLearnLib/Nvtx.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -128,6 +129,7 @@ auto MaxPool2d::configure_descriptors(int batch, int channels, int height, int w
 
 auto MaxPool2d::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("MaxPool2d_Forward");
     require_gpu_nchw(input_tensor, "MaxPool2d::forward input");
 
     const int batch = input_tensor.get_shape()[0];
@@ -150,6 +152,7 @@ auto MaxPool2d::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 
 auto MaxPool2d::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("MaxPool2d_Backward");
     if (!input_cache_.has_value() || !output_cache_.has_value())
     {
         throw std::runtime_error("MaxPool2d::backward requires a preceding forward pass");

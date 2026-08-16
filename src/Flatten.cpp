@@ -1,4 +1,5 @@
 #include "DeepLearnLib/Flatten.hpp"
+#include "DeepLearnLib/Nvtx.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -22,6 +23,7 @@ auto require_gpu(const dl::Tensor& tensor, const char* name) -> void
 
 auto Flatten::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("Flatten_Forward");
     require_gpu(input_tensor, "Flatten::forward input");
     if (input_tensor.get_shape().empty())
     {
@@ -41,6 +43,7 @@ auto Flatten::forward(const dl::Tensor& input_tensor) -> dl::Tensor
 
 auto Flatten::backward(const dl::Tensor& output_error_derivative) -> dl::Tensor
 {
+    const dl::NvtxRange nvtx_range("Flatten_Backward");
     require_gpu(output_error_derivative, "Flatten::backward grad_output");
     if (input_shape_cache_.empty())
     {
