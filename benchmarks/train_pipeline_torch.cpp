@@ -1,5 +1,15 @@
+#include "experiment_config.hpp"
+
+#include "DeepLearnLib/YOLOLoss.hpp"
+#include "DeepLearnLib/dataset.hpp"
+#include "TorchDataset.hpp"
+#include "TorchYOLO.hpp"
+
 #include <ATen/cuda/CUDAContext.h>
+#include <algorithm>
 #include <chrono>
+#include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -8,11 +18,6 @@
 #include <string>
 #include <torch/torch.h>
 #include <vector>
-
-#include "DeepLearnLib/YOLOLoss.hpp"
-#include "DeepLearnLib/dataset.hpp"
-#include "TorchDataset.hpp"
-#include "TorchYOLO.hpp"
 
 namespace fs = std::filesystem;
 
@@ -25,13 +30,21 @@ int main()
 {
     std::srand(std::time(nullptr));
 
-    const int batch_size = 16;
-    const int total_epochs = 150;
-    const std::string data_root = "../../data/VOCdevkit";
-    const std::string results_dir = "../../results/voc";
+    const nlohmann::json config = load_pipeline_config("voc_torch");
+    const int batch_size = config.value("batch_size", 16);
+    const int total_epochs = config.value("epochs", 150);
+    const int num_classes = config.value("num_classes", 20);
+    const int dataloader_workers = config.value("dataloader_workers", 4);
+    const double momentum = config.value("momentum", 0.9);
+    const double weight_decay = config.value("weight_decay", 0.0005);
+    const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/VOCdevkit"));
+    const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/voc"));
+    const std::string voc_subset = config.value("voc_subset", "VOC2012");
 
     torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
     std::cout << "[VOC TORCH PIPELINE] Starting on device: " << (device.is_cuda() ? "GPU" : "CPU") << "\n";
+    std::cout << "[CONFIG] batch_size=" << batch_size << " epochs=" << total_epochs
+              << " dataset_root=" << data_root << "\n";
 
     if (device.is_cuda())
     {
@@ -39,35 +52,27 @@ int main()
     }
 
     DataPaths train_paths, val_paths, test_paths;
-    split_dataset(data_root + "/VOC2012", train_paths, val_paths, test_paths, VOC_CLASSES);
+    split_dataset((data_root / voc_subset).string(), train_paths, val_paths, test_paths, VOC_CLASSES);
 
     auto train_loader = torch::data::make_data_loader(
         VOCYoloDataset(train_paths, true, VOC_CLASSES).map(torch::data::transforms::Stack<>()),
         torch::data::samplers::RandomSampler(train_paths.images.size()),
-        torch::data::DataLoaderOptions().batch_size(batch_size).workers(4));
+        torch::data::DataLoaderOptions().batch_size(batch_size).workers(dataloader_workers));
 
     auto test_loader = torch::data::make_data_loader(
         VOCYoloDataset(test_paths, false, VOC_CLASSES).map(torch::data::transforms::Stack<>()),
-        torch::data::DataLoaderOptions().batch_size(batch_size).workers(4));
+        torch::data::DataLoaderOptions().batch_size(batch_size).workers(dataloader_workers));
 
-    YOLOv1 model(20);
+    YOLOv1 model(num_classes);
     model->to(device);
 
-    auto get_lr = [](int ep) -> float
-    {
-        if (ep <= 5)
-            return 1e-5F;
-        if (ep <= 80)
-            return 1e-5F;
-        if (ep <= 120)
-            return 1e-6F;
-        return 1e-6F;
-    };
+    auto get_lr = [&config](int ep) -> float { return scheduled_learning_rate(config, ep); };
 
-    torch::optim::SGD optimizer(model->parameters(), torch::optim::SGDOptions(get_lr(1)).momentum(0.9).weight_decay(0.0005));
+    torch::optim::SGD optimizer(model->parameters(),
+        torch::optim::SGDOptions(get_lr(1)).momentum(momentum).weight_decay(weight_decay));
 
     fs::create_directories(results_dir);
-    std::ofstream csv_file(results_dir + "/metrics_torch.csv");
+    std::ofstream csv_file((results_dir / "metrics_torch.csv").string());
     csv_file << "Epoch;TrainLoss;TestLoss;Time(s)\n";
 
     for (int epoch = 1; epoch <= total_epochs; ++epoch)
@@ -90,7 +95,7 @@ int main()
 
             optimizer.zero_grad();
             auto pred = model->forward(data);
-            auto loss = YOLOLoss::loss(target, pred, 20);
+            auto loss = YOLOLoss::loss(target, pred, num_classes);
 
             loss.backward();
             optimizer.step();
@@ -111,7 +116,7 @@ int main()
                 auto data = batch.data.to(device, true);
                 auto target = batch.target.to(device, true);
                 auto pred = model->forward(data);
-                epoch_test_loss += YOLOLoss::loss(target, pred, 20).item().toFloat();
+                epoch_test_loss += YOLOLoss::loss(target, pred, num_classes).item().toFloat();
                 test_batches++;
             }
         }
@@ -128,7 +133,7 @@ int main()
         csv_file.flush();
     }
 
-    std::string save_path = results_dir + "/yolov1_voc_torch_final.pt";
+    std::string save_path = (results_dir / "yolov1_voc_torch_final.pt").string();
     torch::save(model, save_path);
     std::cout << "[INFO] Final model saved: " << save_path << "\n";
     return 0;

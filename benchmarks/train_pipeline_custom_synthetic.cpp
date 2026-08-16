@@ -1,3 +1,10 @@
+#include "experiment_config.hpp"
+
+#include "DeepLearnLib/Network.hpp"
+#include "DeepLearnLib/YOLO.hpp"
+#include "DeepLearnLib/YOLOLoss.hpp"
+#include "DeepLearnLib/dataset.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -10,11 +17,6 @@
 #include <string>
 #include <vector>
 
-#include "DeepLearnLib/Network.hpp"
-#include "DeepLearnLib/YOLO.hpp"
-#include "DeepLearnLib/YOLOLoss.hpp"
-#include "DeepLearnLib/dataset.hpp"
-
 namespace fs = std::filesystem;
 
 const std::vector<std::string> SYNTH_CLASSES = { "square", "circle", "triangle" };
@@ -23,44 +25,38 @@ int main()
 {
     std::srand(static_cast<unsigned int>(std::time(nullptr)));
 
-    const int batch_size = 16;
-    const int total_epochs = 800;
-    const std::string data_root = "../../data/Synthetic3/train";
-    const std::string results_dir = "../../results/synthetic";
+    const nlohmann::json config = load_pipeline_config("synthetic_custom");
+    const int batch_size = config.value("batch_size", 16);
+    const int total_epochs = config.value("epochs", 800);
+    const float learning_rate = config.value("learning_rate", 1.0e-4F);
+    const int num_classes = config.value("num_classes", 3);
+    const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/Synthetic3/train"));
+    const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/synthetic"));
 
     int gpu_count = 0;
     cudaGetDeviceCount(&gpu_count);
     std::cout << "[SYNTHETIC CUSTOM PIPELINE] Starting on device: " << (gpu_count > 0 ? "GPU" : "CPU") << "\n";
+    std::cout << "[CONFIG] batch_size=" << batch_size << " epochs=" << total_epochs
+              << " learning_rate=" << learning_rate << " dataset_root=" << data_root << "\n";
 
     DataPaths train_paths, val_paths, test_paths;
-    split_dataset(data_root, train_paths, val_paths, test_paths, SYNTH_CLASSES);
+    split_dataset(data_root.string(), train_paths, val_paths, test_paths, SYNTH_CLASSES);
 
     CustomDataLoader train_loader(train_paths, batch_size, true, SYNTH_CLASSES);
     CustomDataLoader test_loader(test_paths, batch_size, false, SYNTH_CLASSES);
 
-    YOLO custom_model(3);
-    Network trainer(custom_model.get_all_layers(), 1e-4F);
+    YOLO custom_model(num_classes);
+    Network trainer(custom_model.get_all_layers(), learning_rate);
 
     for (auto& layer : custom_model.get_all_layers())
     {
         layer->to(dl::Device::GPU);
     }
 
-    auto get_lr = [](int ep) -> float
-    {
-        if (ep <= 30)
-            return 1e-5F;
-        if (ep <= 300)
-            return 5e-5F;
-        if (ep <= 400)
-            return 4e-5F;
-        if (ep <= 800)
-            return 1e-5F;
-        return 1e-5F;
-    };
+    auto get_lr = [&config](int ep) -> float { return scheduled_learning_rate(config, ep); };
 
     fs::create_directories(results_dir);
-    std::ofstream csv_file(results_dir + "/metrics_custom.csv");
+    std::ofstream csv_file((results_dir / "metrics_custom.csv").string());
     csv_file << "Epoch;TrainLoss;TestLoss;Time(s)\n";
 
     for (int epoch = 1; epoch <= total_epochs; ++epoch)
@@ -83,9 +79,9 @@ int main()
             Batch batch = train_loader.get_batch();
 
             dl::Tensor pred = custom_model.forward(batch.images);
-            const float batch_loss = YOLOLoss::loss(batch.targets, pred, 3).to_host().front();
+            const float batch_loss = YOLOLoss::loss(batch.targets, pred, num_classes).to_host().front();
 
-            dl::Tensor grad_error = YOLOLoss::loss_derivative(batch.targets, pred, 3);
+            dl::Tensor grad_error = YOLOLoss::loss_derivative(batch.targets, pred, num_classes);
             grad_error = grad_error.clamp(-10.0F, 10.0F);
 
             auto layers = custom_model.get_all_layers();
@@ -116,7 +112,7 @@ int main()
         {
             Batch batch = test_loader.get_batch();
             dl::Tensor pred = custom_model.forward(batch.images);
-            epoch_test_loss += YOLOLoss::loss(batch.targets, pred, 3).to_host().front();
+            epoch_test_loss += YOLOLoss::loss(batch.targets, pred, num_classes).to_host().front();
             test_batches++;
         }
         float avg_test_loss = epoch_test_loss / static_cast<float>(std::max(1, test_batches));
@@ -132,7 +128,7 @@ int main()
         csv_file.flush();
     }
 
-    std::string save_path = results_dir + "/yolov1_synthetic_custom_final.pt";
+    std::string save_path = (results_dir / "yolov1_synthetic_custom_final.pt").string();
     trainer.save(save_path);
     std::cout << "[INFO] Final model saved: " << save_path << "\n";
     return 0;
