@@ -5,11 +5,9 @@
 #include <cstddef>
 
 /**
- * @brief GPU wall-clock timing via cudaEvent and process VRAM readout.
+ * GPU wall-clock timing via cudaEvent and process VRAM readout.
  *
- * The sequential graph has no autograd tape; this profiler measures kernels
- * that actually run on the device without introducing extra host syncs until
- * stop() is called.
+ * stop() is the first host sync; start() only records an event on the current stream.
  */
 class Profiler
 {
@@ -22,19 +20,8 @@ public:
     Profiler(Profiler&&) = delete;
     auto operator=(Profiler&&) -> Profiler& = delete;
 
-    /**
-     * @brief Records a start CUDA event on the current stream.
-     */
     auto start() -> void;
-
-    /**
-     * @brief Records a stop event, synchronizes it, and returns elapsed milliseconds.
-     */
     [[nodiscard]] auto stop() -> float;
-
-    /**
-     * @brief Bytes currently allocated on the device, in mebibytes (total - free).
-     */
     [[nodiscard]] static auto get_vram_usage_mb() -> std::size_t;
 
 private:

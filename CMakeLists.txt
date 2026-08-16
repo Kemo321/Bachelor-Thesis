@@ -75,11 +75,27 @@ if(NOT TARGET CUDA::cudnn)
   endif()
 endif()
 
+# Prefer the host GPU (`native`, CMake 3.24+ / recent nvcc). CI runners and older
+# CMake get a portable fallback list instead of a hardcoded 75/120.
+set(_deeplearn_cuda_arch_fallback "70;75;80;86;89;90")
 if(NOT CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES 75 CACHE STRING "CMake CUDA archs")
+  if(DEFINED ENV{GITHUB_ACTIONS} OR DEFINED ENV{CI})
+    set(CMAKE_CUDA_ARCHITECTURES "${_deeplearn_cuda_arch_fallback}" CACHE STRING "CMake CUDA architectures")
+  elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24")
+    set(CMAKE_CUDA_ARCHITECTURES native CACHE STRING "CMake CUDA architectures")
+  else()
+    set(CMAKE_CUDA_ARCHITECTURES "${_deeplearn_cuda_arch_fallback}" CACHE STRING "CMake CUDA architectures")
+  endif()
 endif()
-if(NOT DEFINED TORCH_CUDA_ARCH_LIST OR TORCH_CUDA_ARCH_LIST STREQUAL "" OR TORCH_CUDA_ARCH_LIST STREQUAL "native")
-  set(TORCH_CUDA_ARCH_LIST "7.5" CACHE STRING "CUDA archs" FORCE)
+
+if(NOT DEFINED TORCH_CUDA_ARCH_LIST OR TORCH_CUDA_ARCH_LIST STREQUAL "")
+  if(DEFINED ENV{TORCH_CUDA_ARCH_LIST} AND NOT "$ENV{TORCH_CUDA_ARCH_LIST}" STREQUAL "")
+    set(TORCH_CUDA_ARCH_LIST "$ENV{TORCH_CUDA_ARCH_LIST}" CACHE STRING "LibTorch CUDA architectures")
+  elseif(DEFINED ENV{GITHUB_ACTIONS} OR DEFINED ENV{CI})
+    set(TORCH_CUDA_ARCH_LIST "7.5" CACHE STRING "LibTorch CUDA architectures")
+  else()
+    set(TORCH_CUDA_ARCH_LIST "Common" CACHE STRING "LibTorch CUDA architectures")
+  endif()
 endif()
 
 if(NOT MSVC)
@@ -137,10 +153,11 @@ else()
     message(STATUS "LibTorch not found; torch baseline targets will be skipped.")
 endif()
 
-# LibTorch's CUDA cmake overwrites CMAKE_CUDA_ARCHITECTURES. Restore the
-# architecture requested for DeepLearnLib (sm_120 on local Blackwell, sm_75 in CI).
-set(CMAKE_CUDA_ARCHITECTURES "${DEEPLEARN_CUDA_ARCHITECTURES}" CACHE STRING "CMake CUDA archs" FORCE)
+# LibTorch's CUDA cmake overwrites CMAKE_CUDA_ARCHITECTURES. Restore ours
+# (`native` locally, fallback list or an explicit -D in CI).
+set(CMAKE_CUDA_ARCHITECTURES "${DEEPLEARN_CUDA_ARCHITECTURES}" CACHE STRING "CMake CUDA architectures" FORCE)
 message(STATUS "DeepLearnLib CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
+message(STATUS "LibTorch TORCH_CUDA_ARCH_LIST: ${TORCH_CUDA_ARCH_LIST}")
 
 add_subdirectory(extern/googletest EXCLUDE_FROM_ALL)
 

@@ -119,67 +119,23 @@ private:
 } // namespace dl
 
 /**
- * @brief Conv2d layer implementing 2D convolution with cuDNN.
+ * 2D convolution via cuDNN (cross-correlation).
  *
- * Weights are stored as NCHW filters [C_out, C_in, K, K]. Biases are stored as
- * a broadcastable NCHW tensor [1, C_out, 1, 1] for cudnnAddTensor.
+ * Weights are NCHW filters [C_out, C_in, K, K]. Biases are [1, C_out, 1, 1]
+ * for cudnnAddTensor.
  */
 class Conv2d : public Layer
 {
 public:
-    /**
-     * @brief Construct a Conv2d layer.
-     *
-     * @param in_channels Number of input channels (C_in).
-     * @param out_channels Number of output channels / filters (C_out).
-     * @param kernel_size Size of the square convolution kernel (K).
-     * @param stride_val Stride for the convolution operation.
-     * @param padding_val Padding applied to input on both sides.
-     * @param inertia_val Momentum/inertia factor used in parameter updates.
-     */
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     Conv2d(int in_channels, int out_channels, int kernel_size, int stride_val, int padding_val,
         float inertia_val = 0.0F);
 
-    /**
-     * @brief Forward pass of the convolutional layer.
-     *
-     * @param input_tensor Input tensor with shape [Batch, Channels_in, Height_in, Width_in].
-     * @return Output tensor after convolution with shape [Batch, Channels_out, Height_out, Width_out].
-     */
     [[nodiscard]] auto forward(const dl::Tensor& input_tensor) -> dl::Tensor override;
-
-    /**
-     * @brief Backward pass computing gradients w.r.t. inputs and parameters.
-     *
-     * @param output_error_derivative Gradient of the loss w.r.t. this layer's output.
-     *        Expected shape: [Batch, Channels_out, Height_out, Width_out].
-     * @return Gradient of the loss w.r.t. this layer's input. Shape: [Batch, Channels_in, Height_in, Width_in].
-     */
     [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative) -> dl::Tensor override;
-
-    /**
-     * @brief Update parameters (weights and biases) using accumulated gradients.
-     */
     void step() override;
-
-    /**
-     * @brief Retrieve current learnable parameters.
-     *
-     * @return Map of parameter name to tensor. Keys: "weights", "bias".
-     */
     auto get_parameters() -> std::map<std::string, dl::Tensor> override;
-
-    /**
-     * @brief Replace current parameters from an external source.
-     *
-     * @param params Map containing tensors for parameters. Expected keys: "weights", "bias".
-     */
     void set_parameters(const std::map<std::string, dl::Tensor>& params) override;
-
-    /**
-     * @brief Conv2d parameters already reside on the GPU; CPU placement is rejected.
-     */
     auto to(dl::Device device) -> void override;
 
 private:

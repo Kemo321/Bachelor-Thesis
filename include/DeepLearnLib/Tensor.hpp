@@ -51,7 +51,8 @@ inline auto check_cuda(cudaError_t status, const char* file, int line) -> void
 {
     if (status != cudaSuccess)
     {
-        throw std::runtime_error(std::string("CUDA error at ") + file + ":" + std::to_string(line) + ": " + cudaGetErrorString(status));
+        throw std::runtime_error(std::string("CUDA error at ") + file + ":" + std::to_string(line) + ": "
+            + cudaGetErrorString(status));
     }
 }
 
@@ -59,7 +60,8 @@ inline auto check_cublas(cublasStatus_t status, const char* file, int line) -> v
 {
     if (status != CUBLAS_STATUS_SUCCESS)
     {
-        throw std::runtime_error(std::string("cuBLAS error at ") + file + ":" + std::to_string(line) + ": " + cublasGetStatusString(status));
+        throw std::runtime_error(std::string("cuBLAS error at ") + file + ":" + std::to_string(line) + ": "
+            + cublasGetStatusString(status));
     }
 }
 
@@ -86,6 +88,12 @@ private:
 auto get_cublas_handle() -> cublasHandle_t;
 #endif
 
+/**
+ * Dense float tensor with CUDA-managed storage (cudaMalloc via CudaDeleter).
+ *
+ * Elementwise ops and GEMM stay on the device; host copies happen only through
+ * to_host / from_host.
+ */
 class Tensor
 {
 public:
@@ -135,36 +143,6 @@ public:
         Device device = Device::GPU) -> Tensor;
     static auto from_host(const std::vector<int>& shape, const float* host_data, Device device = Device::GPU)
         -> Tensor;
-
-    // auto to_device(Device target_device) -> void;
-
-    // auto operator/(const Tensor& other) const -> Tensor;
-    // auto dot(const Tensor& other) const -> Tensor;
-
-    // auto operator/(float scalar) const -> Tensor;
-    // auto operator-(float scalar) const -> Tensor;
-
-    // auto mean() const -> float;
-    // auto max() const -> float;
-    // auto min() const -> float;
-
-    // auto reshape(const std::vector<int>& new_shape) -> void;
-    // auto flatten() const -> Tensor;
-
-    // auto relu() const -> Tensor;
-    // auto sigmoid() const -> Tensor;
-    // auto softmax(int axis = -1) const -> Tensor;
-    // auto conv2d(const Tensor& kernel, int stride = 1, int padding = 0) const -> Tensor;
-    // auto max_pool2d(int pool_size, int stride) const -> Tensor;
-    // auto leaky_relu(float alpha = 0.01f) const -> Tensor;
-
-    // static auto concat(const std::vector<Tensor>& tensors, int axis = 0) -> Tensor;
-
-    // auto at(const std::vector<int>& indices) const -> float;
-
-    // static auto zeros(const std::vector<int>& shape, Device device = Device::CPU) -> Tensor;
-    // static auto ones(const std::vector<int>& shape, Device device = Device::CPU) -> Tensor;
-    // static auto random(const std::vector<int>& shape, Device device = Device::CPU) -> Tensor;
 
 private:
     std::vector<int> shape_;

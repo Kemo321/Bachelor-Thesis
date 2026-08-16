@@ -1,62 +1,66 @@
+# Build trees
 build/
-build
+build_debug/
+build_release/
+build_coverage/
 bin/
 lib/
-*.out
-*.exe
-*.app
+obj/
+_deps/
 
+# Compile / coverage artifacts
+compile_commands.json
 *.i
 *.ii
 *.gpu
 *.ptx
 *.fatbin
 *.d
-compute_prof_log.txt
-
-.vscode/
-.idea/
-*.swp
-.DS_Store
-
-extern/*/.build/
-
-data/
-models/*.pth
-models/*.onnx
-*.log
-node_modules/
-
-__pycache__/
-*.pyc
-.ipynb_checkpoints/
-
-docs/html/
-docs/latex/
-doxygen_sqlite3.db
-
-
-data/
-build_debug/
-build_release/
-
-extern/pytorch
-extern/libtorch/
-extern/
-combined.cpp
-
-results/
-
-# Machine-specific Windows helpers (hardcoded local paths)
-/build_*.bat
-
-# gcov / lcov
 *.gcda
 *.gcno
 *.gcov
 coverage.info
 coverage.filtered.info
 coverage-html/
-
+doxygen_sqlite3.db
+docs/html/
+docs/latex/
 dllib_test_network_*.bin
+compute_prof_log.txt
+combined.cpp
 
+# Runtime outputs and datasets
+results/
+data/
+ccache_data/
+*.pt
+*.pth
+*.onnx
+*.csv
+*.png
+*.log
+*.out
+*.exe
+*.app
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+node_modules/
+
+# IDE / editor
+.vscode/
+.cursor/
+.idea/
+*.swp
+.DS_Store
+
+# Vendored trees that must not be committed as dumps
+extern/*/.build/
+extern/pytorch
+extern/libtorch/
+extern/
+
+# Machine-specific Windows helpers (hardcoded local paths)
+/build_*.bat

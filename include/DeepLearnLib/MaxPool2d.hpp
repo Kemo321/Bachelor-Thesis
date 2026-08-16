@@ -32,36 +32,16 @@ private:
 } // namespace dl
 
 /**
- * @brief 2D max pooling layer implemented with cuDNN.
+ * 2D max pooling via cuDNN.
  *
- * Both the input and the pooling output are cached during the forward pass
- * because cudnnPoolingBackward requires x and y in addition to dy.
+ * Forward caches x and y because cudnnPoolingBackward requires both in addition to dy.
  */
 class MaxPool2d : public Layer
 {
 public:
-    /**
-     * @brief Constructs a MaxPool2d layer.
-     *
-     * @param kernel_size_val Size of the square pooling window.
-     * @param stride_val Stride of the pooling operation.
-     */
     MaxPool2d(int kernel_size_val, int stride_val);
 
-    /**
-     * @brief Performs the forward pass of the max pooling layer.
-     *
-     * @param input_tensor Input tensor with shape [Batch, Channels, Height, Width].
-     * @return Tensor with shape [Batch, Channels, PooledHeight, PooledWidth].
-     */
     [[nodiscard]] auto forward(const dl::Tensor& input_tensor) -> dl::Tensor override;
-
-    /**
-     * @brief Performs the backward pass of the max pooling layer.
-     *
-     * @param output_error_derivative Gradient of the loss with respect to the output.
-     * @return Gradient of the loss with respect to the input.
-     */
     [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative) -> dl::Tensor override;
 
 private:

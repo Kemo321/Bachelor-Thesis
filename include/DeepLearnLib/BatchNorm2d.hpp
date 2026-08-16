@@ -11,55 +11,21 @@
 #include <vector>
 
 /**
- * @brief Batch Normalization 2D layer implemented with cuDNN spatial BN.
+ * Spatial BatchNorm2d via cuDNN.
  *
- * Scale (gamma), bias (beta), running statistics, and their gradients are stored
- * as GPU tensors with shape [1, C, 1, 1], matching cudnnDeriveBNTensorDescriptor
- * for CUDNN_BATCHNORM_SPATIAL on NCHW inputs.
+ * Gamma, beta, running stats, and their gradients are GPU tensors [1, C, 1, 1],
+ * matching cudnnDeriveBNTensorDescriptor for CUDNN_BATCHNORM_SPATIAL on NCHW inputs.
  */
 class BatchNorm2d : public Layer
 {
 public:
-    /**
-     * @brief Constructs a BatchNorm2d layer.
-     * @param num_features Number of features or channels.
-     * @param eps Value added to the denominator for numerical stability.
-     * @param momentum Exponential average factor used to update running statistics.
-     */
     BatchNorm2d(int num_features, float eps = 1e-5F, float momentum = 0.1F);
 
-    /**
-     * @brief Performs the forward pass computation.
-     * @param input_tensor Input tensor of shape [Batch, Channels, Height, Width].
-     * @return Output tensor of shape [Batch, Channels, Height, Width].
-     */
     [[nodiscard]] auto forward(const dl::Tensor& input_tensor) -> dl::Tensor override;
-
-    /**
-     * @brief Performs the backward pass computation.
-     * @param output_error_derivative Error derivative from the next layer of shape [Batch, Channels, Height, Width].
-     * @return Input error derivative of shape [Batch, Channels, Height, Width].
-     */
     [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative) -> dl::Tensor override;
-
-    /**
-     * @brief Updates the learnable parameters (gamma and beta) using the computed gradients.
-     */
     void step() override;
-
-    /**
-     * @brief Retrieves the learnable parameters and running statistics of the layer.
-     */
     auto get_parameters() -> std::map<std::string, dl::Tensor> override;
-
-    /**
-     * @brief Sets the learnable parameters and running statistics of the layer.
-     */
     void set_parameters(const std::map<std::string, dl::Tensor>& params) override;
-
-    /**
-     * @brief BatchNorm2d parameters already reside on the GPU; CPU placement is rejected.
-     */
     auto to(dl::Device device) -> void override;
 
 private:

@@ -8,10 +8,10 @@
 #include <vector>
 
 /**
- * @brief Softmax layer via cuDNN (accurate algorithm).
+ * Softmax layer via cuDNN (CUDNN_SOFTMAX_ACCURATE, MODE_CHANNEL).
  *
  * Rank-2 inputs [N, C] softmax over C. Rank-4 NCHW inputs softmax over the
- * channel dimension at each spatial location (CUDNN_SOFTMAX_MODE_CHANNEL).
+ * channel dimension at each spatial location.
  */
 class Softmax : public Layer
 {
