@@ -1,18 +1,10 @@
 #pragma once
 
+#include "DeepLearnLib/mAP.hpp"
+
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
-
-/**
- * @brief Represents a single detection result.
- */
-struct Detection
-{
-    cv::Rect box; ///< Bounding box of the detection.
-    float score; ///< Confidence score of the detection.
-    int class_id; ///< Class ID of the detected object.
-};
 
 /**
  * @brief Calculates the Intersection over Union (IoU) between two bounding boxes.

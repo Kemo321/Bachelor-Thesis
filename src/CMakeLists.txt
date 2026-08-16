@@ -10,6 +10,11 @@ set(DEEPLEARN_SOURCES
     Network.cpp
     YOLO.cpp
     YOLOLoss.cpp
+    Profiler.cpp
+    mAP.cpp
+    Losses.cpp
+    Softmax.cpp
+    CSVLoader.cpp
 )
 
 if(OpenCV_FOUND)
@@ -27,6 +32,9 @@ set(DEEPLEARN_CUDA_SOURCES
     FullyConnected.cpp
     Network.cpp
     YOLOLoss.cpp
+    Profiler.cpp
+    Losses.cpp
+    Softmax.cpp
 )
 
 foreach(_cuda_src IN LISTS DEEPLEARN_CUDA_SOURCES)

@@ -12,7 +12,9 @@ add_executable(
   test_flatten.cpp
   test_loss.cpp
   test_yolo.cpp
-  test_network.cpp)
+  test_network.cpp
+  test_generic.cpp
+  test_profiler_map.cpp)
 
 target_include_directories(dllib_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -20,6 +22,12 @@ target_link_libraries(dllib_tests PRIVATE DeepLearnLib GTest::gtest)
 
 if(CUDAToolkit_FOUND)
   target_link_libraries(dllib_tests PRIVATE CUDA::cudart)
+endif()
+
+if(Torch_FOUND)
+  target_sources(dllib_tests PRIVATE test_torch_equivalence.cpp)
+  target_link_libraries(dllib_tests PRIVATE ${TORCH_LIBRARIES})
+  target_include_directories(dllib_tests SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})
 endif()
 
 if(MSVC)

@@ -81,7 +81,11 @@ std::vector<Detection> apply_nms(std::vector<Detection>& detections, float nms_t
         {
             if (!suppressed[j] && detections[i].class_id == detections[j].class_id)
             {
-                float iou_value = calculate_iou(detections[i].box, detections[j].box);
+                const cv::Rect box_i(static_cast<int>(detections[i].x), static_cast<int>(detections[i].y),
+                    static_cast<int>(detections[i].width), static_cast<int>(detections[i].height));
+                const cv::Rect box_j(static_cast<int>(detections[j].x), static_cast<int>(detections[j].y),
+                    static_cast<int>(detections[j].width), static_cast<int>(detections[j].height));
+                float iou_value = calculate_iou(box_i, box_j);
                 if (iou_value > nms_threshold)
                 {
                     suppressed[j] = true;
@@ -179,9 +183,8 @@ std::vector<Detection> decode_yolo_tensor(const std::vector<float>& output_data,
                 int x_min = std::max(0, static_cast<int>(center_x - box_width / 2.0F));
                 int y_min = std::max(0, static_cast<int>(center_y - box_height / 2.0F));
 
-                all_detections.push_back({ cv::Rect(x_min, y_min, static_cast<int>(box_width), static_cast<int>(box_height)),
-                    objectness_score,
-                    class_id });
+                all_detections.push_back({ static_cast<float>(x_min), static_cast<float>(y_min), box_width, box_height,
+                    objectness_score, class_id });
             }
         }
     }
@@ -245,8 +248,11 @@ void draw_detections(cv::Mat& img, const std::vector<Detection>& detections,
             }
         }
 
+        const cv::Rect box(static_cast<int>(detection.x), static_cast<int>(detection.y),
+            static_cast<int>(detection.width), static_cast<int>(detection.height));
+
         // Draw bounding box rectangle
-        cv::rectangle(img, detection.box, box_color, LINE_THICKNESS);
+        cv::rectangle(img, box, box_color, LINE_THICKNESS);
 
         // Format and prepare label text
         std::string score_str = std::to_string(detection.score);
@@ -263,13 +269,13 @@ void draw_detections(cv::Mat& img, const std::vector<Detection>& detections,
 
         // Draw label background rectangle
         cv::Rect label_background(
-            cv::Point(detection.box.x, detection.box.y - label_size.height - LABEL_PADDING),
+            cv::Point(box.x, box.y - label_size.height - LABEL_PADDING),
             cv::Size(label_size.width, label_size.height + LABEL_PADDING));
         cv::rectangle(img, label_background, box_color, cv::FILLED);
 
         // Draw label text
         cv::putText(img, label_text,
-            cv::Point(detection.box.x, detection.box.y - LABEL_PADDING),
+            cv::Point(box.x, box.y - LABEL_PADDING),
             cv::FONT_HERSHEY_SIMPLEX, FONT_SCALE, TEXT_COLOR, TEXT_THICKNESS);
     }
 }
