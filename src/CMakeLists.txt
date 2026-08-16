@@ -15,10 +15,11 @@ set(DEEPLEARN_SOURCES
     Losses.cpp
     Softmax.cpp
     CSVLoader.cpp
+    SimpleCNN.cpp
 )
 
 if(OpenCV_FOUND)
-  list(APPEND DEEPLEARN_SOURCES dataset.cpp utils.cpp)
+  list(APPEND DEEPLEARN_SOURCES dataset.cpp utils.cpp ClassificationLoader.cpp)
 endif()
 
 add_library(DeepLearnLib ${DEEPLEARN_SOURCES})
