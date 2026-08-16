@@ -69,6 +69,7 @@ int main(int argc, char* argv[])
     CustomDataLoader train_loader(tiny_paths, batch_size, false, VOC_CLASSES);
 
     YOLO custom_model(20);
+    Network trainer(custom_model.get_all_layers(), learning_rate);
     for (auto& layer : custom_model.get_all_layers())
     {
         layer->to(dl::Device::GPU);
@@ -87,13 +88,15 @@ int main(int argc, char* argv[])
             dl::Tensor pred = custom_model.forward(batch.images);
             epoch_loss += YOLOLoss::loss(batch.targets, pred, 20).to_host().front();
 
-            dl::Tensor grad_error = YOLOLoss::loss_derivative(batch.targets, pred, 20).clamp(-10.0F, 10.0F);
+            dl::Tensor grad_error =
+                trainer.clip_loss_gradient(YOLOLoss::loss_derivative(batch.targets, pred, 20));
             auto layers = custom_model.get_all_layers();
 
             for (auto it = layers.rbegin(); it != layers.rend(); ++it)
             {
                 grad_error = (*it)->backward(grad_error);
             }
+            trainer.clip_parameter_gradients();
             for (auto& layer : layers)
             {
                 layer->step();
@@ -104,7 +107,6 @@ int main(int argc, char* argv[])
             LOG_INFO("Epoch [{}/{}] Loss: {}", epoch, total_epochs, epoch_loss);
         }
     }
-    Network trainer(custom_model.get_all_layers(), learning_rate);
     std::string save_path = results_dir + "/yolov1_custom_overfitted.pt";
     trainer.save(save_path);
     LOG_INFO("Custom model saved: {}", save_path);

@@ -8,7 +8,11 @@
     "results_dir": "results/voc",
     "num_classes": 20,
     "conf_threshold": 0.25,
-    "nms_threshold": 0.5
+    "nms_threshold": 0.5,
+    "mixed_precision": false,
+    "precision": "fp32",
+    "loss_scale": 1024.0,
+    "gradient_clip": 10.0
   },
   "voc_torch": {
     "batch_size": 4,
@@ -35,6 +39,10 @@
     "dataset_root": "data/BCCD_Dataset/BCCD",
     "results_dir": "results/bccd",
     "num_classes": 3,
+    "mixed_precision": false,
+    "precision": "fp32",
+    "loss_scale": 1024.0,
+    "gradient_clip": 10.0,
     "lr_schedule": [
       { "until_epoch": 30, "learning_rate": 0.00001 },
       { "until_epoch": 300, "learning_rate": 0.00005 },
@@ -66,6 +74,10 @@
     "dataset_root": "data/Synthetic3/train",
     "results_dir": "results/synthetic",
     "num_classes": 3,
+    "mixed_precision": false,
+    "precision": "fp32",
+    "loss_scale": 1024.0,
+    "gradient_clip": 10.0,
     "lr_schedule": [
       { "until_epoch": 30, "learning_rate": 0.00001 },
       { "until_epoch": 300, "learning_rate": 0.00005 },
@@ -111,6 +123,10 @@
     "test_split": "test",
     "results_dir": "results/cifar10",
     "num_classes": 10,
-    "image_size": 32
+    "image_size": 32,
+    "mixed_precision": false,
+    "precision": "fp32",
+    "loss_scale": 1024.0,
+    "gradient_clip": 10.0
   }
 }

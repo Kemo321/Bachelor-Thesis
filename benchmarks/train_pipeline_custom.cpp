@@ -2,6 +2,7 @@
 
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Network.hpp"
+#include "DeepLearnLib/Tensor.hpp"
 #include "DeepLearnLib/YOLO.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
@@ -16,6 +17,7 @@
 #include <cuda_runtime.h>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -61,9 +63,11 @@ int main()
     std::srand(static_cast<unsigned int>(std::time(nullptr)));
 
     const nlohmann::json config = load_pipeline_config("voc_custom");
+    apply_pipeline_precision(config);
     const int batch_size = config.value("batch_size", 16);
     const int total_epochs = config.value("epochs", 150);
     const float learning_rate = config.value("learning_rate", 1.0e-4F);
+    const float gradient_clip = pipeline_gradient_clip(config);
     const int num_classes = config.value("num_classes", 20);
     const float conf_threshold = config.value("conf_threshold", 0.25F);
     const float nms_threshold = config.value("nms_threshold", 0.5F);
@@ -73,8 +77,8 @@ int main()
     int gpu_count = 0;
     cudaGetDeviceCount(&gpu_count);
     LOG_INFO("[VOC CUSTOM PIPELINE] Starting on device: {}", gpu_count > 0 ? "GPU" : "CPU");
-    LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} dataset_root={}", batch_size, total_epochs,
-        learning_rate, data_root.string());
+    LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} gradient_clip={} dataset_root={}", batch_size,
+        total_epochs, learning_rate, gradient_clip, data_root.string());
 
     DataPaths train_paths, val_paths, test_paths;
     split_dataset((data_root / "VOC2012").string(), train_paths, val_paths, test_paths, VOC_CLASSES);
@@ -83,7 +87,7 @@ int main()
     CustomDataLoader test_loader(test_paths, batch_size, false, VOC_CLASSES);
 
     YOLO custom_model(num_classes);
-    Network trainer(custom_model.get_all_layers(), learning_rate);
+    Network trainer(custom_model.get_all_layers(), learning_rate, gradient_clip);
 
     for (auto& layer : custom_model.get_all_layers())
     {
@@ -120,29 +124,61 @@ int main()
         int train_batches = 0;
 
         train_loader.reset();
-        while (train_loader.has_next())
+        dl::UniqueCudaStream copy_streams[2];
+        std::optional<Batch> batches[2];
+        bool has_batch[2] { false, false };
+
+        if (train_loader.has_next())
         {
-            Batch batch = train_loader.get_batch();
+            batches[0] = train_loader.get_batch(copy_streams[0].get());
+            has_batch[0] = true;
+        }
 
-            dl::Tensor pred = custom_model.forward(batch.images);
-            const float batch_loss = YOLOLoss::loss(batch.targets, pred, num_classes).to_host().front();
+        int slot = 0;
+        while (has_batch[slot])
+        {
+            const int next = 1 - slot;
+            const cudaStream_t compute_stream = copy_streams[slot].get();
+            CHECK_CUDA(cudaStreamSynchronize(compute_stream));
 
-            dl::Tensor grad_error = YOLOLoss::loss_derivative(batch.targets, pred, num_classes);
-            grad_error = grad_error.clamp(-10.0F, 10.0F);
+            const dl::StreamGuard stream_guard(compute_stream);
+            dl::Tensor pred = custom_model.forward(batches[slot]->images, compute_stream);
+
+            if (train_loader.has_next())
+            {
+                CHECK_CUDA(cudaStreamSynchronize(copy_streams[next].get()));
+                batches[next] = train_loader.get_batch(copy_streams[next].get());
+                has_batch[next] = true;
+            }
+            else
+            {
+                has_batch[next] = false;
+                batches[next].reset();
+            }
+
+            const float batch_loss =
+                YOLOLoss::loss(batches[slot]->targets, pred, num_classes, compute_stream).to_host(compute_stream).front();
+
+            dl::Tensor grad_error = trainer.clip_loss_gradient(
+                YOLOLoss::loss_derivative(batches[slot]->targets, pred, num_classes, compute_stream));
 
             auto layers = custom_model.get_all_layers();
             for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator)
             {
-                grad_error = (*iterator)->backward(grad_error);
+                grad_error = (*iterator)->backward(grad_error, compute_stream);
             }
+            trainer.clip_parameter_gradients(compute_stream);
             for (auto& layer : layers)
             {
-                layer->step();
+                layer->step(compute_stream);
             }
 
             epoch_train_loss += batch_loss;
             train_batches++;
+            slot = next;
         }
+        CHECK_CUDA(cudaStreamSynchronize(copy_streams[0].get()));
+        CHECK_CUDA(cudaStreamSynchronize(copy_streams[1].get()));
         float avg_train_loss = epoch_train_loss / static_cast<float>(std::max(1, train_batches));
 
         for (auto& layer : custom_model.get_all_layers())

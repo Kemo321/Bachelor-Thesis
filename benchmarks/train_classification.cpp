@@ -54,9 +54,11 @@ auto batch_accuracy(const dl::Tensor& logits, const dl::Tensor& one_hot) -> floa
 int main()
 {
     const nlohmann::json config = load_pipeline_config("cifar10_classification");
+    apply_pipeline_precision(config);
     const int batch_size = config.value("batch_size", 64);
     const int total_epochs = config.value("epochs", 20);
     const float learning_rate = config.value("learning_rate", 1.0e-3F);
+    const float gradient_clip = pipeline_gradient_clip(config);
     const int image_size = config.value("image_size", 32);
     const std::string train_split = config.value("train_split", "train");
     const std::string test_split = config.value("test_split", "test");
@@ -66,8 +68,8 @@ int main()
     int gpu_count = 0;
     cudaGetDeviceCount(&gpu_count);
     LOG_INFO("[CIFAR-10 CLASSIFICATION] Starting on device: {}", gpu_count > 0 ? "GPU" : "CPU");
-    LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} dataset_root={}", batch_size, total_epochs,
-        learning_rate, data_root.string());
+    LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} gradient_clip={} dataset_root={}", batch_size,
+        total_epochs, learning_rate, gradient_clip, data_root.string());
 
     ClassificationLoader train_loader(data_root.string(), train_split, batch_size, image_size, true);
     ClassificationLoader test_loader(data_root.string(), test_split, batch_size, image_size, false);
@@ -75,7 +77,7 @@ int main()
     LOG_INFO("[CONFIG] classes={} train={} test={}", num_classes, train_loader.size(), test_loader.size());
 
     SimpleCNN model(num_classes, image_size);
-    Network trainer(model.get_all_layers(), learning_rate);
+    Network trainer(model.get_all_layers(), learning_rate, gradient_clip);
     for (auto& layer : model.get_all_layers())
     {
         layer->to(dl::Device::GPU);
@@ -110,12 +112,13 @@ int main()
             train_loss += CrossEntropyLoss::loss(batch.targets, logits).to_host().front();
             train_acc += batch_accuracy(logits, batch.targets);
 
-            dl::Tensor grad = CrossEntropyLoss::loss_derivative(batch.targets, logits);
+            dl::Tensor grad = trainer.clip_loss_gradient(CrossEntropyLoss::loss_derivative(batch.targets, logits));
             auto layers = model.get_all_layers();
             for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator)
             {
                 grad = (*iterator)->backward(grad);
             }
+            trainer.clip_parameter_gradients();
             for (auto& layer : layers)
             {
                 layer->step();

@@ -1,4 +1,5 @@
 #include "DeepLearnLib/Network.hpp"
+#include "DeepLearnLib/Precision.hpp"
 #include "DeepLearnLib/Profiler.hpp"
 #include "DeepLearnLib/YOLO.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
@@ -47,8 +48,7 @@ static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
             dl::Tensor pred = custom_model.forward(batch.images);
 
             (void)YOLOLoss::loss(batch.targets, pred).to_host();
-            dl::Tensor grad_error = YOLOLoss::loss_derivative(batch.targets, pred);
-            grad_error = grad_error.clamp(-5.0F, 5.0F);
+            dl::Tensor grad_error = trainer.clip_loss_gradient(YOLOLoss::loss_derivative(batch.targets, pred));
 
             auto layers = custom_model.get_all_layers();
             for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator)
@@ -56,6 +56,7 @@ static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
                 grad_error = (*iterator)->backward(grad_error);
             }
 
+            trainer.clip_parameter_gradients();
             for (auto& layer : layers)
             {
                 layer->step();

@@ -23,6 +23,7 @@ RUN apt-get update \
         python3-pip \
         libpugixml-dev \
         libopencv-dev \
+        libtbb-dev \
         clang-tidy \
         cppcheck \
         doxygen \

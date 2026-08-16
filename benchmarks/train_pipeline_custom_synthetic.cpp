@@ -25,9 +25,11 @@ int main()
     std::srand(static_cast<unsigned int>(std::time(nullptr)));
 
     const nlohmann::json config = load_pipeline_config("synthetic_custom");
+    apply_pipeline_precision(config);
     const int batch_size = config.value("batch_size", 16);
     const int total_epochs = config.value("epochs", 800);
     const float learning_rate = config.value("learning_rate", 1.0e-4F);
+    const float gradient_clip = pipeline_gradient_clip(config);
     const int num_classes = config.value("num_classes", 3);
     const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/Synthetic3/train"));
     const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/synthetic"));
@@ -35,8 +37,8 @@ int main()
     int gpu_count = 0;
     cudaGetDeviceCount(&gpu_count);
     LOG_INFO("[SYNTHETIC CUSTOM PIPELINE] Starting on device: {}", gpu_count > 0 ? "GPU" : "CPU");
-    LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} dataset_root={}", batch_size, total_epochs,
-        learning_rate, data_root.string());
+    LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} gradient_clip={} dataset_root={}", batch_size,
+        total_epochs, learning_rate, gradient_clip, data_root.string());
 
     DataPaths train_paths, val_paths, test_paths;
     split_dataset(data_root.string(), train_paths, val_paths, test_paths, SYNTH_CLASSES);
@@ -45,7 +47,7 @@ int main()
     CustomDataLoader test_loader(test_paths, batch_size, false, SYNTH_CLASSES);
 
     YOLO custom_model(num_classes);
-    Network trainer(custom_model.get_all_layers(), learning_rate);
+    Network trainer(custom_model.get_all_layers(), learning_rate, gradient_clip);
 
     for (auto& layer : custom_model.get_all_layers())
     {
@@ -80,14 +82,15 @@ int main()
             dl::Tensor pred = custom_model.forward(batch.images);
             const float batch_loss = YOLOLoss::loss(batch.targets, pred, num_classes).to_host().front();
 
-            dl::Tensor grad_error = YOLOLoss::loss_derivative(batch.targets, pred, num_classes);
-            grad_error = grad_error.clamp(-10.0F, 10.0F);
+            dl::Tensor grad_error =
+                trainer.clip_loss_gradient(YOLOLoss::loss_derivative(batch.targets, pred, num_classes));
 
             auto layers = custom_model.get_all_layers();
             for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator)
             {
                 grad_error = (*iterator)->backward(grad_error);
             }
+            trainer.clip_parameter_gradients();
             for (auto& layer : layers)
             {
                 layer->step();

@@ -1,6 +1,8 @@
 #include <fstream>
 
 #include "DeepLearnLib/Logger.hpp"
+#include "DeepLearnLib/Network.hpp"
+#include "DeepLearnLib/Precision.hpp"
 #include "DeepLearnLib/YOLO.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
@@ -13,6 +15,7 @@ int main()
     CustomDataLoader loader(train_paths, 16, false);
 
     YOLO custom_model;
+    Network trainer(custom_model.get_all_layers(), 1e-5F);
     for (auto& layer : custom_model.get_all_layers())
     {
         layer->to(dl::Device::GPU);
@@ -33,12 +36,13 @@ int main()
             dl::Tensor pred = custom_model.forward(batch.images);
             l_sum += YOLOLoss::loss(batch.targets, pred).to_host().front();
 
-            dl::Tensor grad = YOLOLoss::loss_derivative(batch.targets, pred).clamp(-5.0F, 5.0F);
+            dl::Tensor grad = trainer.clip_loss_gradient(YOLOLoss::loss_derivative(batch.targets, pred));
             auto layers = custom_model.get_all_layers();
             for (auto it = layers.rbegin(); it != layers.rend(); ++it)
             {
                 grad = (*it)->backward(grad);
             }
+            trainer.clip_parameter_gradients();
             for (auto& layer : layers)
             {
                 layer->step();
