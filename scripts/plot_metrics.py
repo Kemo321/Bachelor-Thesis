@@ -2,8 +2,9 @@
 """Generate thesis-quality PNG figures from pipeline metrics CSVs.
 
 Looks for ``metrics_custom.csv`` and ``metrics_torch.csv`` under each experiment
-directory (default: results/voc, results/bccd, results/synthetic). Missing Torch
-files or mAP columns are skipped with a warning rather than aborting.
+directory (default: results/voc, results/bccd, results/synthetic, results/cifar10,
+results/tabular, results/overfit, results/voc_short). Missing Torch files or mAP
+columns are skipped with a warning rather than aborting.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ except ImportError as exc:  # pragma: no cover
     )
     raise SystemExit(1) from exc
 
-EXPERIMENT_DIRS = ("voc", "bccd", "synthetic")
+EXPERIMENT_DIRS = ("voc", "bccd", "synthetic", "cifar10", "tabular", "overfit", "voc_short")
 
 CUSTOM_TRAIN = "#1B4F72"
 CUSTOM_TEST = "#5DADE2"
@@ -75,14 +76,18 @@ def _normalize_columns(frame: pd.DataFrame) -> pd.DataFrame:
         key = str(column).strip().lower().replace(" ", "")
         if key.startswith("epoch"):
             rename[column] = "Epoch"
-        elif "train" in key:
+        elif "acc" in key:
+            continue
+        elif key in {"loss", "trainloss"} or ("train" in key and "loss" in key):
             rename[column] = "TrainLoss"
-        elif "test" in key or "val" in key:
+        elif key in {"testloss", "valloss"} or (("test" in key or "val" in key) and "loss" in key):
             rename[column] = "TestLoss"
         elif "map" in key:
             rename[column] = "mAP@0.5"
         elif "time" in key:
             rename[column] = "Time(s)"
+        elif "vram" in key:
+            rename[column] = "VRAM_MiB"
     return frame.rename(columns=rename)
 
 
@@ -182,8 +187,39 @@ def plot_epoch_duration(
     _save(fig, destination)
 
 
+def plot_vram(
+    custom: pd.DataFrame | None, torch_df: pd.DataFrame | None, title: str, destination: Path
+) -> None:
+    fig, ax = plt.subplots(figsize=(7.4, 4.6))
+    plotted = False
+    if custom is not None and "VRAM_MiB" in custom.columns:
+        ax.plot(custom["Epoch"], custom["VRAM_MiB"], color=CUSTOM_TIME, lw=1.8, label="Custom")
+        plotted = True
+    if torch_df is not None and "VRAM_MiB" in torch_df.columns:
+        ax.plot(torch_df["Epoch"], torch_df["VRAM_MiB"], color=TORCH_TIME, lw=1.8, ls="--", label="Torch")
+        plotted = True
+    if not plotted:
+        plt.close(fig)
+        print(f"[plot] No VRAM_MiB column for {title}; skipping VRAM figure.")
+        return
+    ax.set_title(f"{title}: VRAM Usage")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("VRAM (MiB)")
+    ax.set_ylim(bottom=0.0)
+    ax.legend(loc="best")
+    _save(fig, destination)
+
+
 def experiment_title(name: str) -> str:
-    mapping = {"voc": "PASCAL VOC", "bccd": "BCCD", "synthetic": "Synthetic"}
+    mapping = {
+        "voc": "PASCAL VOC",
+        "bccd": "BCCD",
+        "synthetic": "Synthetic",
+        "cifar10": "CIFAR-10",
+        "tabular": "Tabular",
+        "overfit": "VOC Overfit",
+        "voc_short": "VOC Short",
+    }
     return mapping.get(name.lower(), name.replace("_", " ").title())
 
 
@@ -224,6 +260,7 @@ def process_experiment(experiment_dir: Path, gallery_dir: Path) -> int:
         ("train_vs_test_loss.png", plot_train_vs_test_loss),
         ("map50.png", plot_map),
         ("epoch_duration.png", plot_epoch_duration),
+        ("vram.png", plot_vram),
     ]
     for filename, plotter in outputs:
         dest = plot_dir / filename
@@ -242,7 +279,7 @@ def parse_args() -> argparse.Namespace:
         "--results-root",
         type=Path,
         default=None,
-        help="Directory containing voc/, bccd/, and synthetic/ result folders.",
+        help="Directory containing voc/, bccd/, synthetic/, cifar10/, and tabular/ result folders.",
     )
     return parser.parse_args()
 

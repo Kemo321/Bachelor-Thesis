@@ -135,26 +135,37 @@ run_all() {
   echo "[menu] Missing Torch binaries are skipped. Failures do not abort the sequence."
   echo
 
-  echo "[menu] -- Training: CIFAR-10 classification --"
-  run_optional train_classification
+  echo "[menu] -- Training (Tabular) --"
+  run_optional train_tabular_custom
+  run_optional train_tabular_torch
 
-  echo "[menu] -- Training: VOC --"
-  run_optional train_pipeline_custom
-  run_optional train_pipeline_torch
+  echo "[menu] -- Training (CIFAR-10) --"
+  run_optional train_cifar_custom
+  run_optional train_cifar_torch
 
-  echo "[menu] -- Training: BCCD --"
-  run_optional train_pipeline_custom_BCCD
-  run_optional train_pipeline_torch_BCCD
+  echo "[menu] -- Training (VOC) --"
+  run_optional train_voc_custom
+  run_optional train_voc_torch
 
-  echo "[menu] -- Training: Synthetic --"
-  run_optional train_pipeline_custom_synthetic
-  run_optional train_pipeline_torch_synthetic
+  echo "[menu] -- Training (BCCD) --"
+  run_optional train_bccd_custom
+  run_optional train_bccd_torch
 
-  echo "[menu] -- Inference benchmarks --"
-  run_optional inference_bccd
-  run_optional inference_synthetic
-  run_optional bench_custom --benchmark_min_time=0.1s
-  run_optional bench_torch --benchmark_min_time=0.1s
+  echo "[menu] -- Training (Synthetic) --"
+  run_optional train_synthetic_custom
+  run_optional train_synthetic_torch
+
+  echo "[menu] -- Inference --"
+  run_optional inference_voc_custom
+  run_optional inference_voc_torch
+  run_optional inference_bccd_custom
+  run_optional inference_bccd_torch
+  run_optional inference_synthetic_custom
+  run_optional inference_synthetic_torch
+
+  echo "[menu] -- Benchmarks --"
+  run_optional bench_voc_custom --benchmark_min_time=0.1s
+  run_optional bench_voc_torch --benchmark_min_time=0.1s
   run_optional bench_micro_ops --benchmark_min_time=0.5s --benchmark_counters_tabular=true
 
   echo "[menu] -- Metrics plots --"
@@ -184,7 +195,8 @@ run_sanity_check() {
   echo "[menu] Overriding EXPERIMENTS_JSON=${sanity}"
   echo "[menu] Pipelines load this file through load_pipeline_config(); C++ is unchanged."
   export EXPERIMENTS_JSON="${sanity}"
-  run_optional tabular_demo
+  run_optional train_tabular_custom
+  run_optional overfit_voc_custom
   run_all
 }
 
@@ -192,84 +204,89 @@ print_menu() {
   cat <<'EOF'
 
 DeepLearnLib
+  --- Setup ---
   0)  Setup datasets (download & generate)
   1)  Run unit tests
+
+  --- Training (VOC) ---
   2)  Train custom YOLO on VOC
   3)  Train Torch YOLO on VOC
-  4)  Train custom YOLO on BCCD
-  5)  Train Torch YOLO on BCCD
-  6)  Train custom YOLO on Synthetic
-  7)  Train Torch YOLO on Synthetic
-  8)  Run tabular demo
-  9)  Train image classification (CIFAR-10)
-  10) Run custom performance benchmarks
-  11) Run BCCD inference
-  12) Run Synthetic inference
-  13) Plot metrics (CSV → PNG)
-  14) Run all pipelines & generate plots
-  15) Run Sanity Check (fast end-to-end test using sanity.json)
-  16) Run micro-benchmarks (custom vs Torch ops)
-  17) Exit
+  4)  Short VOC custom (3 epochs)
+  5)  Short VOC Torch (3 epochs)
+  6)  Overfit custom (tiny VOC)
+  7)  Overfit Torch (tiny VOC)
+
+  --- Training (BCCD) ---
+  8)  Train custom YOLO on BCCD
+  9)  Train Torch YOLO on BCCD
+
+  --- Training (Synthetic) ---
+  10) Train custom YOLO on Synthetic
+  11) Train Torch YOLO on Synthetic
+
+  --- Training (CIFAR-10) ---
+  12) Train custom CNN on CIFAR-10
+  13) Train Torch CNN on CIFAR-10
+
+  --- Training (Tabular) ---
+  14) Train custom MLP
+  15) Train Torch MLP
+
+  --- Inference ---
+  16) Infer VOC custom
+  17) Infer VOC Torch
+  18) Infer BCCD custom
+  19) Infer BCCD Torch
+  20) Infer Synthetic custom
+  21) Infer Synthetic Torch
+
+  --- Benchmarks ---
+  22) Bench VOC custom
+  23) Bench VOC Torch
+  24) Micro-benchmarks (custom vs Torch ops)
+
+  --- Reports ---
+  25) Plot metrics (CSV → PNG)
+  26) Run all pipelines & generate plots
+  27) Sanity Check (fast end-to-end via sanity.json)
+  28) Exit
 
 EOF
 }
 
 while true; do
   print_menu
-  read -r -p "Select [0-17]: " choice
+  read -r -p "Select [0-28]: " choice
   case "${choice}" in
-    0)
-      run_setup_datasets || true
-      ;;
-    1)
-      run_bin dllib_tests || true
-      ;;
-    2)
-      run_bin train_pipeline_custom || true
-      ;;
-    3)
-      run_bin train_pipeline_torch || true
-      ;;
-    4)
-      run_bin train_pipeline_custom_BCCD || true
-      ;;
-    5)
-      run_bin train_pipeline_torch_BCCD || true
-      ;;
-    6)
-      run_bin train_pipeline_custom_synthetic || true
-      ;;
-    7)
-      run_bin train_pipeline_torch_synthetic || true
-      ;;
-    8)
-      run_bin tabular_demo || true
-      ;;
-    9)
-      run_bin train_classification || true
-      ;;
-    10)
-      run_bin bench_custom --benchmark_min_time=0.1s || true
-      ;;
-    11)
-      run_bin inference_bccd || true
-      ;;
-    12)
-      run_bin inference_synthetic || true
-      ;;
-    13)
-      run_plots || true
-      ;;
-    14)
-      run_all
-      ;;
-    15)
-      run_sanity_check
-      ;;
-    16)
-      run_bin bench_micro_ops --benchmark_min_time=0.5s --benchmark_counters_tabular=true || true
-      ;;
-    17)
+    0) run_setup_datasets || true ;;
+    1) run_bin dllib_tests || true ;;
+    2) run_bin train_voc_custom || true ;;
+    3) run_bin train_voc_torch || true ;;
+    4) run_bin short_voc_custom || true ;;
+    5) run_bin short_voc_torch || true ;;
+    6) run_bin overfit_voc_custom || true ;;
+    7) run_bin overfit_voc_torch || true ;;
+    8) run_bin train_bccd_custom || true ;;
+    9) run_bin train_bccd_torch || true ;;
+    10) run_bin train_synthetic_custom || true ;;
+    11) run_bin train_synthetic_torch || true ;;
+    12) run_bin train_cifar_custom || true ;;
+    13) run_bin train_cifar_torch || true ;;
+    14) run_bin train_tabular_custom || true ;;
+    15) run_bin train_tabular_torch || true ;;
+    16) run_bin inference_voc_custom || true ;;
+    17) run_bin inference_voc_torch || true ;;
+    18) run_bin inference_bccd_custom || true ;;
+    19) run_bin inference_bccd_torch || true ;;
+    20) run_bin inference_synthetic_custom || true ;;
+    21) run_bin inference_synthetic_torch || true ;;
+    22) run_bin bench_voc_custom --benchmark_min_time=0.1s || true ;;
+    23) run_bin bench_voc_torch --benchmark_min_time=0.1s || true ;;
+    24) run_bin bench_micro_ops --benchmark_min_time=0.5s --benchmark_counters_tabular=true || true ;;
+    25) run_plots || true ;;
+    26) run_all ;;
+    27) run_sanity_check ;;
+    28)
       echo "[menu] Bye."
       exit 0
       ;;

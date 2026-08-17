@@ -1,4 +1,5 @@
 #include "experiment_config.hpp"
+#include "run_metrics.hpp"
 
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/dataset.hpp"
@@ -66,7 +67,7 @@ int main()
 
     fs::create_directories(results_dir);
     std::ofstream csv_file((results_dir / "metrics_torch.csv").string());
-    csv_file << "Epoch;TrainLoss;TestLoss;Time(s)\n";
+    csv_file << "Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB\n";
 
     for (int epoch = 1; epoch <= total_epochs; ++epoch)
     {
@@ -118,11 +119,9 @@ int main()
         auto epoch_end_time = std::chrono::steady_clock::now();
         auto epoch_duration = std::chrono::duration_cast<std::chrono::seconds>(epoch_end_time - epoch_start_time).count();
 
-        LOG_INFO("BCCD Torch | Epoch [{}/{}] | Train Loss: {:.4f} | Test Loss: {:.4f} | Time: {}s", epoch, total_epochs,
-            avg_train_loss, avg_test_loss, epoch_duration);
-
-        csv_file << epoch << ";" << avg_train_loss << ";" << avg_test_loss << ";" << epoch_duration << "\n";
-        csv_file.flush();
+        const auto vram = current_vram_mib();
+        log_train_epoch("BCCD Torch", epoch, total_epochs, avg_train_loss, avg_test_loss, epoch_duration, vram);
+        write_train_test_row(csv_file, epoch, avg_train_loss, avg_test_loss, epoch_duration, vram);
     }
 
     std::string save_path = (results_dir / "yolov1_bccd_torch_final.pt").string();

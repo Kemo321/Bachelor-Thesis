@@ -1,9 +1,10 @@
 #include "experiment_config.hpp"
+#include "run_metrics.hpp"
 
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/Tensor.hpp"
-#include "DeepLearnLib/YOLO.hpp"
+#include "YOLO.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
 #include "DeepLearnLib/mAP.hpp"
@@ -117,7 +118,7 @@ int main()
 
     fs::create_directories(results_dir);
     std::ofstream csv_file((results_dir / "metrics_custom.csv").string());
-    csv_file << "Epoch;TrainLoss;TestLoss;mAP@0.5;Time(s)\n";
+    csv_file << "Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;mAP@0.5\n";
 
     for (int epoch = 1; epoch <= total_epochs; ++epoch)
     {
@@ -235,12 +236,13 @@ int main()
         auto epoch_end_time = std::chrono::steady_clock::now();
         auto epoch_duration = std::chrono::duration_cast<std::chrono::seconds>(epoch_end_time - epoch_start_time).count();
 
-        LOG_INFO("VOC Custom | Epoch [{}/{}] | Train Loss: {:.4f} | Test Loss: {:.4f} | mAP@0.5: {} | Time: {}s", epoch,
-            total_epochs, avg_train_loss, avg_test_loss, map50, epoch_duration);
+        const auto vram = current_vram_mib();
+        log_train_epoch("VOC Custom", epoch, total_epochs, avg_train_loss, avg_test_loss, epoch_duration, vram);
+        LOG_INFO("VOC Custom | mAP@0.5: {}", map50);
         LOG_FLUSH();
 
-        csv_file << epoch << ";" << avg_train_loss << ";" << avg_test_loss << ";" << map50 << ";" << epoch_duration
-                 << "\n";
+        csv_file << epoch << ";" << avg_train_loss << ";" << avg_test_loss << ";" << epoch_duration << ";" << vram << ";"
+                 << map50 << "\n";
         csv_file.flush();
     }
 

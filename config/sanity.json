@@ -108,11 +108,31 @@
     "learning_rate": 0.05,
     "dataset_root": "data/tabular",
     "csv_path": "data/tabular/demo.csv",
+    "results_dir": "results/tabular",
     "num_features": 4,
     "hidden_size": 16,
     "num_classes": 3,
     "num_samples": 16,
     "skip_header": true
+  },
+  "overfit_voc_custom": {
+    "batch_size": 8,
+    "epochs": 2,
+    "learning_rate": 0.00002,
+    "dataset_root": "data/VOCdevkit",
+    "results_dir": "results/overfit",
+    "num_classes": 20,
+    "mixed_precision": false,
+    "precision": "fp32",
+    "gradient_clip": 10.0
+  },
+  "overfit_voc_torch": {
+    "batch_size": 8,
+    "epochs": 2,
+    "learning_rate": 0.00002,
+    "dataset_root": "data/VOCdevkit",
+    "results_dir": "results/overfit",
+    "num_classes": 20
   },
   "cifar10_classification": {
     "batch_size": 16,

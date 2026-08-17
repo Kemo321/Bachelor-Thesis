@@ -1,11 +1,12 @@
 #include "experiment_config.hpp"
+#include "run_metrics.hpp"
 
 #include "DeepLearnLib/ClassificationLoader.hpp"
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Losses.hpp"
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/Profiler.hpp"
-#include "DeepLearnLib/SimpleCNN.hpp"
+#include "SimpleCNN.hpp"
 #include "DeepLearnLib/Tensor.hpp"
 
 #include <algorithm>
@@ -157,7 +158,7 @@ int main()
 
         fs::create_directories(results_dir);
         std::ofstream csv_file((results_dir / "metrics_custom.csv").string());
-        csv_file << "Epoch;TrainLoss;TestLoss;TrainAcc;TestAcc;Time(s)\n";
+        csv_file << "Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;TrainAcc;TestAcc\n";
 
         Profiler profiler;
         for (int epoch = 1; epoch <= total_epochs; ++epoch)
@@ -249,12 +250,13 @@ int main()
             const float avg_train_acc = train_acc / static_cast<float>(std::max(1, train_batches));
             const float avg_test_acc = test_acc / static_cast<float>(std::max(1, test_batches));
 
-            LOG_INFO("CIFAR-10 | Epoch [{}/{}] | Train Loss: {:.4f} | Test Loss: {:.4f} | Train Acc: {} | Test Acc: {} | "
-                     "Time: {}s | GPU: {} ms",
-                epoch, total_epochs, avg_train, avg_test, avg_train_acc, avg_test_acc, elapsed, gpu_ms);
+            const auto vram = current_vram_mib();
+            log_train_epoch("CIFAR-10 Custom", epoch, total_epochs, avg_train, avg_test, elapsed, vram);
+            LOG_INFO("CIFAR-10 Custom | Train Acc: {:.4f} | Test Acc: {:.4f} | GPU: {} ms", avg_train_acc, avg_test_acc,
+                gpu_ms);
             LOG_FLUSH();
-            csv_file << epoch << ";" << avg_train << ";" << avg_test << ";" << avg_train_acc << ";" << avg_test_acc << ";"
-                     << elapsed << "\n";
+            csv_file << epoch << ";" << avg_train << ";" << avg_test << ";" << elapsed << ";" << vram << ";"
+                     << avg_train_acc << ";" << avg_test_acc << "\n";
             csv_file.flush();
         }
 

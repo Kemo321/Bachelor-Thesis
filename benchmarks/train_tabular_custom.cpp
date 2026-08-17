@@ -1,4 +1,6 @@
 #include "experiment_config.hpp"
+#include "run_metrics.hpp"
+#include "tabular_common.hpp"
 
 #include "DeepLearnLib/CSVLoader.hpp"
 #include "DeepLearnLib/FullyConnected.hpp"
@@ -6,80 +8,18 @@
 #include "DeepLearnLib/LeakyReLU.hpp"
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Losses.hpp"
-#include "DeepLearnLib/Profiler.hpp"
 #include "DeepLearnLib/Softmax.hpp"
 #include "DeepLearnLib/Tensor.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
-#include <fstream>
 #include <memory>
-#include <random>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace fs = std::filesystem;
-
-auto write_dummy_csv(const fs::path& csv_path, int num_samples, int num_features, int num_classes, unsigned seed)
-    -> void
-{
-    fs::create_directories(csv_path.parent_path());
-    std::ofstream stream(csv_path);
-    if (!stream)
-    {
-        throw std::runtime_error("Could not write dummy CSV: " + csv_path.string());
-    }
-
-    for (int feature = 0; feature < num_features; ++feature)
-    {
-        stream << "f" << feature << ",";
-    }
-    stream << "label\n";
-
-    std::mt19937 rng(seed);
-    std::normal_distribution<float> noise(0.0F, 0.15F);
-    for (int row = 0; row < num_samples; ++row)
-    {
-        const int label = row % num_classes;
-        for (int feature = 0; feature < num_features; ++feature)
-        {
-            const float value = (feature == label ? 1.0F : 0.0F) + noise(rng);
-            stream << value << ",";
-        }
-        stream << label << "\n";
-    }
-}
-
-auto one_hot(const std::vector<float>& class_ids, int num_classes) -> std::vector<float>
-{
-    std::vector<float> encoded(class_ids.size() * static_cast<std::size_t>(num_classes), 0.0F);
-    for (std::size_t row = 0; row < class_ids.size(); ++row)
-    {
-        int label = static_cast<int>(std::lround(class_ids[row]));
-        label = std::clamp(label, 0, num_classes - 1);
-        encoded[(row * static_cast<std::size_t>(num_classes)) + static_cast<std::size_t>(label)] = 1.0F;
-    }
-    return encoded;
-}
-
-auto argmax_row(const std::vector<float>& values, int row, int cols) -> int
-{
-    const std::size_t offset = static_cast<std::size_t>(row) * static_cast<std::size_t>(cols);
-    int best = 0;
-    float best_value = values[offset];
-    for (int col = 1; col < cols; ++col)
-    {
-        const float value = values[offset + static_cast<std::size_t>(col)];
-        if (value > best_value)
-        {
-            best_value = value;
-            best = col;
-        }
-    }
-    return best;
-}
 
 int main()
 {
@@ -93,10 +33,11 @@ int main()
     const int num_samples = config.value("num_samples", 64);
     const bool skip_header = config.value("skip_header", true);
     const fs::path csv_path = resolve_from_source(config.value("csv_path", "data/tabular/demo.csv"));
+    const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/tabular"));
 
     if (!fs::exists(csv_path))
     {
-        LOG_INFO("[tabular_demo] Writing dummy CSV at {}", csv_path.string());
+        LOG_INFO("[TABULAR CUSTOM] Writing dummy CSV at {}", csv_path.string());
         write_dummy_csv(csv_path, num_samples, num_features, num_classes, 42U);
     }
 
@@ -104,13 +45,14 @@ int main()
     const int feature_count = loader.features().get_shape()[1];
     const int available = static_cast<int>(loader.size());
     const int batch = std::min(batch_size, available);
-    LOG_INFO("[tabular_demo] csv={} epochs={} batch_size={} lr={}", csv_path.string(), epochs, batch, learning_rate);
+    LOG_INFO("[TABULAR CUSTOM] csv={} epochs={} batch_size={} lr={}", csv_path.string(), epochs, batch, learning_rate);
+
     std::vector<float> feature_host = loader.features().to_host();
     std::vector<float> label_host = loader.targets().to_host();
     feature_host.resize(static_cast<std::size_t>(batch) * static_cast<std::size_t>(feature_count));
     label_host.resize(static_cast<std::size_t>(batch));
     dl::Tensor features = dl::Tensor::from_host({ batch, feature_count }, feature_host, dl::Device::GPU);
-    const std::vector<float> target_host = one_hot(label_host, num_classes);
+    const std::vector<float> target_host = one_hot_labels(label_host, num_classes);
     dl::Tensor targets = dl::Tensor::from_host({ batch, num_classes }, target_host, dl::Device::GPU);
 
     auto dense1 = std::make_shared<FullyConnected>(feature_count, hidden_size, 0.0F);
@@ -127,10 +69,10 @@ int main()
     softmax->to(dl::Device::GPU);
     softmax->eval();
 
-    Profiler profiler;
-    profiler.start();
+    auto csv_file = open_metrics_csv(results_dir, "metrics_custom.csv", "Epoch;Loss;Time(s);VRAM_MiB;Acc");
     for (int epoch = 1; epoch <= epochs; ++epoch)
     {
+        const auto epoch_start = std::chrono::steady_clock::now();
         dl::Tensor hidden = relu->forward(dense1->forward(features));
         dl::Tensor logits = dense2->forward(hidden);
         const float loss = CrossEntropyLoss::loss(targets, logits).to_host().front();
@@ -157,9 +99,13 @@ int main()
             layer->step();
         }
 
-        LOG_INFO("Tabular | Epoch [{}/{}] | CE: {} | Acc: {}", epoch, epochs, loss, accuracy);
+        const auto elapsed =
+            std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
+        const auto vram = current_vram_mib();
+        log_train_epoch("Tabular Custom", epoch, epochs, loss, elapsed, vram);
+        LOG_INFO("Tabular Custom | Acc: {:.4f}", accuracy);
+        csv_file << epoch << ";" << loss << ";" << elapsed << ";" << vram << ";" << accuracy << "\n";
+        csv_file.flush();
     }
-    const float gpu_ms = profiler.stop();
-    LOG_INFO("[tabular_demo] GPU time: {} ms | VRAM: {} MiB", gpu_ms, Profiler::get_vram_usage_mb());
     return 0;
 }

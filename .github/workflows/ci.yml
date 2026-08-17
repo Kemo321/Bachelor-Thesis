@@ -183,22 +183,22 @@ jobs:
         run: |
           cmake --build build_release \
             --target dllib_tests \
-            --target bench_custom \
-            --target short_pipeline_custom \
-            --target overfit_test \
-            --target train_pipeline_custom_synthetic \
-            --target tabular_demo \
-            --target train_classification
+            --target bench_voc_custom \
+            --target short_voc_custom \
+            --target overfit_voc_custom \
+            --target train_synthetic_custom \
+            --target train_tabular_custom \
+            --target train_cifar_custom
 
       - name: Verify benchmark binaries
         run: |
           test -x build_release/tests/dllib_tests
-          test -x build_release/benchmarks/bench_custom
-          test -x build_release/benchmarks/short_pipeline_custom
-          test -x build_release/benchmarks/overfit_test
-          test -x build_release/benchmarks/train_pipeline_custom_synthetic
-          test -x build_release/benchmarks/tabular_demo
-          test -x build_release/benchmarks/train_classification
+          test -x build_release/benchmarks/bench_voc_custom
+          test -x build_release/benchmarks/short_voc_custom
+          test -x build_release/benchmarks/overfit_voc_custom
+          test -x build_release/benchmarks/train_synthetic_custom
+          test -x build_release/benchmarks/train_tabular_custom
+          test -x build_release/benchmarks/train_cifar_custom
           ls -l build_release/benchmarks/
           echo "::notice::Benchmark binaries compiled. Not executed: GitHub-hosted runners have no NVIDIA GPU."
           {

@@ -1,4 +1,5 @@
 #include "experiment_config.hpp"
+#include "run_metrics.hpp"
 
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/dataset.hpp"
@@ -19,28 +20,24 @@
 
 namespace fs = std::filesystem;
 
-const std::vector<std::string> VOC_CLASSES = {
-    "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow",
-    "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"
-};
+const std::vector<std::string> SYNTH_CLASSES = { "square", "circle", "triangle" };
 
 int main()
 {
     std::srand(std::time(nullptr));
 
-    const nlohmann::json config = load_pipeline_config("voc_torch");
+    const nlohmann::json config = load_pipeline_config("synthetic_torch");
     const int batch_size = config.value("batch_size", 16);
-    const int total_epochs = config.value("epochs", 150);
-    const int num_classes = config.value("num_classes", 20);
+    const int total_epochs = config.value("epochs", 800);
+    const int num_classes = config.value("num_classes", 3);
     const int dataloader_workers = config.value("dataloader_workers", 4);
     const double momentum = config.value("momentum", 0.9);
     const double weight_decay = config.value("weight_decay", 0.0005);
-    const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/VOCdevkit"));
-    const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/voc"));
-    const std::string voc_subset = config.value("voc_subset", "VOC2012");
+    const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/Synthetic3/train"));
+    const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/synthetic"));
 
     torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
-    LOG_INFO("[VOC TORCH PIPELINE] Starting on device: {}", device.is_cuda() ? "GPU" : "CPU");
+    LOG_INFO("[SYNTHETIC TORCH PIPELINE] Starting on device: {}", device.is_cuda() ? "GPU" : "CPU");
     LOG_INFO("[CONFIG] batch_size={} epochs={} dataset_root={}", batch_size, total_epochs, data_root.string());
 
     if (device.is_cuda())
@@ -49,15 +46,15 @@ int main()
     }
 
     DataPaths train_paths, val_paths, test_paths;
-    split_dataset((data_root / voc_subset).string(), train_paths, val_paths, test_paths, VOC_CLASSES);
+    split_dataset(data_root.string(), train_paths, val_paths, test_paths, SYNTH_CLASSES);
 
     auto train_loader = torch::data::make_data_loader(
-        VOCYoloDataset(train_paths, true, VOC_CLASSES).map(torch::data::transforms::Stack<>()),
+        VOCYoloDataset(train_paths, true, SYNTH_CLASSES).map(torch::data::transforms::Stack<>()),
         torch::data::samplers::RandomSampler(train_paths.images.size()),
         torch::data::DataLoaderOptions().batch_size(batch_size).workers(dataloader_workers));
 
     auto test_loader = torch::data::make_data_loader(
-        VOCYoloDataset(test_paths, false, VOC_CLASSES).map(torch::data::transforms::Stack<>()),
+        VOCYoloDataset(test_paths, false, SYNTH_CLASSES).map(torch::data::transforms::Stack<>()),
         torch::data::DataLoaderOptions().batch_size(batch_size).workers(dataloader_workers));
 
     YOLOv1 model(num_classes);
@@ -70,7 +67,7 @@ int main()
 
     fs::create_directories(results_dir);
     std::ofstream csv_file((results_dir / "metrics_torch.csv").string());
-    csv_file << "Epoch;TrainLoss;TestLoss;Time(s)\n";
+    csv_file << "Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB\n";
 
     for (int epoch = 1; epoch <= total_epochs; ++epoch)
     {
@@ -122,14 +119,12 @@ int main()
         auto epoch_end_time = std::chrono::steady_clock::now();
         auto epoch_duration = std::chrono::duration_cast<std::chrono::seconds>(epoch_end_time - epoch_start_time).count();
 
-        LOG_INFO("VOC Torch | Epoch [{}/{}] | Train Loss: {:.4f} | Test Loss: {:.4f} | Time: {}s", epoch, total_epochs,
-            avg_train_loss, avg_test_loss, epoch_duration);
-
-        csv_file << epoch << ";" << avg_train_loss << ";" << avg_test_loss << ";" << epoch_duration << "\n";
-        csv_file.flush();
+        const auto vram = current_vram_mib();
+        log_train_epoch("Synth Torch", epoch, total_epochs, avg_train_loss, avg_test_loss, epoch_duration, vram);
+        write_train_test_row(csv_file, epoch, avg_train_loss, avg_test_loss, epoch_duration, vram);
     }
 
-    std::string save_path = (results_dir / "yolov1_voc_torch_final.pt").string();
+    std::string save_path = (results_dir / "yolov1_synthetic_torch_final.pt").string();
     torch::save(model, save_path);
     LOG_INFO("Final model saved: {}", save_path);
     return 0;

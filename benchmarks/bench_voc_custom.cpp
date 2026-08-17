@@ -1,7 +1,7 @@
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/Precision.hpp"
 #include "DeepLearnLib/Profiler.hpp"
-#include "DeepLearnLib/YOLO.hpp"
+#include "YOLO.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
 
