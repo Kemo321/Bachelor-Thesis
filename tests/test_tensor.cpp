@@ -271,6 +271,58 @@ TEST_F(GpuTensorTest, RectangularMatmul)
     expect_near_vector(result.to_host(), { 38.0F, 44.0F, 50.0F, 56.0F, 83.0F, 98.0F, 113.0F, 128.0F }, kTensorEpsilon);
 }
 
+TEST_F(GpuTensorTest, LogicalTransposeMatmulMatchesPhysicalTranspose)
+{
+    // Given: A 2x3 matrix and a 2x4 matrix that share the batch axis
+    Tensor lhs = Tensor::from_host({ 2, 3 }, { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
+    Tensor rhs = Tensor::from_host({ 2, 4 },
+        { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F, 8.0F }, Device::GPU);
+
+    // When: GEMM uses CUBLAS_OP_T instead of allocating lhs^T
+    Tensor logical = lhs.matmul(rhs, true, false);
+    Tensor physical = lhs.transpose().matmul(rhs);
+    synchronize_device();
+
+    // Then: Shapes and values match the physical transpose path
+    EXPECT_EQ(logical.get_shape(), (std::vector<int> { 3, 4 }));
+    expect_near_vector(logical.to_host(), physical.to_host(), kTensorEpsilon);
+}
+
+TEST_F(GpuTensorTest, LogicalTransposeBMatmulMatchesPhysicalTranspose)
+{
+    // Given: A 2x3 matrix and a 4x3 matrix
+    Tensor lhs = Tensor::from_host({ 2, 3 }, { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
+    Tensor rhs = Tensor::from_host({ 4, 3 },
+        { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F, 8.0F, 9.0F, 10.0F, 11.0F, 12.0F }, Device::GPU);
+
+    // When: GEMM uses CUBLAS_OP_T on B instead of allocating rhs^T
+    Tensor logical = lhs.matmul(rhs, false, true);
+    Tensor physical = lhs.matmul(rhs.transpose());
+    synchronize_device();
+
+    // Then: Shapes and values match the physical transpose path
+    EXPECT_EQ(logical.get_shape(), (std::vector<int> { 2, 4 }));
+    expect_near_vector(logical.to_host(), physical.to_host(), kTensorEpsilon);
+}
+
+TEST_F(GpuTensorTest, InPlaceAddMulAndAddScaledDoNotAllocateTemps)
+{
+    // Given: Two GPU tensors
+    Tensor lhs = Tensor::from_host({ 2, 2 }, { 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
+    Tensor rhs = Tensor::from_host({ 2, 2 }, { 10.0F, 20.0F, 30.0F, 40.0F }, Device::GPU);
+    const float* lhs_ptr = lhs.data();
+
+    // When: In-place add, scale, and scaled-add run
+    lhs.add_(rhs);
+    lhs.mul_(0.5F);
+    lhs.add_scaled_(rhs, 0.1F);
+    synchronize_device();
+
+    // Then: The storage pointer is unchanged and values match a + b, * 0.5, + 0.1 b
+    EXPECT_EQ(lhs.data(), lhs_ptr);
+    expect_near_vector(lhs.to_host(), { 6.5F, 13.0F, 19.5F, 26.0F }, kTensorEpsilon);
+}
+
 TEST_F(GpuTensorTest, IdentityMatmulLeavesMatrixUnchanged)
 {
     // Given: A 3x3 matrix and a 3x3 identity

@@ -9,23 +9,11 @@
 #include <thrust/device_ptr.h>
 #include <thrust/execution_policy.h>
 #include <thrust/fill.h>
-#include <thrust/functional.h>
-#include <thrust/transform.h>
 
 namespace
 {
 
 constexpr float kWeightDecay = 0.0005F;
-
-struct ScaledAdd
-{
-    float scale;
-
-    __host__ __device__ auto operator()(float lhs, float rhs) const -> float
-    {
-        return lhs + (scale * rhs);
-    }
-};
 
 auto fill_constant(dl::Tensor& tensor, float value) -> void
 {
@@ -35,19 +23,6 @@ auto fill_constant(dl::Tensor& tensor, float value) -> void
     }
     auto out = thrust::device_pointer_cast(tensor.data());
     thrust::fill(thrust::cuda::par.on(dl::current_stream()), out, out + static_cast<std::ptrdiff_t>(tensor.get_size()), value);
-    CHECK_CUDA(cudaGetLastError());
-}
-
-auto add_scaled(dl::Tensor& lhs, const dl::Tensor& rhs, float scale) -> void
-{
-    if (lhs.get_size() == 0)
-    {
-        return;
-    }
-    auto dest = thrust::device_pointer_cast(lhs.data());
-    auto src = thrust::device_pointer_cast(rhs.data());
-    thrust::transform(thrust::cuda::par.on(dl::current_stream()), dest, dest + static_cast<std::ptrdiff_t>(lhs.get_size()), src, dest,
-        ScaledAdd { scale });
     CHECK_CUDA(cudaGetLastError());
 }
 
@@ -203,8 +178,8 @@ auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative, cudaStream
         bn_desc_.get(), gamma_.data(), gamma_grad_.data(), beta_grad_.data(), epsilon, save_mean_.data(),
         save_inv_var_.data()));
 
-    add_scaled(gamma_grad_, gamma_, kWeightDecay);
-    add_scaled(beta_grad_, beta_, kWeightDecay);
+    gamma_grad_.add_scaled_(gamma_, kWeightDecay);
+    beta_grad_.add_scaled_(beta_, kWeightDecay);
     input_cache_.reset();
     return grad_input;
 }
@@ -213,8 +188,8 @@ void BatchNorm2d::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("BatchNorm2d_Step");
     const dl::StreamGuard stream_guard(stream);
-    gamma_ = gamma_ - (gamma_grad_ * scaled_learning_rate());
-    beta_ = beta_ - (beta_grad_ * scaled_learning_rate());
+    gamma_.add_scaled_(gamma_grad_, -scaled_learning_rate());
+    beta_.add_scaled_(beta_grad_, -scaled_learning_rate());
 }
 
 void BatchNorm2d::clip_gradients(float abs_bound, cudaStream_t stream)

@@ -11,6 +11,8 @@
  * Fully connected layer using cuBLAS GEMM via dl::Tensor::matmul.
  *
  * Weights have shape [input_size, output_size]. Biases have shape [1, output_size].
+ * Backward uses logical GEMM transposes (CUBLAS_OP_T) instead of allocating
+ * `input^T` / `W^T`, and SGD/weight-decay updates mutate buffers in place.
  */
 class FullyConnected : public Layer
 {

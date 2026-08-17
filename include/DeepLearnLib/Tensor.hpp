@@ -217,7 +217,12 @@ public:
 #endif
     // clang-format on
 
-    auto matmul(const Tensor& other) const -> Tensor;
+    /**
+     * Row-major GEMM: C = op(A) * op(B). Transpose flags map to CUBLAS_OP_T
+     * without allocating a physical transpose (cuBLAS sees the swapped,
+     * column-major view of the same buffers).
+     */
+    auto matmul(const Tensor& other, bool transpose_a = false, bool transpose_b = false) const -> Tensor;
 
     auto operator+(const Tensor& other) const -> Tensor;
     auto operator-(const Tensor& other) const -> Tensor;
@@ -225,6 +230,13 @@ public:
 
     auto operator*(float scalar) const -> Tensor;
     auto operator+(float scalar) const -> Tensor;
+
+    /** In-place: this += other. No allocation. */
+    auto add_(const Tensor& other) -> Tensor&;
+    /** In-place: this *= scalar. No allocation. */
+    auto mul_(float scalar) -> Tensor&;
+    /** In-place: this += scale * other. No allocation. */
+    auto add_scaled_(const Tensor& other, float scale) -> Tensor&;
 
     auto clamp(float lo, float hi) const -> Tensor;
 

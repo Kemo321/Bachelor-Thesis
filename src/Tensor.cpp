@@ -213,6 +213,62 @@ namespace
         constexpr int kThreads = 256;
         return dim3(static_cast<unsigned int>((count + kThreads - 1) / kThreads));
     }
+
+    constexpr int kInplaceThreads = 256;
+
+    __global__ void add_inplace_f32_kernel(float* dst, const float* src, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            dst[index] += src[index];
+        }
+    }
+
+    __global__ void add_inplace_f16_kernel(__half* dst, const __half* src, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            dst[index] = __float2half(__half2float(dst[index]) + __half2float(src[index]));
+        }
+    }
+
+    __global__ void mul_inplace_f32_kernel(float* dst, float scalar, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            dst[index] *= scalar;
+        }
+    }
+
+    __global__ void mul_inplace_f16_kernel(__half* dst, float scalar, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            dst[index] = __float2half(__half2float(dst[index]) * scalar);
+        }
+    }
+
+    __global__ void add_scaled_inplace_f32_kernel(float* dst, const float* src, float scale, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            dst[index] += scale * src[index];
+        }
+    }
+
+    __global__ void add_scaled_inplace_f16_kernel(__half* dst, const __half* src, float scale, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            dst[index] = __float2half(__half2float(dst[index]) + (scale * __half2float(src[index])));
+        }
+    }
 #endif
 
 } // namespace
@@ -512,7 +568,7 @@ auto Tensor::ensure_binary_op(const Tensor& other, const char* op_name) const ->
     }
 }
 
-auto Tensor::matmul(const Tensor& other) const -> Tensor
+auto Tensor::matmul(const Tensor& other, bool transpose_a, bool transpose_b) const -> Tensor
 {
 #if !DEEPLEARNLIB_ENABLE_CUDA
     throw std::runtime_error("matmul requires CUDA/cuBLAS support");
@@ -537,26 +593,47 @@ auto Tensor::matmul(const Tensor& other) const -> Tensor
     {
         throw std::runtime_error("matmul requires tensors of equal dtype");
     }
-
-    const int k_left { shape_.back() };
-    const int k_right { other.shape_.front() };
-    if (k_left != k_right)
+    if (transpose_a && shape_.size() != 2)
     {
-        throw std::runtime_error("matmul inner dimensions must match (" + std::to_string(k_left) + " vs " + std::to_string(k_right) + ")");
+        throw std::runtime_error("matmul transpose_a currently requires a rank-2 tensor");
     }
-    if (k_left <= 0)
+    if (transpose_b && other.shape_.size() != 2)
+    {
+        throw std::runtime_error("matmul transpose_b currently requires a rank-2 tensor");
+    }
+
+    const int M = transpose_a ? shape_[1] : static_cast<int>(size_ / static_cast<size_t>(shape_.back()));
+    const int K = transpose_a ? shape_[0] : shape_.back();
+    const int other_k = transpose_b ? other.shape_[1] : other.shape_.front();
+    const int N = transpose_b ? other.shape_[0] : static_cast<int>(other.size_ / static_cast<size_t>(other_k));
+    if (K != other_k)
+    {
+        throw std::runtime_error("matmul inner dimensions must match (" + std::to_string(K) + " vs "
+            + std::to_string(other_k) + ")");
+    }
+    if (K <= 0)
     {
         throw std::runtime_error("matmul inner dimension must be positive");
     }
 
-    const int K { k_left };
-    const int M { static_cast<int>(size_ / static_cast<size_t>(K)) };
-    const int N { static_cast<int>(other.size_ / static_cast<size_t>(K)) };
-
     std::vector<int> result_shape;
     result_shape.reserve(shape_.size() + other.shape_.size() - 2);
-    result_shape.insert(result_shape.end(), shape_.begin(), shape_.end() - 1);
-    result_shape.insert(result_shape.end(), other.shape_.begin() + 1, other.shape_.end());
+    if (transpose_a)
+    {
+        result_shape.push_back(shape_[1]);
+    }
+    else
+    {
+        result_shape.insert(result_shape.end(), shape_.begin(), shape_.end() - 1);
+    }
+    if (transpose_b)
+    {
+        result_shape.push_back(other.shape_[0]);
+    }
+    else
+    {
+        result_shape.insert(result_shape.end(), other.shape_.begin() + 1, other.shape_.end());
+    }
     if (result_shape.empty())
     {
         result_shape.push_back(1);
@@ -569,22 +646,28 @@ auto Tensor::matmul(const Tensor& other) const -> Tensor
         return result;
     }
 
-    // Row-major C = A * B is computed as column-major C^T = B^T * A^T.
-    // Interpreting row-major storage as column-major therefore means swapping A/B
-    // and using CUBLAS_OP_N for both operands.
+    // Row-major C = op(A)*op(B) is col-major C^T = op(B)^T * op(A)^T, so A/B are
+    // swapped. Logical transpose of a row-major operand is CUBLAS_OP_T on that
+    // swapped buffer; leading dimensions stay the physical last axis.
+    const cublasOperation_t trans_a = transpose_b ? CUBLAS_OP_T : CUBLAS_OP_N;
+    const cublasOperation_t trans_b = transpose_a ? CUBLAS_OP_T : CUBLAS_OP_N;
+    const int lda = transpose_b ? other.shape_[1] : N;
+    const int ldb = shape_.back();
+    const int ldc = N;
+
     const float alpha { 1.0F };
     const float beta { 0.0F };
     CHECK_CUBLAS(cublasSetStream(get_cublas_handle(), current_stream()));
     if (dtype_ == Dtype::Float16)
     {
-        CHECK_CUBLAS(cublasGemmEx(get_cublas_handle(), CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, other.data(),
-            CUDA_R_16F, N, data(), CUDA_R_16F, K, &beta, result.data(), CUDA_R_16F, N, CUBLAS_COMPUTE_32F,
+        CHECK_CUBLAS(cublasGemmEx(get_cublas_handle(), trans_a, trans_b, N, M, K, &alpha, other.data(), CUDA_R_16F, lda,
+            data(), CUDA_R_16F, ldb, &beta, result.data(), CUDA_R_16F, ldc, CUBLAS_COMPUTE_32F,
             CUBLAS_GEMM_DEFAULT_TENSOR_OP));
     }
     else
     {
-        CHECK_CUBLAS(cublasSgemm(get_cublas_handle(), CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, other.data(), N, data(),
-            K, &beta, result.data(), N));
+        CHECK_CUBLAS(cublasSgemm(get_cublas_handle(), trans_a, trans_b, N, M, K, &alpha, other.data(), lda, data(), ldb,
+            &beta, result.data(), ldc));
     }
 
     return result;
@@ -759,6 +842,91 @@ auto Tensor::operator+(float scalar) const -> Tensor
     }
     CHECK_CUDA(cudaGetLastError());
     return result;
+#endif
+}
+
+auto Tensor::add_(const Tensor& other) -> Tensor&
+{
+#if !DEEPLEARNLIB_ENABLE_CUDA
+    throw std::runtime_error("add_ requires CUDA support");
+#else
+    ensure_binary_op(other, "add_");
+    if (size_ == 0)
+    {
+        return *this;
+    }
+
+    const int count = static_cast<int>(size_);
+    if (dtype_ == Dtype::Float16)
+    {
+        add_inplace_f16_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            half_data(), other.half_data(), count);
+    }
+    else
+    {
+        add_inplace_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            data(), other.data(), count);
+    }
+    CHECK_CUDA(cudaGetLastError());
+    return *this;
+#endif
+}
+
+auto Tensor::mul_(float scalar) -> Tensor&
+{
+#if !DEEPLEARNLIB_ENABLE_CUDA
+    throw std::runtime_error("mul_ requires CUDA support");
+#else
+    ensure_gpu("mul_");
+    if (!is_contiguous())
+    {
+        throw std::runtime_error("mul_ requires a contiguous tensor");
+    }
+    if (size_ == 0)
+    {
+        return *this;
+    }
+
+    const int count = static_cast<int>(size_);
+    if (dtype_ == Dtype::Float16)
+    {
+        mul_inplace_f16_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            half_data(), scalar, count);
+    }
+    else
+    {
+        mul_inplace_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            data(), scalar, count);
+    }
+    CHECK_CUDA(cudaGetLastError());
+    return *this;
+#endif
+}
+
+auto Tensor::add_scaled_(const Tensor& other, float scale) -> Tensor&
+{
+#if !DEEPLEARNLIB_ENABLE_CUDA
+    throw std::runtime_error("add_scaled_ requires CUDA support");
+#else
+    ensure_binary_op(other, "add_scaled_");
+    if (size_ == 0)
+    {
+        return *this;
+    }
+
+    const int count = static_cast<int>(size_);
+    if (dtype_ == Dtype::Float16)
+    {
+        add_scaled_inplace_f16_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            half_data(), other.half_data(), scale, count);
+    }
+    else
+    {
+        add_scaled_inplace_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            data(), other.data(), scale, count);
+    }
+    CHECK_CUDA(cudaGetLastError());
+    return *this;
 #endif
 }
 

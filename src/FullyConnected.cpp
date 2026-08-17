@@ -171,7 +171,10 @@ auto FullyConnected::forward(const dl::Tensor& input_tensor, cudaStream_t stream
         batch_ones = batch_ones.to_dtype(dl::Dtype::Float16, stream);
     }
 
-    return input->matmul(weights_) + batch_ones.matmul(biases_);
+    dl::Tensor output = input->matmul(weights_);
+    dl::Tensor bias_term = batch_ones.matmul(biases_);
+    output.add_(bias_term);
+    return output;
 }
 
 auto FullyConnected::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
@@ -204,16 +207,18 @@ auto FullyConnected::backward(const dl::Tensor& output_error_derivative, cudaStr
         ones_row = ones_row.to_dtype(dl::Dtype::Float16, stream);
     }
 
-    dl::Tensor cur_weights_grad = input_cache_->transpose().matmul(*grad_output);
+    dl::Tensor cur_weights_grad = input_cache_->matmul(*grad_output, true, false);
     dl::Tensor cur_biases_grad = ones_row.matmul(*grad_output);
 
-    cur_weights_grad = cur_weights_grad + (weights_ * kWeightDecay);
-    cur_biases_grad = cur_biases_grad + (biases_ * kWeightDecay);
+    cur_weights_grad.add_scaled_(weights_, kWeightDecay);
+    cur_biases_grad.add_scaled_(biases_, kWeightDecay);
 
-    weights_gradient_ = cur_weights_grad + (weights_gradient_ * inertia_);
-    biases_gradient_ = cur_biases_grad + (biases_gradient_ * inertia_);
+    weights_gradient_.mul_(inertia_);
+    weights_gradient_.add_(cur_weights_grad);
+    biases_gradient_.mul_(inertia_);
+    biases_gradient_.add_(cur_biases_grad);
 
-    dl::Tensor grad_input = grad_output->matmul(weights_.transpose());
+    dl::Tensor grad_input = grad_output->matmul(weights_, false, true);
     input_cache_.reset();
     return grad_input;
 }
@@ -222,8 +227,8 @@ void FullyConnected::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("FullyConnected_Step");
     const dl::StreamGuard stream_guard(stream);
-    weights_ = weights_ - (weights_gradient_ * scaled_learning_rate());
-    biases_ = biases_ - (biases_gradient_ * scaled_learning_rate());
+    weights_.add_scaled_(weights_gradient_, -scaled_learning_rate());
+    biases_.add_scaled_(biases_gradient_, -scaled_learning_rate());
 }
 
 void FullyConnected::clip_gradients(float abs_bound, cudaStream_t stream)
