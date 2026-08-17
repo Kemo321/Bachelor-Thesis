@@ -24,4 +24,7 @@ private:
     float probability_;
     unsigned long long seed_;
     std::optional<dl::Tensor> mask_;
+    std::optional<dl::Tensor> output_cache_;
+    std::optional<dl::Tensor> grad_input_cache_;
+    bool mask_ready_ { false };
 };

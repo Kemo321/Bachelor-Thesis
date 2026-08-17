@@ -274,7 +274,7 @@ auto FusedCBR2d::configure_bn_descriptors(const dl::Tensor& conv_output) -> void
     bn_descriptors_configured_ = true;
 }
 
-auto FusedCBR2d::apply_bn_leaky(const dl::Tensor& conv_output, cudaStream_t stream) -> dl::Tensor
+auto FusedCBR2d::apply_bn_leaky_into(const dl::Tensor& conv_output, dl::Tensor& output, cudaStream_t stream) -> void
 {
     const int batch = conv_output.get_shape()[0];
     const int channels = conv_output.get_shape()[1];
@@ -288,10 +288,9 @@ auto FusedCBR2d::apply_bn_leaky(const dl::Tensor& conv_output, cudaStream_t stre
     const int total = static_cast<int>(conv_output.get_size());
     const float epsilon = std::max(bn_eps_, static_cast<float>(CUDNN_BN_MIN_EPSILON));
 
-    dl::Tensor output(conv_output.get_shape(), dl::Device::GPU, conv_output.get_dtype());
     if (total == 0 || spatial == 0)
     {
-        return output;
+        return;
     }
 
     if (is_training_)
@@ -327,7 +326,6 @@ auto FusedCBR2d::apply_bn_leaky(const dl::Tensor& conv_output, cudaStream_t stre
             channels, spatial);
     }
     CHECK_CUDA(cudaGetLastError());
-    return output;
 }
 
 auto FusedCBR2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
@@ -342,28 +340,14 @@ auto FusedCBR2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) ->
 
     if (is_training_)
     {
-        dl::Tensor& bn_cached = dl::Tensor::ensure(bn_input_cache_, conv_output.get_shape(), dl::Device::GPU,
-            conv_output.get_dtype());
-        copy_same_size(bn_cached, conv_output, "FusedCBR2d::forward BN input cache");
-    }
-    else
-    {
-        caches_ready_ = false;
+        bn_input_cache_ = conv_output.as_view();
     }
 
-    dl::Tensor fused = apply_bn_leaky(conv_output, stream);
-    if (is_training_)
-    {
-        dl::Tensor& act_cached = dl::Tensor::ensure(fused_output_cache_, fused.get_shape(), dl::Device::GPU,
-            fused.get_dtype());
-        copy_same_size(act_cached, fused, "FusedCBR2d::forward activation cache");
-        caches_ready_ = true;
-    }
-    else
-    {
-        caches_ready_ = false;
-    }
-    return fused;
+    dl::Tensor& fused = dl::Tensor::ensure(fused_output_cache_, conv_output.get_shape(), dl::Device::GPU,
+        conv_output.get_dtype());
+    apply_bn_leaky_into(conv_output, fused, stream);
+    caches_ready_ = is_training_;
+    return fused.as_view();
 }
 
 auto FusedCBR2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
@@ -390,7 +374,8 @@ auto FusedCBR2d::backward(const dl::Tensor& output_error_derivative, cudaStream_
         grad_output = &converted_grad;
     }
 
-    dl::Tensor grad_bn(fused_output_cache_->get_shape(), dl::Device::GPU, fused_output_cache_->get_dtype());
+    dl::Tensor& grad_bn = dl::Tensor::ensure(grad_bn_cache_, fused_output_cache_->get_shape(), dl::Device::GPU,
+        fused_output_cache_->get_dtype());
     if (total > 0)
     {
         if (fused_output_cache_->get_dtype() == dl::Dtype::Float16)
@@ -406,7 +391,8 @@ auto FusedCBR2d::backward(const dl::Tensor& output_error_derivative, cudaStream_
         CHECK_CUDA(cudaGetLastError());
     }
 
-    dl::Tensor grad_conv(bn_input_cache_->get_shape(), dl::Device::GPU, bn_input_cache_->get_dtype());
+    dl::Tensor& grad_conv = dl::Tensor::ensure(grad_conv_cache_, bn_input_cache_->get_shape(), dl::Device::GPU,
+        bn_input_cache_->get_dtype());
     const float alpha { 1.0F };
     const float beta_zero { 0.0F };
     const double epsilon = std::max(static_cast<double>(bn_eps_), static_cast<double>(CUDNN_BN_MIN_EPSILON));
@@ -438,8 +424,8 @@ void FusedCBR2d::clip_gradients(float abs_bound, cudaStream_t stream)
         return;
     }
     conv_.clip_gradients(abs_bound, stream);
-    gamma_grad_ = gamma_grad_.clamp(-abs_bound, abs_bound);
-    beta_grad_ = beta_grad_.clamp(-abs_bound, abs_bound);
+    gamma_grad_.clamp_(-abs_bound, abs_bound);
+    beta_grad_.clamp_(-abs_bound, abs_bound);
 }
 
 auto FusedCBR2d::get_parameters() -> std::map<std::string, dl::Tensor>

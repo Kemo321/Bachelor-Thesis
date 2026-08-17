@@ -130,25 +130,6 @@ auto pick_perf(const PerfT* perfs, int count, size_t budget) -> const PerfT*
     return nullptr;
 }
 
-auto pick_fused_fwd_algo(const cudnnConvolutionFwdAlgoPerf_t* perfs, int count, size_t budget)
-    -> const cudnnConvolutionFwdAlgoPerf_t*
-{
-    const cudnnConvolutionFwdAlgoPerf_t* fallback = pick_perf(perfs, count, budget);
-    for (int idx = 0; idx < count; ++idx)
-    {
-        if (perfs[idx].status != CUDNN_STATUS_SUCCESS || perfs[idx].memory > budget)
-        {
-            continue;
-        }
-        if (perfs[idx].algo == CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM
-            || perfs[idx].algo == CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM)
-        {
-            return &perfs[idx];
-        }
-    }
-    return fallback;
-}
-
 } // namespace
 
 namespace dl
@@ -434,7 +415,12 @@ Conv2d::Conv2d(int in_channels, int out_channels, int kernel_size, int stride_va
     const cudnnDataType_t data_type = cudnn_data_type(weights_.get_dtype());
     filter_desc_.set_nchw(out_channels_, in_channels_, kernel_size_, kernel_size_, data_type);
     conv_desc_.set_2d(padding_, stride_, CUDNN_DATA_FLOAT);
-    conv_desc_.set_math_type(weights_.get_dtype() == dl::Dtype::Float16 ? CUDNN_TENSOR_OP_MATH : CUDNN_DEFAULT_MATH);
+#if defined(CUDNN_TF32_TENSOR_OP_MATH)
+    const cudnnMathType_t fp32_math = CUDNN_TF32_TENSOR_OP_MATH;
+#else
+    const cudnnMathType_t fp32_math = CUDNN_TENSOR_OP_MATH_ALLOW_CONVERSION;
+#endif
+    conv_desc_.set_math_type(weights_.get_dtype() == dl::Dtype::Float16 ? CUDNN_TENSOR_OP_MATH : fp32_math);
     bias_desc_.set_nchw(1, out_channels_, 1, 1, data_type);
     activation_desc_.set(CUDNN_ACTIVATION_IDENTITY, CUDNN_NOT_PROPAGATE_NAN, 0.0);
 }
@@ -477,7 +463,7 @@ auto Conv2d::select_algorithms() -> void
     int fwd_count { 0 };
     CHECK_CUDNN(cudnnGetConvolutionForwardAlgorithm_v7(handle, input_desc_.get(), filter_desc_.get(), conv_desc_.get(),
         output_desc_.get(), kMaxAlgoResults, &fwd_count, fwd_perfs));
-    const auto* fwd_perf = pick_fused_fwd_algo(fwd_perfs, fwd_count, budget);
+    const auto* fwd_perf = pick_perf(fwd_perfs, fwd_count, budget);
     if (fwd_perf == nullptr)
     {
         throw std::runtime_error("Conv2d: no valid cuDNN forward algorithm");
@@ -534,6 +520,19 @@ auto Conv2d::ensure_workspace(size_t bytes) -> void
 
 auto Conv2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
+    require_gpu_nchw(input_tensor, "Conv2d::forward input");
+    if (input_tensor.get_shape()[1] != in_channels_)
+    {
+        throw std::runtime_error("Conv2d::forward input channel count does not match the layer");
+    }
+    configure_io_descriptors(input_tensor.get_shape()[0], input_tensor.get_shape()[2], input_tensor.get_shape()[3]);
+    dl::Tensor& output = dl::Tensor::ensure(output_cache_, output_shape_cache_, dl::Device::GPU, weights_.get_dtype());
+    forward_into(input_tensor, output, stream);
+    return output.as_view();
+}
+
+auto Conv2d::forward_into(const dl::Tensor& input_tensor, dl::Tensor& output, cudaStream_t stream) -> void
+{
     const dl::NvtxRange nvtx_range("Conv2d_Forward");
     const dl::StreamGuard stream_guard(stream);
     dl::bind_cudnn_stream(stream);
@@ -552,38 +551,41 @@ auto Conv2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl:
         select_algorithms();
     }
 
-    const dl::Tensor* input = &input_tensor;
-    dl::Tensor converted_input;
-    if (input_tensor.get_dtype() != weights_.get_dtype())
+    if (output.get_shape() != output_shape_cache_ || output.get_dtype() != weights_.get_dtype()
+        || output.get_device() != dl::Device::GPU)
     {
-        converted_input = input_tensor.to_dtype(weights_.get_dtype(), stream);
-        input = &converted_input;
+        throw std::runtime_error("Conv2d::forward_into output buffer does not match the convolution output");
     }
 
-    dl::Tensor& cached = dl::Tensor::ensure(input_cache_, input->get_shape(), dl::Device::GPU, input->get_dtype());
-    copy_same_size(cached, *input, "Conv2d::forward input cache");
+    if (input_tensor.get_dtype() != weights_.get_dtype())
+    {
+        input_cache_ = input_tensor.to_dtype(weights_.get_dtype(), stream);
+    }
+    else
+    {
+        input_cache_ = input_tensor.as_view();
+    }
     input_cache_ready_ = true;
+    const dl::Tensor& input = *input_cache_;
 
-    dl::Tensor output(output_shape_cache_, dl::Device::GPU, weights_.get_dtype());
     const float alpha { 1.0F };
     const float alpha2_zero { 0.0F };
     const float beta_zero { 0.0F };
     const float beta_one { 1.0F };
     const auto handle = dl::get_cudnn_handle();
 
-    const cudnnStatus_t fused = cudnnConvolutionBiasActivationForward(handle, &alpha, input_desc_.get(), input->data(),
+    const cudnnStatus_t fused = cudnnConvolutionBiasActivationForward(handle, &alpha, input_desc_.get(), input.data(),
         filter_desc_.get(), weights_.data(), conv_desc_.get(), fwd_algo_, workspace_.get(), workspace_.size(),
         &alpha2_zero, output_desc_.get(), output.data(), bias_desc_.get(), biases_.data(), activation_desc_.get(),
         output_desc_.get(), output.data());
     if (fused != CUDNN_STATUS_SUCCESS)
     {
-        CHECK_CUDNN(cudnnConvolutionForward(handle, &alpha, input_desc_.get(), input->data(), filter_desc_.get(),
+        CHECK_CUDNN(cudnnConvolutionForward(handle, &alpha, input_desc_.get(), input.data(), filter_desc_.get(),
             weights_.data(), conv_desc_.get(), fwd_algo_, workspace_.get(), workspace_.size(), &beta_zero,
             output_desc_.get(), output.data()));
         CHECK_CUDNN(cudnnAddTensor(handle, &alpha, bias_desc_.get(), biases_.data(), &beta_one, output_desc_.get(),
             output.data()));
     }
-    return output;
 }
 
 auto Conv2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
@@ -613,7 +615,8 @@ auto Conv2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t st
         grad_output = &converted_grad;
     }
 
-    dl::Tensor grad_input(input_cache_->get_shape(), dl::Device::GPU, input_cache_->get_dtype());
+    dl::Tensor& grad_input = dl::Tensor::ensure(grad_input_cache_, input_cache_->get_shape(), dl::Device::GPU,
+        input_cache_->get_dtype());
     const float alpha { 1.0F };
     const float beta_zero { 0.0F };
     const float beta_momentum { inertia_ };
@@ -634,7 +637,7 @@ auto Conv2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t st
     biases_gradient_.add_scaled_(biases_, kWeightDecay);
 
     input_cache_ready_ = false;
-    return grad_input;
+    return grad_input.as_view();
 }
 
 void Conv2d::step(cudaStream_t stream)
@@ -652,8 +655,8 @@ void Conv2d::clip_gradients(float abs_bound, cudaStream_t stream)
     {
         return;
     }
-    weights_gradient_ = weights_gradient_.clamp(-abs_bound, abs_bound);
-    biases_gradient_ = biases_gradient_.clamp(-abs_bound, abs_bound);
+    weights_gradient_.clamp_(-abs_bound, abs_bound);
+    biases_gradient_.clamp_(-abs_bound, abs_bound);
 }
 
 auto Conv2d::get_parameters() -> std::map<std::string, dl::Tensor>

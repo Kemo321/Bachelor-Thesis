@@ -47,6 +47,8 @@ private:
     dl::Tensor save_inv_var_;
 
     std::optional<dl::Tensor> input_cache_;
+    std::optional<dl::Tensor> output_cache_;
+    std::optional<dl::Tensor> grad_input_cache_;
     bool input_cache_ready_ { false };
     std::vector<int> input_shape_cache_;
 

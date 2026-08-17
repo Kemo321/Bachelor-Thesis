@@ -152,21 +152,21 @@ auto FullyConnected::forward(const dl::Tensor& input_tensor, cudaStream_t stream
     const dl::StreamGuard stream_guard(stream);
     require_rank2(input_tensor, input_size_, "FullyConnected::forward input");
 
-    const dl::Tensor* input = &input_tensor;
-    dl::Tensor converted_input;
     if (input_tensor.get_dtype() != weights_.get_dtype())
     {
-        converted_input = input_tensor.to_dtype(weights_.get_dtype(), stream);
-        input = &converted_input;
+        input_cache_ = input_tensor.to_dtype(weights_.get_dtype(), stream);
     }
-
-    dl::Tensor& cached = dl::Tensor::ensure(input_cache_, input->get_shape(), dl::Device::GPU, input->get_dtype());
-    copy_same_size(cached, *input, "FullyConnected::forward input cache");
+    else
+    {
+        input_cache_ = input_tensor.as_view();
+    }
     input_cache_ready_ = true;
 
-    dl::Tensor output = input->matmul(weights_);
+    dl::Tensor& output = dl::Tensor::ensure(output_cache_, { input_cache_->get_shape()[0], output_size_ },
+        dl::Device::GPU, weights_.get_dtype());
+    input_cache_->matmul_into(weights_, output);
     output.add_row_(biases_);
-    return output;
+    return output.as_view();
 }
 
 auto FullyConnected::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
@@ -196,9 +196,11 @@ auto FullyConnected::backward(const dl::Tensor& output_error_derivative, cudaStr
     biases_gradient_.add_sum_rows_(*grad_output, inertia_);
     biases_gradient_.add_scaled_(biases_, kWeightDecay);
 
-    dl::Tensor grad_input = grad_output->matmul(weights_, false, true);
+    dl::Tensor& grad_input = dl::Tensor::ensure(grad_input_cache_, input_cache_->get_shape(), dl::Device::GPU,
+        weights_.get_dtype());
+    grad_output->matmul_into(weights_, grad_input, false, true, 0.0F);
     input_cache_ready_ = false;
-    return grad_input;
+    return grad_input.as_view();
 }
 
 void FullyConnected::step(cudaStream_t stream)
@@ -216,8 +218,8 @@ void FullyConnected::clip_gradients(float abs_bound, cudaStream_t stream)
     {
         return;
     }
-    weights_gradient_ = weights_gradient_.clamp(-abs_bound, abs_bound);
-    biases_gradient_ = biases_gradient_.clamp(-abs_bound, abs_bound);
+    weights_gradient_.clamp_(-abs_bound, abs_bound);
+    biases_gradient_.clamp_(-abs_bound, abs_bound);
 }
 
 auto FullyConnected::get_parameters() -> std::map<std::string, dl::Tensor>

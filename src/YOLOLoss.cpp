@@ -1,10 +1,12 @@
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/Nvtx.hpp"
+#include "DeepLearnLib/Precision.hpp"
 #include "DeepLearnLib/SafeMath.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -266,6 +268,18 @@ auto as_yolo_grid(const dl::Tensor& tensor, int final_dim, const char* name) -> 
     throw std::runtime_error(std::string(name) + " must be rank 2 or rank 4");
 }
 
+struct YoloWorkspace
+{
+    std::optional<dl::Tensor> cell_loss;
+    std::optional<dl::Tensor> grad;
+};
+
+auto yolo_workspace() -> YoloWorkspace&
+{
+    static YoloWorkspace workspace;
+    return workspace;
+}
+
 } // namespace
 
 auto YOLOLoss::calculate_iou(const dl::Tensor& box1, const dl::Tensor& box2) -> dl::Tensor
@@ -313,7 +327,7 @@ auto YOLOLoss::loss(const dl::Tensor& target, const dl::Tensor& prediction, int 
 
     const int batch_size = pred.get_shape()[0];
     const int cell_count = batch_size * kCellsPerImage;
-    dl::Tensor cell_loss({ cell_count }, dl::Device::GPU);
+    dl::Tensor& cell_loss = dl::Tensor::ensure(yolo_workspace().cell_loss, { cell_count }, dl::Device::GPU);
 
     yolo_loss_forward_kernel<<<launch_config(cell_count), kThreads, 0, stream>>>(pred.data(), tgt.data(),
         cell_loss.data(), batch_size, final_dim);
@@ -354,17 +368,21 @@ auto YOLOLoss::loss_derivative(const dl::Tensor& target, const dl::Tensor& predi
 
     const int batch_size = pred.get_shape()[0];
     const int cell_count = batch_size * kCellsPerImage;
-    dl::Tensor grad = dl::Tensor::zeros_like(pred);
+    dl::Tensor& grad = dl::Tensor::ensure(yolo_workspace().grad, pred.get_shape(), dl::Device::GPU);
     const float inv_batch = dl::safe_inv(static_cast<float>(batch_size));
 
     yolo_loss_backward_kernel<<<launch_config(cell_count), kThreads, 0, stream>>>(pred.data(), tgt.data(), grad.data(),
         batch_size, final_dim, inv_batch);
     CHECK_CUDA(cudaGetLastError());
 
-    grad = grad * dl::loss_scale();
+    const float scale = dl::loss_scale();
+    if (scale != 1.0F)
+    {
+        grad.mul_(scale);
+    }
     if (flattened)
     {
-        grad = grad.view({ batch_size, kCellsPerImage * final_dim });
+        return grad.view({ batch_size, kCellsPerImage * final_dim }).to_dtype(result_dtype, stream);
     }
     return grad.to_dtype(result_dtype, stream);
 }

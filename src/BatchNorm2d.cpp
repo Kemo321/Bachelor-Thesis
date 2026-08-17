@@ -123,7 +123,8 @@ auto BatchNorm2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -
     const int width = input_tensor.get_shape()[3];
     configure_descriptors(batch, channels, height, width, input_tensor.get_dtype());
 
-    dl::Tensor output(input_tensor.get_shape(), dl::Device::GPU, input_tensor.get_dtype());
+    dl::Tensor& output = dl::Tensor::ensure(output_cache_, input_tensor.get_shape(), dl::Device::GPU,
+        input_tensor.get_dtype());
     const float alpha { 1.0F };
     const float beta_zero { 0.0F };
     const auto handle = dl::get_cudnn_handle();
@@ -131,9 +132,7 @@ auto BatchNorm2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -
 
     if (is_training_)
     {
-        dl::Tensor& cached = dl::Tensor::ensure(input_cache_, input_tensor.get_shape(), dl::Device::GPU,
-            input_tensor.get_dtype());
-        copy_same_size(cached, input_tensor, "BatchNorm2d::forward input cache");
+        input_cache_ = input_tensor.as_view();
         input_cache_ready_ = true;
 
         const double average_factor = static_cast<double>(momentum_bn_);
@@ -151,7 +150,7 @@ auto BatchNorm2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -
             epsilon));
     }
 
-    return output;
+    return output.as_view();
 }
 
 auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
@@ -169,7 +168,8 @@ auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative, cudaStream
         throw std::runtime_error("BatchNorm2d::backward grad_output shape does not match the cached input");
     }
 
-    dl::Tensor grad_input(input_cache_->get_shape(), dl::Device::GPU, input_cache_->get_dtype());
+    dl::Tensor& grad_input = dl::Tensor::ensure(grad_input_cache_, input_cache_->get_shape(), dl::Device::GPU,
+        input_cache_->get_dtype());
     const float alpha { 1.0F };
     const float beta_zero { 0.0F };
     const double epsilon = std::max(static_cast<double>(eps_), static_cast<double>(CUDNN_BN_MIN_EPSILON));
@@ -183,7 +183,7 @@ auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative, cudaStream
     gamma_grad_.add_scaled_(gamma_, kWeightDecay);
     beta_grad_.add_scaled_(beta_, kWeightDecay);
     input_cache_ready_ = false;
-    return grad_input;
+    return grad_input.as_view();
 }
 
 void BatchNorm2d::step(cudaStream_t stream)
@@ -201,8 +201,8 @@ void BatchNorm2d::clip_gradients(float abs_bound, cudaStream_t stream)
     {
         return;
     }
-    gamma_grad_ = gamma_grad_.clamp(-abs_bound, abs_bound);
-    beta_grad_ = beta_grad_.clamp(-abs_bound, abs_bound);
+    gamma_grad_.clamp_(-abs_bound, abs_bound);
+    beta_grad_.clamp_(-abs_bound, abs_bound);
 }
 
 auto BatchNorm2d::get_parameters() -> std::map<std::string, dl::Tensor>

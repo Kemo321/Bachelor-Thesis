@@ -26,6 +26,8 @@ private:
     auto configure_descriptor(const dl::Tensor& tensor) -> void;
 
     std::optional<dl::Tensor> output_cache_;
+    std::optional<dl::Tensor> grad_input_cache_;
+    bool output_cache_ready_ { false };
     std::vector<int> input_shape_cache_;
     dl::CudnnTensorDescriptor tensor_desc_;
     bool descriptor_configured_ { false };

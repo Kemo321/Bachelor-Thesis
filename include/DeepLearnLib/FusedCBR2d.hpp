@@ -43,7 +43,7 @@ public:
 
 private:
     auto configure_bn_descriptors(const dl::Tensor& conv_output) -> void;
-    auto apply_bn_leaky(const dl::Tensor& conv_output, cudaStream_t stream) -> dl::Tensor;
+    auto apply_bn_leaky_into(const dl::Tensor& conv_output, dl::Tensor& output, cudaStream_t stream) -> void;
 
     Conv2d conv_;
     float leaky_slope_;
@@ -63,6 +63,8 @@ private:
 
     std::optional<dl::Tensor> bn_input_cache_;
     std::optional<dl::Tensor> fused_output_cache_;
+    std::optional<dl::Tensor> grad_bn_cache_;
+    std::optional<dl::Tensor> grad_conv_cache_;
     bool caches_ready_ { false };
     std::vector<int> bn_shape_cache_;
 

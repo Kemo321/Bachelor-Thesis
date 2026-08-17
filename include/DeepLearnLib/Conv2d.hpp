@@ -165,6 +165,7 @@ public:
         float inertia_val = 0.0F);
 
     [[nodiscard]] auto forward(const dl::Tensor& input_tensor, cudaStream_t stream = 0) -> dl::Tensor override;
+    auto forward_into(const dl::Tensor& input_tensor, dl::Tensor& output, cudaStream_t stream = 0) -> void;
     [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative, cudaStream_t stream = 0)
         -> dl::Tensor override;
     void step(cudaStream_t stream = 0) override;
@@ -181,6 +182,8 @@ private:
     dl::Tensor weights_;
     dl::Tensor biases_;
     std::optional<dl::Tensor> input_cache_;
+    std::optional<dl::Tensor> output_cache_;
+    std::optional<dl::Tensor> grad_input_cache_;
     bool input_cache_ready_ { false };
     dl::Tensor weights_gradient_;
     dl::Tensor biases_gradient_;

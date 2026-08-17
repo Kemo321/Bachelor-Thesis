@@ -33,6 +33,8 @@ private:
     dl::Tensor weights_;
     dl::Tensor biases_;
     std::optional<dl::Tensor> input_cache_;
+    std::optional<dl::Tensor> output_cache_;
+    std::optional<dl::Tensor> grad_input_cache_;
     bool input_cache_ready_ { false };
     dl::Tensor weights_gradient_;
     dl::Tensor biases_gradient_;

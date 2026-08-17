@@ -49,20 +49,20 @@ auto Softmax::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl
     require_gpu(input_tensor, "Softmax::forward input");
     configure_descriptor(input_tensor);
 
-    dl::Tensor output(input_tensor.get_shape(), dl::Device::GPU, input_tensor.get_dtype());
+    dl::Tensor& output = dl::Tensor::ensure(output_cache_, input_tensor.get_shape(), dl::Device::GPU,
+        input_tensor.get_dtype());
     if (input_tensor.get_size() == 0)
     {
-        output_cache_ = output.view(output.get_shape());
-        return output;
+        output_cache_ready_ = true;
+        return output.as_view();
     }
 
     const float alpha = 1.0F;
     const float beta = 0.0F;
     CHECK_CUDNN(cudnnSoftmaxForward(dl::get_cudnn_handle(), CUDNN_SOFTMAX_ACCURATE, CUDNN_SOFTMAX_MODE_CHANNEL, &alpha,
         tensor_desc_.get(), input_tensor.data(), &beta, tensor_desc_.get(), output.data()));
-    output_cache_ = dl::Tensor(output.get_shape(), dl::Device::GPU, output.get_dtype());
-    dl::memcpy_d2d_on_current(output_cache_->data(), output.data(), output.nbytes());
-    return output;
+    output_cache_ready_ = true;
+    return output.as_view();
 }
 
 auto Softmax::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
@@ -70,7 +70,7 @@ auto Softmax::backward(const dl::Tensor& output_error_derivative, cudaStream_t s
     const dl::NvtxRange nvtx_range("Softmax_Backward");
     const dl::StreamGuard stream_guard(stream);
     dl::bind_cudnn_stream(stream);
-    if (!output_cache_.has_value())
+    if (!output_cache_ready_ || !output_cache_.has_value())
     {
         throw std::runtime_error("Softmax::backward requires a preceding forward pass");
     }
@@ -80,11 +80,12 @@ auto Softmax::backward(const dl::Tensor& output_error_derivative, cudaStream_t s
         throw std::runtime_error("Softmax::backward grad_output shape does not match the cached softmax output");
     }
 
-    dl::Tensor grad_input(output_cache_->get_shape(), dl::Device::GPU, output_cache_->get_dtype());
+    dl::Tensor& grad_input = dl::Tensor::ensure(grad_input_cache_, output_cache_->get_shape(), dl::Device::GPU,
+        output_cache_->get_dtype());
     if (output_error_derivative.get_size() == 0)
     {
-        output_cache_.reset();
-        return grad_input;
+        output_cache_ready_ = false;
+        return grad_input.as_view();
     }
 
     configure_descriptor(*output_cache_);
@@ -93,6 +94,6 @@ auto Softmax::backward(const dl::Tensor& output_error_derivative, cudaStream_t s
     CHECK_CUDNN(cudnnSoftmaxBackward(dl::get_cudnn_handle(), CUDNN_SOFTMAX_ACCURATE, CUDNN_SOFTMAX_MODE_CHANNEL, &alpha,
         tensor_desc_.get(), output_cache_->data(), tensor_desc_.get(), output_error_derivative.data(), &beta,
         tensor_desc_.get(), grad_input.data()));
-    output_cache_.reset();
-    return grad_input;
+    output_cache_ready_ = false;
+    return grad_input.as_view();
 }

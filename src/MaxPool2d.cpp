@@ -72,23 +72,6 @@ auto require_gpu_nchw(const dl::Tensor& tensor, const char* name) -> void
     }
 }
 
-auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) -> void
-{
-    if (src.get_device() != dl::Device::GPU || dst.get_device() != dl::Device::GPU)
-    {
-        throw std::runtime_error(std::string(name) + " requires GPU tensors");
-    }
-    if (src.get_size() != dst.get_size())
-    {
-        throw std::runtime_error(std::string(name) + " tensor size mismatch");
-    }
-    if (src.get_size() == 0)
-    {
-        return;
-    }
-    dl::memcpy_d2d_on_current(dst.data(), src.data(), src.nbytes());
-}
-
 } // namespace
 
 MaxPool2d::MaxPool2d(int kernel_size_val, int stride_val)
@@ -135,9 +118,7 @@ auto MaxPool2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> 
     const int width = input_tensor.get_shape()[3];
     configure_descriptors(batch, channels, height, width, input_tensor.get_dtype());
 
-    dl::Tensor& in_cached = dl::Tensor::ensure(input_cache_, input_tensor.get_shape(), dl::Device::GPU,
-        input_tensor.get_dtype());
-    copy_same_size(in_cached, input_tensor, "MaxPool2d::forward input cache");
+    input_cache_ = input_tensor.as_view();
 
     dl::Tensor& out_cached = dl::Tensor::ensure(output_cache_, output_shape_cache_, dl::Device::GPU,
         input_tensor.get_dtype());
@@ -147,7 +128,7 @@ auto MaxPool2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> 
         input_tensor.data(), &beta_zero, output_desc_.get(), out_cached.data()));
 
     caches_ready_ = true;
-    return out_cached.view(out_cached.get_shape());
+    return out_cached.as_view();
 }
 
 auto MaxPool2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
@@ -165,7 +146,8 @@ auto MaxPool2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t
         throw std::runtime_error("MaxPool2d::backward grad_output shape does not match the cached pooling output");
     }
 
-    dl::Tensor grad_input(input_cache_->get_shape(), dl::Device::GPU, input_cache_->get_dtype());
+    dl::Tensor& grad_input = dl::Tensor::ensure(grad_input_cache_, input_cache_->get_shape(), dl::Device::GPU,
+        input_cache_->get_dtype());
     const float alpha { 1.0F };
     const float beta_zero { 0.0F };
     CHECK_CUDNN(cudnnPoolingBackward(dl::get_cudnn_handle(), pooling_desc_.get(), &alpha, output_desc_.get(),
@@ -174,5 +156,5 @@ auto MaxPool2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t
         grad_input.data()));
 
     caches_ready_ = false;
-    return grad_input;
+    return grad_input.as_view();
 }
