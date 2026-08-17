@@ -249,6 +249,8 @@ public:
     auto add_(const Tensor& other) -> Tensor&;
     /** In-place: this *= scalar. No allocation. */
     auto mul_(float scalar) -> Tensor&;
+    /** out = *this * other. `out` must already match shape and dtype. */
+    auto mul_into(const Tensor& other, Tensor& out) const -> Tensor&;
     /** In-place: this += scale * other. No allocation. */
     auto add_scaled_(const Tensor& other, float scale) -> Tensor&;
     /** In-place: each row of [B, C] += bias of shape [1, C] or [C]. */
@@ -260,6 +262,8 @@ public:
     auto add_sum_rows_(const Tensor& matrix, float beta = 0.0F) -> Tensor&;
 
     auto clamp(float lo, float hi) const -> Tensor;
+    /** In-place clamp. No allocation. */
+    auto clamp_(float lo, float hi) -> Tensor&;
 
     [[nodiscard]] auto has_non_finite() const -> bool;
     auto assert_finite(const char* context) const -> void;
@@ -267,6 +271,7 @@ public:
     auto sum(int dim = -1) const -> Tensor;
 
     auto view(const std::vector<int>& new_shape) const -> Tensor;
+    [[nodiscard]] auto as_view() const -> Tensor;
     auto transpose() const -> Tensor;
 
     static auto zeros_like(const Tensor& other) -> Tensor;

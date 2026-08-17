@@ -252,6 +252,44 @@ namespace
         }
     }
 
+    __global__ void mul_into_f32_kernel(const float* lhs, const float* rhs, float* out, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            out[index] = lhs[index] * rhs[index];
+        }
+    }
+
+    __global__ void mul_into_f16_kernel(const __half* lhs, const __half* rhs, __half* out, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            out[index] = __float2half(__half2float(lhs[index]) * __half2float(rhs[index]));
+        }
+    }
+
+    __global__ void clamp_inplace_f32_kernel(float* dst, float lo, float hi, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            const float value = dst[index];
+            dst[index] = value < lo ? lo : (value > hi ? hi : value);
+        }
+    }
+
+    __global__ void clamp_inplace_f16_kernel(__half* dst, float lo, float hi, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            const float value = __half2float(dst[index]);
+            dst[index] = __float2half(value < lo ? lo : (value > hi ? hi : value));
+        }
+    }
+
     __global__ void add_scaled_inplace_f32_kernel(float* dst, const float* src, float scale, int count)
     {
         const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
@@ -1017,6 +1055,41 @@ auto Tensor::mul_(float scalar) -> Tensor&
 #endif
 }
 
+auto Tensor::mul_into(const Tensor& other, Tensor& out) const -> Tensor&
+{
+#if !DEEPLEARNLIB_ENABLE_CUDA
+    throw std::runtime_error("mul_into requires CUDA support");
+#else
+    ensure_binary_op(other, "mul_into");
+    if (out.get_device() != Device::GPU)
+    {
+        throw std::runtime_error("mul_into requires a GPU output tensor");
+    }
+    if (out.get_dtype() != dtype_ || out.get_size() != size_)
+    {
+        throw std::runtime_error("mul_into output must match operand shape and dtype");
+    }
+    if (size_ == 0)
+    {
+        return out;
+    }
+
+    const int count = static_cast<int>(size_);
+    if (dtype_ == Dtype::Float16)
+    {
+        mul_into_f16_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            half_data(), other.half_data(), out.half_data(), count);
+    }
+    else
+    {
+        mul_into_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            data(), other.data(), out.data(), count);
+    }
+    CHECK_CUDA(cudaGetLastError());
+    return out;
+#endif
+}
+
 auto Tensor::add_scaled_(const Tensor& other, float scale) -> Tensor&
 {
 #if !DEEPLEARNLIB_ENABLE_CUDA
@@ -1174,6 +1247,41 @@ auto Tensor::clamp(float lo, float hi) const -> Tensor
 #endif
 }
 
+auto Tensor::clamp_(float lo, float hi) -> Tensor&
+{
+#if !DEEPLEARNLIB_ENABLE_CUDA
+    throw std::runtime_error("clamp_ requires CUDA support");
+#else
+    ensure_gpu("clamp_");
+    if (!is_contiguous())
+    {
+        throw std::runtime_error("clamp_ requires a contiguous tensor");
+    }
+    if (lo > hi)
+    {
+        throw std::runtime_error("clamp_ requires lo <= hi");
+    }
+    if (size_ == 0)
+    {
+        return *this;
+    }
+
+    const int count = static_cast<int>(size_);
+    if (dtype_ == Dtype::Float16)
+    {
+        clamp_inplace_f16_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            half_data(), lo, hi, count);
+    }
+    else
+    {
+        clamp_inplace_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            data(), lo, hi, count);
+    }
+    CHECK_CUDA(cudaGetLastError());
+    return *this;
+#endif
+}
+
 #if DEEPLEARNLIB_ENABLE_CUDA
 namespace
 {
@@ -1288,6 +1396,11 @@ auto Tensor::view(const std::vector<int>& new_shape) const -> Tensor
     std::vector<int> shape = infer_view_shape(new_shape, size_);
     std::vector<int> strides = make_contiguous_strides(shape);
     return Tensor(std::move(shape), std::move(strides), data_, device_, dtype_);
+}
+
+auto Tensor::as_view() const -> Tensor
+{
+    return view(shape_);
 }
 
 auto Tensor::transpose() const -> Tensor
