@@ -131,8 +131,10 @@ auto BatchNorm2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -
 
     if (is_training_)
     {
-        input_cache_ = dl::Tensor(input_tensor.get_shape(), dl::Device::GPU, input_tensor.get_dtype());
-        copy_same_size(*input_cache_, input_tensor, "BatchNorm2d::forward input cache");
+        dl::Tensor& cached = dl::Tensor::ensure(input_cache_, input_tensor.get_shape(), dl::Device::GPU,
+            input_tensor.get_dtype());
+        copy_same_size(cached, input_tensor, "BatchNorm2d::forward input cache");
+        input_cache_ready_ = true;
 
         const double average_factor = static_cast<double>(momentum_bn_);
         CHECK_CUDNN(cudnnBatchNormalizationForwardTraining(
@@ -142,7 +144,7 @@ auto BatchNorm2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -
     }
     else
     {
-        input_cache_.reset();
+        input_cache_ready_ = false;
         CHECK_CUDNN(cudnnBatchNormalizationForwardInference(
             handle, CUDNN_BATCHNORM_SPATIAL, &alpha, &beta_zero, x_desc_.get(), input_tensor.data(), x_desc_.get(),
             output.data(), bn_desc_.get(), gamma_.data(), beta_.data(), running_mean_.data(), running_var_.data(),
@@ -157,7 +159,7 @@ auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative, cudaStream
     const dl::NvtxRange nvtx_range("BatchNorm2d_Backward");
     const dl::StreamGuard stream_guard(stream);
     dl::bind_cudnn_stream(stream);
-    if (!is_training_ || !input_cache_.has_value())
+    if (!is_training_ || !input_cache_ready_ || !input_cache_.has_value())
     {
         throw std::runtime_error("BatchNorm2d::backward requires a preceding training forward pass");
     }
@@ -180,7 +182,7 @@ auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative, cudaStream
 
     gamma_grad_.add_scaled_(gamma_, kWeightDecay);
     beta_grad_.add_scaled_(beta_, kWeightDecay);
-    input_cache_.reset();
+    input_cache_ready_ = false;
     return grad_input;
 }
 

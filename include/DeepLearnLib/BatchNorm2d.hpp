@@ -47,6 +47,7 @@ private:
     dl::Tensor save_inv_var_;
 
     std::optional<dl::Tensor> input_cache_;
+    bool input_cache_ready_ { false };
     std::vector<int> input_shape_cache_;
 
     dl::CudnnTensorDescriptor x_desc_;

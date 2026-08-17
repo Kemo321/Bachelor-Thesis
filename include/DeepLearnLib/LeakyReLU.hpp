@@ -19,5 +19,6 @@ public:
 
 private:
     std::optional<dl::Tensor> input_cache_;
+    bool input_cache_ready_ { false };
     float slope_;
 };

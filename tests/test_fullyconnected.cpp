@@ -105,6 +105,20 @@ TEST_F(FullyConnectedTest, BackwardWithoutForwardThrows)
     EXPECT_THROW(dense.backward(grad), std::runtime_error);
 }
 
+TEST_F(FullyConnectedTest, SecondBackwardWithoutForwardThrows)
+{
+    // Given: A completed forward/backward pair
+    FullyConnected dense(2, 2);
+    Tensor input = Tensor::from_host({ 1, 2 }, { 1.0F, 2.0F }, Device::GPU);
+    (void)dense.forward(input);
+    Tensor grad = Tensor::from_host({ 1, 2 }, { 1.0F, 1.0F }, Device::GPU);
+    (void)dense.backward(grad);
+
+    // When: Backward is invoked again without a new forward
+    // Then: The stale cache is rejected
+    EXPECT_THROW(dense.backward(grad), std::runtime_error);
+}
+
 TEST_F(FullyConnectedTest, BackwardRejectsBatchMismatch)
 {
     // Given: A cached batch-1 forward

@@ -135,16 +135,19 @@ auto MaxPool2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> 
     const int width = input_tensor.get_shape()[3];
     configure_descriptors(batch, channels, height, width, input_tensor.get_dtype());
 
-    input_cache_ = dl::Tensor(input_tensor.get_shape(), dl::Device::GPU, input_tensor.get_dtype());
-    copy_same_size(*input_cache_, input_tensor, "MaxPool2d::forward input cache");
+    dl::Tensor& in_cached = dl::Tensor::ensure(input_cache_, input_tensor.get_shape(), dl::Device::GPU,
+        input_tensor.get_dtype());
+    copy_same_size(in_cached, input_tensor, "MaxPool2d::forward input cache");
 
-    output_cache_ = dl::Tensor(output_shape_cache_, dl::Device::GPU, input_tensor.get_dtype());
+    dl::Tensor& out_cached = dl::Tensor::ensure(output_cache_, output_shape_cache_, dl::Device::GPU,
+        input_tensor.get_dtype());
     const float alpha { 1.0F };
     const float beta_zero { 0.0F };
     CHECK_CUDNN(cudnnPoolingForward(dl::get_cudnn_handle(), pooling_desc_.get(), &alpha, input_desc_.get(),
-        input_tensor.data(), &beta_zero, output_desc_.get(), output_cache_->data()));
+        input_tensor.data(), &beta_zero, output_desc_.get(), out_cached.data()));
 
-    return output_cache_->view(output_cache_->get_shape());
+    caches_ready_ = true;
+    return out_cached.view(out_cached.get_shape());
 }
 
 auto MaxPool2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
@@ -152,7 +155,7 @@ auto MaxPool2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t
     const dl::NvtxRange nvtx_range("MaxPool2d_Backward");
     const dl::StreamGuard stream_guard(stream);
     dl::bind_cudnn_stream(stream);
-    if (!input_cache_.has_value() || !output_cache_.has_value())
+    if (!caches_ready_ || !input_cache_.has_value() || !output_cache_.has_value())
     {
         throw std::runtime_error("MaxPool2d::backward requires a preceding forward pass");
     }
@@ -170,7 +173,6 @@ auto MaxPool2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t
         input_desc_.get(), input_cache_->data(), &beta_zero, input_desc_.get(),
         grad_input.data()));
 
-    input_cache_.reset();
-    output_cache_.reset();
+    caches_ready_ = false;
     return grad_input;
 }

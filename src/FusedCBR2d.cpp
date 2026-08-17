@@ -342,23 +342,26 @@ auto FusedCBR2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) ->
 
     if (is_training_)
     {
-        bn_input_cache_ = dl::Tensor(conv_output.get_shape(), dl::Device::GPU, conv_output.get_dtype());
-        copy_same_size(*bn_input_cache_, conv_output, "FusedCBR2d::forward BN input cache");
+        dl::Tensor& bn_cached = dl::Tensor::ensure(bn_input_cache_, conv_output.get_shape(), dl::Device::GPU,
+            conv_output.get_dtype());
+        copy_same_size(bn_cached, conv_output, "FusedCBR2d::forward BN input cache");
     }
     else
     {
-        bn_input_cache_.reset();
+        caches_ready_ = false;
     }
 
     dl::Tensor fused = apply_bn_leaky(conv_output, stream);
     if (is_training_)
     {
-        fused_output_cache_ = dl::Tensor(fused.get_shape(), dl::Device::GPU, fused.get_dtype());
-        copy_same_size(*fused_output_cache_, fused, "FusedCBR2d::forward activation cache");
+        dl::Tensor& act_cached = dl::Tensor::ensure(fused_output_cache_, fused.get_shape(), dl::Device::GPU,
+            fused.get_dtype());
+        copy_same_size(act_cached, fused, "FusedCBR2d::forward activation cache");
+        caches_ready_ = true;
     }
     else
     {
-        fused_output_cache_.reset();
+        caches_ready_ = false;
     }
     return fused;
 }
@@ -368,7 +371,7 @@ auto FusedCBR2d::backward(const dl::Tensor& output_error_derivative, cudaStream_
     const dl::NvtxRange nvtx_range("FusedCBR2d_Backward");
     const dl::StreamGuard stream_guard(stream);
     dl::bind_cudnn_stream(stream);
-    if (!is_training_ || !bn_input_cache_.has_value() || !fused_output_cache_.has_value())
+    if (!is_training_ || !caches_ready_ || !bn_input_cache_.has_value() || !fused_output_cache_.has_value())
     {
         throw std::runtime_error("FusedCBR2d::backward requires a preceding training forward pass");
     }
@@ -415,8 +418,7 @@ auto FusedCBR2d::backward(const dl::Tensor& output_error_derivative, cudaStream_
     gamma_grad_.add_scaled_(gamma_, kWeightDecay);
     beta_grad_.add_scaled_(beta_, kWeightDecay);
 
-    bn_input_cache_.reset();
-    fused_output_cache_.reset();
+    caches_ready_ = false;
     return conv_.backward(grad_conv, stream);
 }
 

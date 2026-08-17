@@ -560,8 +560,9 @@ auto Conv2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl:
         input = &converted_input;
     }
 
-    input_cache_ = dl::Tensor(input->get_shape(), dl::Device::GPU, input->get_dtype());
-    copy_same_size(*input_cache_, *input, "Conv2d::forward input cache");
+    dl::Tensor& cached = dl::Tensor::ensure(input_cache_, input->get_shape(), dl::Device::GPU, input->get_dtype());
+    copy_same_size(cached, *input, "Conv2d::forward input cache");
+    input_cache_ready_ = true;
 
     dl::Tensor output(output_shape_cache_, dl::Device::GPU, weights_.get_dtype());
     const float alpha { 1.0F };
@@ -590,7 +591,7 @@ auto Conv2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t st
     const dl::NvtxRange nvtx_range("Conv2d_Backward");
     const dl::StreamGuard stream_guard(stream);
     dl::bind_cudnn_stream(stream);
-    if (!input_cache_.has_value())
+    if (!input_cache_ready_ || !input_cache_.has_value())
     {
         throw std::runtime_error("Conv2d::backward requires a preceding forward pass");
     }
@@ -632,7 +633,7 @@ auto Conv2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t st
     weights_gradient_.add_scaled_(weights_, kWeightDecay);
     biases_gradient_.add_scaled_(biases_, kWeightDecay);
 
-    input_cache_.reset();
+    input_cache_ready_ = false;
     return grad_input;
 }
 

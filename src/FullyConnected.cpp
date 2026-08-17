@@ -160,20 +160,12 @@ auto FullyConnected::forward(const dl::Tensor& input_tensor, cudaStream_t stream
         input = &converted_input;
     }
 
-    input_cache_ = dl::Tensor(input->get_shape(), dl::Device::GPU, input->get_dtype());
-    copy_same_size(*input_cache_, *input, "FullyConnected::forward input cache");
-
-    const int batch = input->get_shape()[0];
-    dl::Tensor batch_ones({ batch, 1 }, dl::Device::GPU);
-    fill_constant(batch_ones, 1.0F);
-    if (weights_.get_dtype() == dl::Dtype::Float16)
-    {
-        batch_ones = batch_ones.to_dtype(dl::Dtype::Float16, stream);
-    }
+    dl::Tensor& cached = dl::Tensor::ensure(input_cache_, input->get_shape(), dl::Device::GPU, input->get_dtype());
+    copy_same_size(cached, *input, "FullyConnected::forward input cache");
+    input_cache_ready_ = true;
 
     dl::Tensor output = input->matmul(weights_);
-    dl::Tensor bias_term = batch_ones.matmul(biases_);
-    output.add_(bias_term);
+    output.add_row_(biases_);
     return output;
 }
 
@@ -181,7 +173,7 @@ auto FullyConnected::backward(const dl::Tensor& output_error_derivative, cudaStr
 {
     const dl::NvtxRange nvtx_range("FullyConnected_Backward");
     const dl::StreamGuard stream_guard(stream);
-    if (!input_cache_.has_value())
+    if (!input_cache_ready_ || !input_cache_.has_value())
     {
         throw std::runtime_error("FullyConnected::backward requires a preceding forward pass");
     }
@@ -191,7 +183,6 @@ auto FullyConnected::backward(const dl::Tensor& output_error_derivative, cudaStr
         throw std::runtime_error("FullyConnected::backward batch size does not match the cached input");
     }
 
-    const int batch = output_error_derivative.get_shape()[0];
     const dl::Tensor* grad_output = &output_error_derivative;
     dl::Tensor converted_grad;
     if (output_error_derivative.get_dtype() != weights_.get_dtype())
@@ -200,26 +191,13 @@ auto FullyConnected::backward(const dl::Tensor& output_error_derivative, cudaStr
         grad_output = &converted_grad;
     }
 
-    dl::Tensor ones_row({ 1, batch }, dl::Device::GPU);
-    fill_constant(ones_row, 1.0F);
-    if (weights_.get_dtype() == dl::Dtype::Float16)
-    {
-        ones_row = ones_row.to_dtype(dl::Dtype::Float16, stream);
-    }
-
-    dl::Tensor cur_weights_grad = input_cache_->matmul(*grad_output, true, false);
-    dl::Tensor cur_biases_grad = ones_row.matmul(*grad_output);
-
-    cur_weights_grad.add_scaled_(weights_, kWeightDecay);
-    cur_biases_grad.add_scaled_(biases_, kWeightDecay);
-
-    weights_gradient_.mul_(inertia_);
-    weights_gradient_.add_(cur_weights_grad);
-    biases_gradient_.mul_(inertia_);
-    biases_gradient_.add_(cur_biases_grad);
+    input_cache_->matmul_into(*grad_output, weights_gradient_, true, false, inertia_);
+    weights_gradient_.add_scaled_(weights_, kWeightDecay);
+    biases_gradient_.add_sum_rows_(*grad_output, inertia_);
+    biases_gradient_.add_scaled_(biases_, kWeightDecay);
 
     dl::Tensor grad_input = grad_output->matmul(weights_, false, true);
-    input_cache_.reset();
+    input_cache_ready_ = false;
     return grad_input;
 }
 

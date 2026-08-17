@@ -323,6 +323,51 @@ TEST_F(GpuTensorTest, InPlaceAddMulAndAddScaledDoNotAllocateTemps)
     expect_near_vector(lhs.to_host(), { 6.5F, 13.0F, 19.5F, 26.0F }, kTensorEpsilon);
 }
 
+TEST_F(GpuTensorTest, MatmulIntoAccumulatesIntoExistingBuffer)
+{
+    // Given: Two 2x2 matrices and a preallocated output filled with ones
+    Tensor lhs = Tensor::from_host({ 2, 2 }, { 1.0F, 2.0F, 3.0F, 4.0F }, Device::GPU);
+    Tensor rhs = Tensor::from_host({ 2, 2 }, { 5.0F, 6.0F, 7.0F, 8.0F }, Device::GPU);
+    Tensor out = Tensor::from_host({ 2, 2 }, { 1.0F, 1.0F, 1.0F, 1.0F }, Device::GPU);
+    const float* out_ptr = out.data();
+
+    // When: GEMM writes C = AB + 1 * C
+    lhs.matmul_into(rhs, out, false, false, 1.0F);
+    synchronize_device();
+
+    // Then: Storage is reused and values are the product plus the previous ones
+    EXPECT_EQ(out.data(), out_ptr);
+    expect_near_vector(out.to_host(), { 20.0F, 23.0F, 44.0F, 51.0F }, kTensorEpsilon);
+}
+
+TEST_F(GpuTensorTest, AddRowBroadcastsBiasAcrossBatch)
+{
+    // Given: A 2x3 matrix and a 3-wide bias
+    Tensor rows = Tensor::from_host({ 2, 3 }, { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
+    Tensor bias = Tensor::from_host({ 1, 3 }, { 0.5F, -1.0F, 2.0F }, Device::GPU);
+
+    // When: The bias is added to every row
+    rows.add_row_(bias);
+    synchronize_device();
+
+    // Then: Each row is shifted by the bias
+    expect_near_vector(rows.to_host(), { 1.5F, 1.0F, 5.0F, 4.5F, 4.0F, 8.0F }, kTensorEpsilon);
+}
+
+TEST_F(GpuTensorTest, AddSumRowsAccumulatesWithBeta)
+{
+    // Given: A 2x3 matrix and a [1, 3] accumulator
+    Tensor matrix = Tensor::from_host({ 2, 3 }, { 1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F }, Device::GPU);
+    Tensor acc = Tensor::from_host({ 1, 3 }, { 10.0F, 10.0F, 10.0F }, Device::GPU);
+
+    // When: Columns are summed into acc with beta = 0.5
+    acc.add_sum_rows_(matrix, 0.5F);
+    synchronize_device();
+
+    // Then: acc[j] = 0.5 * 10 + sum of column j
+    expect_near_vector(acc.to_host(), { 10.0F, 12.0F, 14.0F }, kTensorEpsilon);
+}
+
 TEST_F(GpuTensorTest, IdentityMatmulLeavesMatrixUnchanged)
 {
     // Given: A 3x3 matrix and a 3x3 identity

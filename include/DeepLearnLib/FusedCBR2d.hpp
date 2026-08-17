@@ -63,6 +63,7 @@ private:
 
     std::optional<dl::Tensor> bn_input_cache_;
     std::optional<dl::Tensor> fused_output_cache_;
+    bool caches_ready_ { false };
     std::vector<int> bn_shape_cache_;
 
     dl::CudnnTensorDescriptor x_desc_;

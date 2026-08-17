@@ -269,6 +269,54 @@ namespace
             dst[index] = __float2half(__half2float(dst[index]) + (scale * __half2float(src[index])));
         }
     }
+
+    __global__ void add_row_f32_kernel(float* dst, const float* bias, int count, int features)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            dst[index] += bias[index % features];
+        }
+    }
+
+    __global__ void add_row_f16_kernel(__half* dst, const __half* bias, int count, int features)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            dst[index] = __float2half(__half2float(dst[index]) + __half2float(bias[index % features]));
+        }
+    }
+
+    __global__ void add_sum_rows_f32_kernel(float* dst, const float* src, int batch, int cols, float beta)
+    {
+        const int col = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (col >= cols)
+        {
+            return;
+        }
+        float acc = 0.0F;
+        for (int row = 0; row < batch; ++row)
+        {
+            acc += src[(row * cols) + col];
+        }
+        dst[col] = (beta * dst[col]) + acc;
+    }
+
+    __global__ void add_sum_rows_f16_kernel(__half* dst, const __half* src, int batch, int cols, float beta)
+    {
+        const int col = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (col >= cols)
+        {
+            return;
+        }
+        float acc = 0.0F;
+        for (int row = 0; row < batch; ++row)
+        {
+            acc += __half2float(src[(row * cols) + col]);
+        }
+        dst[col] = __float2half((beta * __half2float(dst[col])) + acc);
+    }
 #endif
 
 } // namespace
@@ -277,6 +325,7 @@ namespace
 CublasContext::CublasContext()
 {
     CHECK_CUBLAS(cublasCreate(&handle_));
+    CHECK_CUBLAS(cublasSetMathMode(handle_, CUBLAS_TF32_TENSOR_OP_MATH));
 }
 
 CublasContext::~CublasContext()
@@ -568,110 +617,175 @@ auto Tensor::ensure_binary_op(const Tensor& other, const char* op_name) const ->
     }
 }
 
+#if DEEPLEARNLIB_ENABLE_CUDA
+namespace
+{
+
+struct GemmPlan
+{
+    int M { 0 };
+    int N { 0 };
+    int K { 0 };
+    int lda { 0 };
+    int ldb { 0 };
+    int ldc { 0 };
+    cublasOperation_t trans_a { CUBLAS_OP_N };
+    cublasOperation_t trans_b { CUBLAS_OP_N };
+    std::vector<int> result_shape;
+};
+
+auto plan_rowmajor_gemm(const Tensor& a, const Tensor& b, bool transpose_a, bool transpose_b) -> GemmPlan
+{
+    if (a.get_device() != Device::GPU || b.get_device() != Device::GPU)
+    {
+        throw std::runtime_error("matmul requires both tensors to reside on the GPU");
+    }
+    if (a.data() == nullptr || b.data() == nullptr)
+    {
+        throw std::runtime_error("matmul requires valid device pointers");
+    }
+    if (a.get_shape().empty() || b.get_shape().empty())
+    {
+        throw std::runtime_error("matmul requires non-scalar tensors");
+    }
+    if (a.get_dtype() != b.get_dtype())
+    {
+        throw std::runtime_error("matmul requires tensors of equal dtype");
+    }
+    if (transpose_a && a.get_shape().size() != 2)
+    {
+        throw std::runtime_error("matmul transpose_a currently requires a rank-2 tensor");
+    }
+    if (transpose_b && b.get_shape().size() != 2)
+    {
+        throw std::runtime_error("matmul transpose_b currently requires a rank-2 tensor");
+    }
+
+    const std::vector<int>& a_shape = a.get_shape();
+    const std::vector<int>& b_shape = b.get_shape();
+    GemmPlan plan;
+    plan.M = transpose_a ? a_shape[1] : static_cast<int>(a.get_size() / static_cast<size_t>(a_shape.back()));
+    plan.K = transpose_a ? a_shape[0] : a_shape.back();
+    const int other_k = transpose_b ? b_shape[1] : b_shape.front();
+    plan.N = transpose_b ? b_shape[0] : static_cast<int>(b.get_size() / static_cast<size_t>(other_k));
+    if (plan.K != other_k)
+    {
+        throw std::runtime_error("matmul inner dimensions must match (" + std::to_string(plan.K) + " vs "
+            + std::to_string(other_k) + ")");
+    }
+    if (plan.K <= 0)
+    {
+        throw std::runtime_error("matmul inner dimension must be positive");
+    }
+
+    plan.result_shape.reserve(a_shape.size() + b_shape.size() - 2);
+    if (transpose_a)
+    {
+        plan.result_shape.push_back(a_shape[1]);
+    }
+    else
+    {
+        plan.result_shape.insert(plan.result_shape.end(), a_shape.begin(), a_shape.end() - 1);
+    }
+    if (transpose_b)
+    {
+        plan.result_shape.push_back(b_shape[0]);
+    }
+    else
+    {
+        plan.result_shape.insert(plan.result_shape.end(), b_shape.begin() + 1, b_shape.end());
+    }
+    if (plan.result_shape.empty())
+    {
+        plan.result_shape.push_back(1);
+    }
+
+    plan.trans_a = transpose_b ? CUBLAS_OP_T : CUBLAS_OP_N;
+    plan.trans_b = transpose_a ? CUBLAS_OP_T : CUBLAS_OP_N;
+    plan.lda = transpose_b ? b_shape[1] : plan.N;
+    plan.ldb = a_shape.back();
+    plan.ldc = plan.N;
+    return plan;
+}
+
+auto launch_rowmajor_gemm(const Tensor& a, const Tensor& b, Tensor& c, const GemmPlan& plan, float beta) -> void
+{
+    if (plan.M == 0 || plan.N == 0)
+    {
+        return;
+    }
+
+    const float alpha { 1.0F };
+    CHECK_CUBLAS(cublasSetStream(get_cublas_handle(), current_stream()));
+    if (a.get_dtype() == Dtype::Float16)
+    {
+        CHECK_CUBLAS(cublasGemmEx(get_cublas_handle(), plan.trans_a, plan.trans_b, plan.N, plan.M, plan.K, &alpha,
+            b.data(), CUDA_R_16F, plan.lda, a.data(), CUDA_R_16F, plan.ldb, &beta, c.data(), CUDA_R_16F, plan.ldc,
+            CUBLAS_COMPUTE_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+    }
+    else
+    {
+        CHECK_CUBLAS(cublasGemmEx(get_cublas_handle(), plan.trans_a, plan.trans_b, plan.N, plan.M, plan.K, &alpha,
+            b.data(), CUDA_R_32F, plan.lda, a.data(), CUDA_R_32F, plan.ldb, &beta, c.data(), CUDA_R_32F, plan.ldc,
+            CUBLAS_COMPUTE_32F_FAST_TF32, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+    }
+}
+
+} // namespace
+#endif
+
 auto Tensor::matmul(const Tensor& other, bool transpose_a, bool transpose_b) const -> Tensor
 {
 #if !DEEPLEARNLIB_ENABLE_CUDA
     throw std::runtime_error("matmul requires CUDA/cuBLAS support");
 #else
-    if (device_ != Device::GPU || other.device_ != Device::GPU)
-    {
-        throw std::runtime_error("matmul requires both tensors to reside on the GPU");
-    }
-    if (data_.get() == nullptr || other.data_.get() == nullptr)
-    {
-        throw std::runtime_error("matmul requires valid device pointers");
-    }
-    if (shape_.empty() || other.shape_.empty())
-    {
-        throw std::runtime_error("matmul requires non-scalar tensors");
-    }
     if (!is_contiguous() || !other.is_contiguous())
     {
         throw std::runtime_error("matmul requires contiguous row-major tensors");
     }
-    if (dtype_ != other.dtype_)
-    {
-        throw std::runtime_error("matmul requires tensors of equal dtype");
-    }
-    if (transpose_a && shape_.size() != 2)
-    {
-        throw std::runtime_error("matmul transpose_a currently requires a rank-2 tensor");
-    }
-    if (transpose_b && other.shape_.size() != 2)
-    {
-        throw std::runtime_error("matmul transpose_b currently requires a rank-2 tensor");
-    }
-
-    const int M = transpose_a ? shape_[1] : static_cast<int>(size_ / static_cast<size_t>(shape_.back()));
-    const int K = transpose_a ? shape_[0] : shape_.back();
-    const int other_k = transpose_b ? other.shape_[1] : other.shape_.front();
-    const int N = transpose_b ? other.shape_[0] : static_cast<int>(other.size_ / static_cast<size_t>(other_k));
-    if (K != other_k)
-    {
-        throw std::runtime_error("matmul inner dimensions must match (" + std::to_string(K) + " vs "
-            + std::to_string(other_k) + ")");
-    }
-    if (K <= 0)
-    {
-        throw std::runtime_error("matmul inner dimension must be positive");
-    }
-
-    std::vector<int> result_shape;
-    result_shape.reserve(shape_.size() + other.shape_.size() - 2);
-    if (transpose_a)
-    {
-        result_shape.push_back(shape_[1]);
-    }
-    else
-    {
-        result_shape.insert(result_shape.end(), shape_.begin(), shape_.end() - 1);
-    }
-    if (transpose_b)
-    {
-        result_shape.push_back(other.shape_[0]);
-    }
-    else
-    {
-        result_shape.insert(result_shape.end(), other.shape_.begin() + 1, other.shape_.end());
-    }
-    if (result_shape.empty())
-    {
-        result_shape.push_back(1);
-    }
-
-    Tensor result(result_shape, Device::GPU, dtype_);
-
-    if (M == 0 || N == 0)
-    {
-        return result;
-    }
-
-    // Row-major C = op(A)*op(B) is col-major C^T = op(B)^T * op(A)^T, so A/B are
-    // swapped. Logical transpose of a row-major operand is CUBLAS_OP_T on that
-    // swapped buffer; leading dimensions stay the physical last axis.
-    const cublasOperation_t trans_a = transpose_b ? CUBLAS_OP_T : CUBLAS_OP_N;
-    const cublasOperation_t trans_b = transpose_a ? CUBLAS_OP_T : CUBLAS_OP_N;
-    const int lda = transpose_b ? other.shape_[1] : N;
-    const int ldb = shape_.back();
-    const int ldc = N;
-
-    const float alpha { 1.0F };
-    const float beta { 0.0F };
-    CHECK_CUBLAS(cublasSetStream(get_cublas_handle(), current_stream()));
-    if (dtype_ == Dtype::Float16)
-    {
-        CHECK_CUBLAS(cublasGemmEx(get_cublas_handle(), trans_a, trans_b, N, M, K, &alpha, other.data(), CUDA_R_16F, lda,
-            data(), CUDA_R_16F, ldb, &beta, result.data(), CUDA_R_16F, ldc, CUBLAS_COMPUTE_32F,
-            CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-    }
-    else
-    {
-        CHECK_CUBLAS(cublasSgemm(get_cublas_handle(), trans_a, trans_b, N, M, K, &alpha, other.data(), lda, data(), ldb,
-            &beta, result.data(), ldc));
-    }
-
+    const GemmPlan plan = plan_rowmajor_gemm(*this, other, transpose_a, transpose_b);
+    Tensor result(plan.result_shape, Device::GPU, dtype_);
+    launch_rowmajor_gemm(*this, other, result, plan, 0.0F);
     return result;
 #endif
+}
+
+auto Tensor::matmul_into(const Tensor& other, Tensor& out, bool transpose_a, bool transpose_b, float beta) const
+    -> Tensor&
+{
+#if !DEEPLEARNLIB_ENABLE_CUDA
+    throw std::runtime_error("matmul_into requires CUDA/cuBLAS support");
+#else
+    if (!is_contiguous() || !other.is_contiguous())
+    {
+        throw std::runtime_error("matmul_into requires contiguous row-major tensors");
+    }
+    const GemmPlan plan = plan_rowmajor_gemm(*this, other, transpose_a, transpose_b);
+    if (out.get_device() != Device::GPU)
+    {
+        throw std::runtime_error("matmul_into requires a GPU output tensor");
+    }
+    if (out.get_dtype() != dtype_)
+    {
+        throw std::runtime_error("matmul_into requires the output dtype to match the operands");
+    }
+    if (out.get_shape() != plan.result_shape)
+    {
+        throw std::runtime_error("matmul_into output shape " + format_shape(out.get_shape()) + " does not match GEMM "
+            + format_shape(plan.result_shape));
+    }
+    launch_rowmajor_gemm(*this, other, out, plan, beta);
+    return out;
+#endif
+}
+
+auto Tensor::ensure(std::optional<Tensor>& slot, const std::vector<int>& shape, Device device, Dtype dtype) -> Tensor&
+{
+    if (!slot.has_value() || slot->get_shape() != shape || slot->get_device() != device || slot->get_dtype() != dtype)
+    {
+        slot = Tensor(shape, device, dtype);
+    }
+    return *slot;
 }
 
 auto Tensor::operator+(const Tensor& other) const -> Tensor
@@ -930,6 +1044,96 @@ auto Tensor::add_scaled_(const Tensor& other, float scale) -> Tensor&
 #endif
 }
 
+auto Tensor::add_row_(const Tensor& bias) -> Tensor&
+{
+#if !DEEPLEARNLIB_ENABLE_CUDA
+    throw std::runtime_error("add_row_ requires CUDA support");
+#else
+    ensure_gpu("add_row_");
+    bias.ensure_gpu("add_row_");
+    if (shape_.size() != 2)
+    {
+        throw std::runtime_error("add_row_ requires a rank-2 [batch, features] tensor");
+    }
+    if (!is_contiguous() || !bias.is_contiguous())
+    {
+        throw std::runtime_error("add_row_ requires contiguous tensors");
+    }
+    if (dtype_ != bias.dtype_)
+    {
+        throw std::runtime_error("add_row_ requires tensors of equal dtype");
+    }
+    const int features = shape_[1];
+    if (static_cast<int>(bias.get_size()) != features)
+    {
+        throw std::runtime_error("add_row_ bias size must match the feature dimension");
+    }
+    if (size_ == 0)
+    {
+        return *this;
+    }
+
+    const int count = static_cast<int>(size_);
+    if (dtype_ == Dtype::Float16)
+    {
+        add_row_f16_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            half_data(), bias.half_data(), count, features);
+    }
+    else
+    {
+        add_row_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            data(), bias.data(), count, features);
+    }
+    CHECK_CUDA(cudaGetLastError());
+    return *this;
+#endif
+}
+
+auto Tensor::add_sum_rows_(const Tensor& matrix, float beta) -> Tensor&
+{
+#if !DEEPLEARNLIB_ENABLE_CUDA
+    throw std::runtime_error("add_sum_rows_ requires CUDA support");
+#else
+    ensure_gpu("add_sum_rows_");
+    matrix.ensure_gpu("add_sum_rows_");
+    if (matrix.get_shape().size() != 2)
+    {
+        throw std::runtime_error("add_sum_rows_ requires a rank-2 [batch, features] source");
+    }
+    if (!is_contiguous() || !matrix.is_contiguous())
+    {
+        throw std::runtime_error("add_sum_rows_ requires contiguous tensors");
+    }
+    if (dtype_ != matrix.get_dtype())
+    {
+        throw std::runtime_error("add_sum_rows_ requires tensors of equal dtype");
+    }
+    const int cols = matrix.get_shape()[1];
+    const int batch = matrix.get_shape()[0];
+    if (static_cast<int>(size_) != cols)
+    {
+        throw std::runtime_error("add_sum_rows_ destination size must match the source feature dimension");
+    }
+    if (size_ == 0)
+    {
+        return *this;
+    }
+
+    if (dtype_ == Dtype::Float16)
+    {
+        add_sum_rows_f16_kernel<<<conversion_launch(cols), kInplaceThreads, 0, current_stream()>>>(
+            half_data(), matrix.half_data(), batch, cols, beta);
+    }
+    else
+    {
+        add_sum_rows_f32_kernel<<<conversion_launch(cols), kInplaceThreads, 0, current_stream()>>>(
+            data(), matrix.data(), batch, cols, beta);
+    }
+    CHECK_CUDA(cudaGetLastError());
+    return *this;
+#endif
+}
+
 auto Tensor::clamp(float lo, float hi) const -> Tensor
 {
 #if !DEEPLEARNLIB_ENABLE_CUDA
@@ -1139,6 +1343,89 @@ auto Tensor::zeros_like(const Tensor& other) -> Tensor
     return result;
 }
 
+#if DEEPLEARNLIB_ENABLE_CUDA
+namespace
+{
+
+constexpr int kPinnedSlots = 4;
+
+struct PinnedSlot
+{
+    float* ptr { nullptr };
+    size_t bytes { 0 };
+    cudaEvent_t event { nullptr };
+    bool recorded { false };
+};
+
+struct PinnedPool
+{
+    PinnedSlot slots[kPinnedSlots];
+    int next { 0 };
+
+    ~PinnedPool()
+    {
+        for (PinnedSlot& slot : slots)
+        {
+            if (slot.event != nullptr)
+            {
+                static_cast<void>(cudaEventDestroy(slot.event));
+            }
+            if (slot.ptr != nullptr)
+            {
+                static_cast<void>(cudaFreeHost(slot.ptr));
+            }
+        }
+    }
+
+    auto acquire(size_t bytes) -> float*
+    {
+        PinnedSlot& slot = slots[next];
+        next = (next + 1) % kPinnedSlots;
+        if (slot.recorded)
+        {
+            CHECK_CUDA(cudaEventSynchronize(slot.event));
+            slot.recorded = false;
+        }
+        if (slot.bytes < bytes)
+        {
+            if (slot.ptr != nullptr)
+            {
+                CHECK_CUDA(cudaFreeHost(slot.ptr));
+                slot.ptr = nullptr;
+            }
+            CHECK_CUDA(cudaMallocHost(&slot.ptr, bytes));
+            slot.bytes = bytes;
+        }
+        if (slot.event == nullptr)
+        {
+            CHECK_CUDA(cudaEventCreateWithFlags(&slot.event, cudaEventDisableTiming));
+        }
+        return slot.ptr;
+    }
+
+    auto record(float* ptr, cudaStream_t stream) -> void
+    {
+        for (PinnedSlot& slot : slots)
+        {
+            if (slot.ptr == ptr)
+            {
+                CHECK_CUDA(cudaEventRecord(slot.event, stream));
+                slot.recorded = true;
+                return;
+            }
+        }
+    }
+};
+
+auto pinned_pool() -> PinnedPool&
+{
+    static PinnedPool pool;
+    return pool;
+}
+
+} // namespace
+#endif
+
 auto Tensor::to_host(cudaStream_t stream) const -> std::vector<float>
 {
     if (dtype_ == Dtype::Float16)
@@ -1157,12 +1444,12 @@ auto Tensor::to_host(cudaStream_t stream) const -> std::vector<float>
 #if DEEPLEARNLIB_ENABLE_CUDA
     if (device_ == Device::GPU)
     {
-        float* pinned { nullptr };
-        CHECK_CUDA(cudaMallocHost(&pinned, size_ * sizeof(float)));
-        std::unique_ptr<float, PinnedHostDeleter> staging(pinned, PinnedHostDeleter { stream });
-        CHECK_CUDA(cudaMemcpyAsync(staging.get(), data_.get(), size_ * sizeof(float), cudaMemcpyDeviceToHost, stream));
+        const size_t bytes = size_ * sizeof(float);
+        float* pinned = pinned_pool().acquire(bytes);
+        CHECK_CUDA(cudaMemcpyAsync(pinned, data_.get(), bytes, cudaMemcpyDeviceToHost, stream));
+        pinned_pool().record(pinned, stream);
         CHECK_CUDA(cudaStreamSynchronize(stream));
-        std::memcpy(host.data(), staging.get(), size_ * sizeof(float));
+        std::memcpy(host.data(), pinned, bytes);
         return host;
     }
 #endif
@@ -1204,28 +1491,15 @@ auto Tensor::from_host(const std::vector<int>& shape, const float* host_data, De
 #if DEEPLEARNLIB_ENABLE_CUDA
     if (device == Device::GPU)
     {
-        float* pinned { nullptr };
-        CHECK_CUDA(cudaMallocHost(&pinned, result.size_ * sizeof(float)));
-        std::unique_ptr<float, PinnedHostDeleter> staging(pinned, PinnedHostDeleter { stream });
-        std::memcpy(staging.get(), host_data, result.size_ * sizeof(float));
-        CHECK_CUDA(cudaMemcpyAsync(result.data(), staging.get(), result.size_ * sizeof(float), cudaMemcpyHostToDevice,
-            stream));
-        if (stream == 0)
-        {
-            CHECK_CUDA(cudaStreamSynchronize(stream));
-            staging.reset();
-        }
-        else
-        {
-            result.h2d_staging_ = std::move(staging);
-        }
+        const size_t bytes = result.size_ * sizeof(float);
+        float* pinned = pinned_pool().acquire(bytes);
+        std::memcpy(pinned, host_data, bytes);
+        CHECK_CUDA(cudaMemcpyAsync(result.data(), pinned, bytes, cudaMemcpyHostToDevice, stream));
+        pinned_pool().record(pinned, stream);
         if (dtype == Dtype::Float16)
         {
             Tensor half = result.to_dtype(Dtype::Float16, stream);
-            if (stream != 0)
-            {
-                CHECK_CUDA(cudaStreamSynchronize(stream));
-            }
+            CHECK_CUDA(cudaStreamSynchronize(stream));
             return half;
         }
         return result;

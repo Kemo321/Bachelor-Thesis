@@ -12,6 +12,7 @@
 #include <cuda_runtime.h>
 #endif
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -223,6 +224,19 @@ public:
      * column-major view of the same buffers).
      */
     auto matmul(const Tensor& other, bool transpose_a = false, bool transpose_b = false) const -> Tensor;
+    /**
+     * C = op(A) * op(B) + beta * C into an existing buffer (no allocation).
+     * `out` must already have the GEMM result shape and the same dtype.
+     */
+    auto matmul_into(const Tensor& other, Tensor& out, bool transpose_a = false, bool transpose_b = false,
+        float beta = 0.0F) const -> Tensor&;
+
+    /**
+     * Grow `slot` only when shape/device/dtype change. Avoids cudaMalloc in the
+     * training loop when batch size is stable.
+     */
+    static auto ensure(std::optional<Tensor>& slot, const std::vector<int>& shape, Device device,
+        Dtype dtype = Dtype::Float32) -> Tensor&;
 
     auto operator+(const Tensor& other) const -> Tensor;
     auto operator-(const Tensor& other) const -> Tensor;
@@ -237,6 +251,13 @@ public:
     auto mul_(float scalar) -> Tensor&;
     /** In-place: this += scale * other. No allocation. */
     auto add_scaled_(const Tensor& other, float scale) -> Tensor&;
+    /** In-place: each row of [B, C] += bias of shape [1, C] or [C]. */
+    auto add_row_(const Tensor& bias) -> Tensor&;
+    /**
+     * In-place reduction: this[j] = beta * this[j] + sum_i matrix[i, j]
+     * for matrix [B, C] and this [1, C] or [C].
+     */
+    auto add_sum_rows_(const Tensor& matrix, float beta = 0.0F) -> Tensor&;
 
     auto clamp(float lo, float hi) const -> Tensor;
 
