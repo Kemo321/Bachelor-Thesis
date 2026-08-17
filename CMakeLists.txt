@@ -76,17 +76,36 @@ if(NOT TARGET CUDA::cudnn)
   endif()
 endif()
 
-# Prefer the host GPU (`native`, CMake 3.24+ / recent nvcc). CI runners and older
-# CMake get a portable fallback list instead of a hardcoded 75/120.
+# Prefer the attached GPU as real SASS (`120-real`), not `native`. Early
+# Blackwell toolchains often map 50-series cards to sm_100 + PTX, which then
+# fails at runtime with cudaErrorUnsupportedPtxVersion.
 set(_deeplearn_cuda_arch_fallback "70;75;80;86;89;90")
+set(_deeplearn_detected_arch "")
+execute_process(
+  COMMAND nvidia-smi --query-gpu=compute_cap --format=csv,noheader
+  OUTPUT_VARIABLE _deeplearn_smi_cc
+  ERROR_QUIET
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(_deeplearn_smi_cc)
+  string(REGEX REPLACE "[\r\n].*" "" _deeplearn_smi_cc "${_deeplearn_smi_cc}")
+  string(STRIP "${_deeplearn_smi_cc}" _deeplearn_smi_cc)
+  if(_deeplearn_smi_cc MATCHES "^[0-9]+\\.[0-9]+$")
+    string(REPLACE "." "" _deeplearn_detected_arch "${_deeplearn_smi_cc}")
+    set(_deeplearn_detected_arch "${_deeplearn_detected_arch}-real")
+  endif()
+endif()
 if(NOT CMAKE_CUDA_ARCHITECTURES)
   if(DEFINED ENV{GITHUB_ACTIONS} OR DEFINED ENV{CI})
     set(CMAKE_CUDA_ARCHITECTURES "${_deeplearn_cuda_arch_fallback}" CACHE STRING "CMake CUDA architectures")
+  elseif(_deeplearn_detected_arch)
+    set(CMAKE_CUDA_ARCHITECTURES "${_deeplearn_detected_arch}" CACHE STRING "CMake CUDA architectures")
   elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24")
     set(CMAKE_CUDA_ARCHITECTURES native CACHE STRING "CMake CUDA architectures")
   else()
     set(CMAKE_CUDA_ARCHITECTURES "${_deeplearn_cuda_arch_fallback}" CACHE STRING "CMake CUDA architectures")
   endif()
+elseif(CMAKE_CUDA_ARCHITECTURES STREQUAL "native" AND _deeplearn_detected_arch)
+  set(CMAKE_CUDA_ARCHITECTURES "${_deeplearn_detected_arch}" CACHE STRING "CMake CUDA architectures" FORCE)
 endif()
 
 if(NOT DEFINED TORCH_CUDA_ARCH_LIST OR TORCH_CUDA_ARCH_LIST STREQUAL "")
@@ -147,7 +166,18 @@ set(kineto_LIBRARIES "")
 
 set(DEEPLEARN_CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")
 
-find_package(Torch QUIET)
+# LibTorch's CUDA probe compiles a tiny C++ file. On Windows that needs the
+# VS Developer environment (INCLUDE/LIB). Without it, Caffe2 FATAL_ERRORs on
+# stdlib.h and kills the whole configure — including DeepLearnLib tests.
+set(_deeplearn_try_torch ON)
+if(MSVC AND NOT DEFINED ENV{INCLUDE})
+  message(WARNING "MSVC INCLUDE is unset; skipping LibTorch. Use a VS Developer Prompt or scripts/dev.ps1.")
+  set(_deeplearn_try_torch OFF)
+endif()
+
+if(_deeplearn_try_torch)
+  find_package(Torch QUIET)
+endif()
 if(Torch_FOUND)
     message(STATUS "LibTorch found for baseline targets.")
 else()

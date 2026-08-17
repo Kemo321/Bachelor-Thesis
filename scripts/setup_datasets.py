@@ -12,7 +12,10 @@ import random
 import shutil
 import ssl
 import subprocess
+import sys
 import tarfile
+import threading
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -28,6 +31,7 @@ VOC_URLS = (
 BCCD_ZIP_URL = "https://github.com/Shenggan/BCCD_Dataset/archive/refs/heads/master.zip"
 BCCD_GIT_URL = "https://github.com/Shenggan/BCCD_Dataset.git"
 CIFAR10_URL = "https://s3.amazonaws.com/fast-ai-imageclas/cifar10.tgz"
+CIFAR10_MIN_TRAIN_IMAGES = 50_000
 
 SYNTH_CLASSES = ("square", "circle", "triangle")
 SYNTH_IMAGE_SIZE = 448
@@ -42,6 +46,77 @@ def log(message: str) -> None:
     print(f"[setup] {message}", flush=True)
 
 
+BAR_WIDTH = 28
+
+
+def _format_bytes(n: int) -> str:
+    if n >= 1_000_000_000:
+        return f"{n / 1e9:.2f} GB"
+    if n >= 1_000_000:
+        return f"{n / 1e6:.1f} MB"
+    if n >= 1_000:
+        return f"{n / 1e3:.0f} KB"
+    return f"{n} B"
+
+
+def _format_eta(seconds: float) -> str:
+    if seconds < 0 or seconds == float("inf"):
+        return "--:--"
+    total = int(seconds)
+    minutes, secs = divmod(total, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours > 0:
+        return f"{hours:d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+class ProgressBar:
+    def __init__(self, total: int, *, kind: str = "bytes", unit: str = "") -> None:
+        self.total = max(total, 0)
+        self.kind = kind
+        self.unit = unit or ("files" if kind == "count" else "")
+        self.start = time.monotonic()
+        self._last_draw = 0.0
+
+    def _label(self, current: int) -> str:
+        if self.kind == "bytes":
+            if self.total > 0:
+                return f"{_format_bytes(current)}/{_format_bytes(self.total)}"
+            return _format_bytes(current)
+        if self.total > 0:
+            return f"{current}/{self.total} {self.unit}"
+        return f"{current} {self.unit}"
+
+    def update(self, current: int, *, force: bool = False) -> None:
+        now = time.monotonic()
+        if not force and (now - self._last_draw) < 0.08:
+            return
+        self._last_draw = now
+        elapsed = max(now - self.start, 1e-6)
+        speed = current / elapsed
+        if self.total > 0:
+            ratio = min(1.0, current / self.total)
+            filled = int(BAR_WIDTH * ratio)
+            bar = "#" * filled + "-" * (BAR_WIDTH - filled)
+            percent = 100.0 * ratio
+            remaining = ((self.total - current) / speed) if speed > 0 else 0.0
+            extra = f"  {_format_eta(remaining)} left"
+        else:
+            bar = "#" * 4 + "-" * (BAR_WIDTH - 4)
+            percent = 0.0
+            extra = ""
+        if self.kind == "bytes":
+            rate = f"  {_format_bytes(int(speed))}/s"
+        else:
+            rate = f"  {speed:.0f} {self.unit}/s" if speed >= 1 else ""
+        line = f"[setup]   [{bar}] {self._label(current)}  {percent:5.1f}%{rate}{extra}"
+        print(f"\r{line}\033[K", end="", flush=True)
+
+    def finish(self, current: int) -> None:
+        self.update(current, force=True)
+        print(flush=True)
+
+
 def _ssl_context() -> ssl.SSLContext:
     try:
         return ssl.create_default_context()
@@ -51,6 +126,9 @@ def _ssl_context() -> ssl.SSLContext:
 
 def download_file(urls: Iterable[str], destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.is_file() and destination.stat().st_size > 1024:
+        log(f"Already downloaded {destination.name} ({_format_bytes(destination.stat().st_size)})")
+        return
     last_error: Exception | None = None
     for url in urls:
         log(f"Downloading {url}")
@@ -59,6 +137,7 @@ def download_file(urls: Iterable[str], destination: Path) -> None:
             with urllib.request.urlopen(request, context=_ssl_context(), timeout=120) as response:
                 total = int(response.headers.get("Content-Length") or 0)
                 downloaded = 0
+                bar = ProgressBar(total, kind="bytes")
                 with destination.open("wb") as handle:
                     while True:
                         chunk = response.read(1024 * 1024)
@@ -66,46 +145,139 @@ def download_file(urls: Iterable[str], destination: Path) -> None:
                             break
                         handle.write(chunk)
                         downloaded += len(chunk)
-                        if total > 0:
-                            percent = 100.0 * downloaded / total
-                            print(f"\r[setup]   {downloaded / 1e6:.1f}/{total / 1e6:.1f} MB ({percent:.0f}%)", end="", flush=True)
-            print()
+                        bar.update(downloaded)
+                bar.finish(downloaded)
             return
         except (urllib.error.URLError, OSError, TimeoutError) as exc:
             last_error = exc
+            print(flush=True)
             log(f"Failed {url}: {exc}")
             if destination.exists():
                 destination.unlink()
     raise RuntimeError(f"Could not download {destination.name}") from last_error
 
 
+def _tar_gzip(archive: Path) -> bool:
+    return archive.suffixes[-2:] == [".tar", ".gz"] or archive.suffix == ".tgz"
+
+
+def _extract_tar_via_system(archive: Path, dest: Path, gzip_compressed: bool) -> bool:
+    tar_bin = shutil.which("tar")
+    if tar_bin is None:
+        return False
+    flags = "-xz" if gzip_compressed else "-x"
+    cmd = [tar_bin, flags, "-f", "-", "-C", str(dest)]
+    if sys.platform != "win32":
+        cmd.append("--no-same-owner")
+    total = archive.stat().st_size
+    bar = ProgressBar(total, kind="bytes")
+    with archive.open("rb") as src:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        assert proc.stdin is not None
+        stderr_chunks: list[bytes] = []
+
+        def drain_stderr() -> None:
+            if proc.stderr is not None:
+                stderr_chunks.append(proc.stderr.read())
+
+        drain = threading.Thread(target=drain_stderr, daemon=True)
+        drain.start()
+        sent = 0
+        try:
+            while True:
+                chunk = src.read(1024 * 1024)
+                if not chunk:
+                    break
+                proc.stdin.write(chunk)
+                sent += len(chunk)
+                bar.update(sent)
+            proc.stdin.close()
+            code = proc.wait()
+            drain.join(timeout=5)
+        except (BrokenPipeError, OSError) as exc:
+            proc.kill()
+            proc.wait()
+            print(flush=True)
+            log(f"system tar failed ({exc}); falling back to Python")
+            return False
+    if code != 0:
+        message = b"".join(stderr_chunks).decode(errors="replace").strip()
+        print(flush=True)
+        log(f"system tar exited {code}: {message or 'no stderr'}; falling back to Python")
+        return False
+    bar.finish(sent)
+    return True
+
+
+def _tar_extract_kwargs() -> dict:
+    if sys.version_info >= (3, 12):
+        return {"filter": "data"}
+    return {}
+
+
+def _extract_tar_via_python(archive: Path, dest: Path, gzip_compressed: bool) -> None:
+    mode = "r:gz" if gzip_compressed else "r:"
+    total = archive.stat().st_size
+    bar = ProgressBar(total, kind="bytes")
+    kwargs = _tar_extract_kwargs()
+    with tarfile.open(archive, mode) as tar:
+        for member in tar:
+            tar.extract(member, path=dest, **kwargs)
+            pos = tar.fileobj.tell() if tar.fileobj is not None else 0
+            underlying = getattr(tar.fileobj, "fileobj", None)
+            if underlying is not None:
+                pos = underlying.tell()
+            bar.update(pos)
+    bar.finish(total)
+
+
+def _extract_zip(archive: Path, dest: Path) -> None:
+    with zipfile.ZipFile(archive) as zipped:
+        names = zipped.namelist()
+        bar = ProgressBar(len(names), kind="count", unit="files")
+        for index, name in enumerate(names, start=1):
+            zipped.extract(name, dest)
+            bar.update(index)
+        bar.finish(len(names))
+
+
 def extract_archive(archive: Path, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
-    log(f"Extracting {archive.name} -> {dest}")
-    if archive.suffixes[-2:] == [".tar", ".gz"] or archive.suffix == ".tgz":
-        with tarfile.open(archive, "r:gz") as tar:
-            tar.extractall(dest)
+    size = _format_bytes(archive.stat().st_size)
+    log(f"Extracting {archive.name} ({size}) -> {dest}")
+    if _tar_gzip(archive):
+        if not _extract_tar_via_system(archive, dest, gzip_compressed=True):
+            _extract_tar_via_python(archive, dest, gzip_compressed=True)
         return
     if archive.suffix == ".tar":
-        with tarfile.open(archive, "r:") as tar:
-            tar.extractall(dest)
+        if not _extract_tar_via_system(archive, dest, gzip_compressed=False):
+            _extract_tar_via_python(archive, dest, gzip_compressed=False)
         return
     if archive.suffix == ".zip":
-        with zipfile.ZipFile(archive) as zipped:
-            zipped.extractall(dest)
+        _extract_zip(archive, dest)
         return
     raise RuntimeError(f"Unsupported archive: {archive}")
 
 
 def dir_has_files(path: Path, suffixes: tuple[str, ...] | None = None) -> bool:
+    return count_files(path, suffixes) > 0
+
+
+def count_files(path: Path, suffixes: tuple[str, ...] | None = None) -> int:
     if not path.is_dir():
-        return False
+        return 0
+    total = 0
     for child in path.rglob("*"):
         if not child.is_file():
             continue
         if suffixes is None or child.suffix.lower() in suffixes:
-            return True
-    return False
+            total += 1
+    return total
 
 
 def _try_cv2():
@@ -257,6 +429,7 @@ def setup_synthetic3(data_root: Path) -> None:
     annot_dir.mkdir(parents=True, exist_ok=True)
     rng = random.Random(42)
     log(f"Generating {SYNTH_COUNT} Synthetic3 images ({SYNTH_IMAGE_SIZE}x{SYNTH_IMAGE_SIZE})")
+    bar = ProgressBar(SYNTH_COUNT, kind="count", unit="images")
     for index in range(SYNTH_COUNT):
         filename = f"{index:06d}.jpg"
         canvas = make_canvas(SYNTH_IMAGE_SIZE, rng)
@@ -273,20 +446,28 @@ def setup_synthetic3(data_root: Path) -> None:
             objects.append((name, (xmin, ymin, xmax, ymax)))
         write_canvas(jpeg_dir / filename, canvas)
         write_voc_xml(annot_dir / f"{index:06d}.xml", filename, SYNTH_IMAGE_SIZE, objects)
+        bar.update(index + 1)
+    bar.finish(SYNTH_COUNT)
     log(f"Synthetic3 ready at {train_root}")
 
 
 def setup_cifar10(data_root: Path) -> None:
     train_dir = data_root / "cifar10" / "train"
-    if dir_has_files(train_dir, (".jpg", ".jpeg", ".png")):
+    image_suffixes = (".jpg", ".jpeg", ".png")
+    existing = count_files(train_dir, image_suffixes)
+    if existing >= CIFAR10_MIN_TRAIN_IMAGES:
         log("CIFAR-10 already present; skipping download")
         return
+    if existing > 0:
+        log(f"CIFAR-10 incomplete ({existing} train images); extracting again")
+        shutil.rmtree(data_root / "cifar10", ignore_errors=True)
     archive = data_root / "_downloads" / "cifar10.tgz"
     download_file((CIFAR10_URL,), archive)
     extract_archive(archive, data_root)
-    if not dir_has_files(train_dir, (".jpg", ".jpeg", ".png")):
+    extracted = count_files(train_dir, image_suffixes)
+    if extracted < CIFAR10_MIN_TRAIN_IMAGES:
         raise RuntimeError(f"CIFAR-10 extract did not produce {train_dir}")
-    log(f"CIFAR-10 ready at {data_root / 'cifar10'}")
+    log(f"CIFAR-10 ready at {data_root / 'cifar10'} ({extracted} train images)")
 
 
 def parse_args() -> argparse.Namespace:

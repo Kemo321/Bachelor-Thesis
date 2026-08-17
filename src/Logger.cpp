@@ -42,9 +42,9 @@ Logger::Logger()
     }
 
     logger_ = std::make_shared<spdlog::async_logger>("deeplearn", sinks.begin(), sinks.end(), spdlog::thread_pool(),
-        spdlog::async_overflow_policy::overrun_oldest);
+        spdlog::async_overflow_policy::block);
     logger_->set_level(spdlog::level::trace);
-    logger_->flush_on(spdlog::level::err);
+    logger_->flush_on(spdlog::level::info);
 
     spdlog::register_logger(logger_);
     spdlog::set_default_logger(logger_);

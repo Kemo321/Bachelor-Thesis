@@ -6,6 +6,42 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-${ROOT}/build}"
 DEFAULT_EXPERIMENTS_JSON="${ROOT}/config/experiments.json"
 export EXPERIMENTS_JSON="${EXPERIMENTS_JSON:-${DEFAULT_EXPERIMENTS_JSON}}"
+# shellcheck source=cuda_env.sh
+source "${ROOT}/scripts/cuda_env.sh"
+
+cached_cuda_arch() {
+  local cache="${BUILD_DIR}/CMakeCache.txt"
+  if [[ ! -f "${cache}" ]]; then
+    return 1
+  fi
+  grep -E '^CMAKE_CUDA_ARCHITECTURES(:[^=]*)?=' "${cache}" | head -n 1 | sed 's/^[^=]*=//'
+}
+
+ensure_built() {
+  local target="$1"
+  if [[ ! -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
+    echo "[menu] No build tree at ${BUILD_DIR}. Run ./scripts/dev.sh first." >&2
+    return 1
+  fi
+  if [[ -n "${CMAKE_CUDA_ARCHITECTURES:-}" ]]; then
+    local cached
+    cached="$(cached_cuda_arch || true)"
+    if [[ -n "${cached}" && "${cached}" != "${CMAKE_CUDA_ARCHITECTURES}" ]]; then
+      echo "[menu] CUDA arch '${cached}' != GPU '${CMAKE_CUDA_ARCHITECTURES}'; reconfiguring"
+      local cmake_args=(-S "${ROOT}" -B "${BUILD_DIR}" -DCMAKE_CUDA_ARCHITECTURES="${CMAKE_CUDA_ARCHITECTURES}")
+      if [[ -n "${TORCH_CUDA_ARCH_LIST:-}" ]]; then
+        cmake_args+=(-DTORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST}")
+      fi
+      cmake "${cmake_args[@]}"
+    fi
+  fi
+  echo "[menu] Building ${target}"
+  if command -v ninja >/dev/null 2>&1 && [[ -f "${BUILD_DIR}/build.ninja" ]]; then
+    ninja -C "${BUILD_DIR}" "${target}"
+  else
+    cmake --build "${BUILD_DIR}" --parallel --target "${target}"
+  fi
+}
 
 find_bin() {
   local name="$1"
@@ -34,6 +70,9 @@ has_bin() {
 run_bin() {
   local name="$1"
   shift || true
+  if ! ensure_built "${name}"; then
+    return 1
+  fi
   local bin
   if ! bin="$(find_bin "${name}")"; then
     echo "[menu] Binary '${name}' not found under ${BUILD_DIR}." >&2
@@ -41,7 +80,7 @@ run_bin() {
     return 1
   fi
   echo "[menu] Running ${bin} $*"
-  (cd "${BUILD_DIR}" && "${bin}" "$@")
+  (cd "$(dirname "${bin}")" && "${bin}" "$@")
 }
 
 # Used by Run All: skip missing targets (especially Torch) and keep going on failure.
@@ -114,8 +153,8 @@ run_all() {
   echo "[menu] -- Inference benchmarks --"
   run_optional inference_bccd
   run_optional inference_synthetic
-  run_optional bench_custom --benchmark_min_time=0.1
-  run_optional bench_torch --benchmark_min_time=0.1
+  run_optional bench_custom --benchmark_min_time=0.1s
+  run_optional bench_torch --benchmark_min_time=0.1s
 
   echo "[menu] -- Metrics plots --"
   run_plots || echo "[menu] WARNING: plotting failed; continuing."
@@ -208,7 +247,7 @@ while true; do
       run_bin train_classification || true
       ;;
     10)
-      run_bin bench_custom --benchmark_min_time=0.1 || true
+      run_bin bench_custom --benchmark_min_time=0.1s || true
       ;;
     11)
       run_bin inference_bccd || true

@@ -100,11 +100,13 @@ auto require_rank2(const dl::Tensor& tensor, int expected_cols, const char* name
     require_gpu(tensor, name);
     if (tensor.get_shape().size() != 2)
     {
-        throw std::runtime_error(std::string(name) + " must be rank-2 [batch, features]");
+        throw std::runtime_error(std::string(name) + " must be rank-2 [batch, features], got "
+            + tensor.describe());
     }
     if (tensor.get_shape()[1] != expected_cols)
     {
-        throw std::runtime_error(std::string(name) + " has an unexpected feature dimension");
+        throw std::runtime_error(std::string(name) + " has an unexpected feature dimension (expected "
+            + std::to_string(expected_cols) + ", got " + tensor.describe() + ")");
     }
 }
 

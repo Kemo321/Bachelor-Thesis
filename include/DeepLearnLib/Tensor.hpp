@@ -238,6 +238,8 @@ public:
 
     static auto zeros_like(const Tensor& other) -> Tensor;
 
+    [[nodiscard]] auto describe() const -> std::string;
+
 #if DEEPLEARNLIB_ENABLE_CUDA
     auto to_host(cudaStream_t stream = 0) const -> std::vector<float>;
     static auto from_host(const std::vector<int>& shape, const std::vector<float>& host_data,
@@ -269,5 +271,20 @@ private:
     auto ensure_gpu(const char* op_name) const -> void;
     auto ensure_binary_op(const Tensor& other, const char* op_name) const -> void;
 };
+
+inline auto format_shape(const std::vector<int>& shape) -> std::string
+{
+    std::string text = "[";
+    for (std::size_t index = 0; index < shape.size(); ++index)
+    {
+        if (index > 0)
+        {
+            text += ", ";
+        }
+        text += std::to_string(shape[index]);
+    }
+    text += "]";
+    return text;
+}
 
 } // namespace dl

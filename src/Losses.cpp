@@ -59,11 +59,13 @@ auto require_same_gpu(const dl::Tensor& target, const dl::Tensor& prediction, co
     }
     if (target.get_shape() != prediction.get_shape())
     {
-        throw std::runtime_error(std::string(name) + " requires identically shaped tensors");
+        throw std::runtime_error(std::string(name) + " requires identically shaped tensors (target "
+            + target.describe() + " vs prediction " + prediction.describe() + ")");
     }
     if (target.get_size() != prediction.get_size())
     {
-        throw std::runtime_error(std::string(name) + " requires identically sized tensors");
+        throw std::runtime_error(std::string(name) + " requires identically sized tensors (target "
+            + target.describe() + " vs prediction " + prediction.describe() + ")");
     }
     if (target.get_size() > 0 && (target.data() == nullptr || prediction.data() == nullptr))
     {
@@ -75,7 +77,8 @@ auto require_rank2(const dl::Tensor& tensor, const char* name) -> void
 {
     if (tensor.get_shape().size() != 2)
     {
-        throw std::runtime_error(std::string(name) + " requires rank-2 [batch, classes] tensors");
+        throw std::runtime_error(std::string(name) + " requires rank-2 [batch, classes] tensors, got "
+            + tensor.describe());
     }
     if (tensor.get_shape()[0] <= 0 || tensor.get_shape()[1] <= 0)
     {

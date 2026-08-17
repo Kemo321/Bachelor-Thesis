@@ -1,4 +1,5 @@
 #include "DeepLearnLib/ClassificationLoader.hpp"
+#include "DeepLearnLib/Logger.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -102,6 +103,22 @@ ClassificationLoader::ClassificationLoader(std::string dataset_root, std::string
     {
         throw std::runtime_error("ClassificationLoader found no images in " + split_root_);
     }
+    LOG_INFO("ClassificationLoader {} classes={} images={} batch={} image_size={} shuffle={}", split_root_,
+        class_names_.size(), samples_.size(), batch_size_, image_size_, shuffle_);
+    if (class_names_.size() <= 16)
+    {
+        std::string names;
+        for (std::size_t index = 0; index < class_names_.size(); ++index)
+        {
+            if (index > 0)
+            {
+                names += ", ";
+            }
+            names += class_names_[index];
+        }
+        LOG_INFO("ClassificationLoader {} class folders: {}", split_root_, names);
+    }
+    LOG_FLUSH();
     reset();
 }
 

@@ -333,6 +333,12 @@ auto Tensor::get_shape() const -> const std::vector<int>&
     return shape_;
 }
 
+auto Tensor::describe() const -> std::string
+{
+    const char* device_name = (device_ == Device::GPU) ? "GPU" : "CPU";
+    return format_shape(shape_) + " " + dtype_name(dtype_) + " " + device_name + " n=" + std::to_string(size_);
+}
+
 auto Tensor::get_strides() const -> const std::vector<int>&
 {
     return strides_;

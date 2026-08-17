@@ -4,6 +4,7 @@
 #include "DeepLearnLib/Flatten.hpp"
 #include "DeepLearnLib/FullyConnected.hpp"
 #include "DeepLearnLib/LeakyReLU.hpp"
+#include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/MaxPool2d.hpp"
 
 #include <stdexcept>
@@ -49,6 +50,9 @@ SimpleCNN::SimpleCNN(int num_classes, int image_size)
     layers_.push_back(std::make_shared<MaxPool2d>(2, 2));
     layers_.push_back(std::make_shared<Flatten>());
     layers_.push_back(std::make_shared<FullyConnected>(flatten_features(image_size_), num_classes_));
+    LOG_INFO("SimpleCNN classes={} image_size={} flatten_features={} layers={}", num_classes_, image_size_,
+        flatten_features(image_size_), layers_.size());
+    LOG_FLUSH();
 }
 
 auto SimpleCNN::forward_logits(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
@@ -56,10 +60,25 @@ auto SimpleCNN::forward_logits(const dl::Tensor& input_tensor, cudaStream_t stre
     const dl::StreamGuard stream_guard(stream);
     dl::bind_cudnn_stream(stream);
     dl::Tensor current = input_tensor.view(input_tensor.get_shape());
-    for (auto& layer : layers_)
+    static thread_local bool logged_shapes = false;
+    const bool dump_shapes = !logged_shapes;
+    if (dump_shapes)
     {
-        current = layer->forward(current, stream);
+        LOG_INFO("SimpleCNN first forward input {}", input_tensor.describe());
+    }
+    for (std::size_t index = 0; index < layers_.size(); ++index)
+    {
+        current = layers_[index]->forward(current, stream);
         current = current.view(current.get_shape());
+        if (dump_shapes)
+        {
+            LOG_INFO("SimpleCNN layer {}/{} -> {}", index + 1, layers_.size(), current.describe());
+        }
+    }
+    if (dump_shapes)
+    {
+        logged_shapes = true;
+        LOG_FLUSH();
     }
     return current;
 }

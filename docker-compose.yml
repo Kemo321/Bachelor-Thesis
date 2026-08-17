@@ -19,7 +19,6 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
-      - TORCH_CUDA_ARCH_LIST=All
       - CCACHE_DIR=/ccache
       - CCACHE_MAXSIZE=10G
       - CMAKE_C_COMPILER_LAUNCHER=ccache

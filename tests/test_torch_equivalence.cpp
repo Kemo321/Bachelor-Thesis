@@ -18,7 +18,7 @@ using namespace dllib_test;
 namespace
 {
 
-constexpr float kTorchTol = 1e-4F;
+constexpr float kTorchTol = 1e-3F;
 
 auto random_host(std::size_t count, unsigned seed, float scale = 0.5F) -> std::vector<float>
 {

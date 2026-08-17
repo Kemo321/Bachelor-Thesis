@@ -19,7 +19,7 @@ auto log_info_message(const std::string& message) -> void;
  * Process-wide asynchronous logger: color stdout at INFO, rotating file at TRACE.
  *
  * Logging is queued onto an spdlog thread pool so host/GPU training loops are not
- * blocked by console or disk I/O. Overflow drops the oldest pending messages.
+ * blocked by console or disk I/O. Overflow waits instead of dropping messages.
  */
 class Logger
 {
@@ -47,3 +47,4 @@ private:
 #define LOG_WARN(...) SPDLOG_LOGGER_WARN(::dl::Logger::get(), __VA_ARGS__)
 #define LOG_ERROR(...) SPDLOG_LOGGER_ERROR(::dl::Logger::get(), __VA_ARGS__)
 #define LOG_CRITICAL(...) SPDLOG_LOGGER_CRITICAL(::dl::Logger::get(), __VA_ARGS__)
+#define LOG_FLUSH() ::dl::Logger::get()->flush()

@@ -103,7 +103,7 @@
     ]
   },
   "tabular_demo": {
-    "batch_size": 8,
+    "batch_size": 256,
     "epochs": 2,
     "learning_rate": 0.05,
     "dataset_root": "data/tabular",
@@ -115,7 +115,7 @@
     "skip_header": true
   },
   "cifar10_classification": {
-    "batch_size": 8,
+    "batch_size": 256,
     "epochs": 1,
     "learning_rate": 0.001,
     "dataset_root": "data/cifar10",

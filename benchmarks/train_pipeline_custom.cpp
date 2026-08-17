@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -60,6 +61,8 @@ auto detections_from_batch(const dl::Tensor& tensor, float conf_threshold, int n
 
 int main()
 {
+    try
+    {
     std::srand(static_cast<unsigned int>(std::time(nullptr)));
 
     const nlohmann::json config = load_pipeline_config("voc_custom");
@@ -79,20 +82,27 @@ int main()
     LOG_INFO("[VOC CUSTOM PIPELINE] Starting on device: {}", gpu_count > 0 ? "GPU" : "CPU");
     LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} gradient_clip={} dataset_root={}", batch_size,
         total_epochs, learning_rate, gradient_clip, data_root.string());
+    LOG_FLUSH();
 
     DataPaths train_paths, val_paths, test_paths;
     split_dataset((data_root / "VOC2012").string(), train_paths, val_paths, test_paths, VOC_CLASSES);
 
+    LOG_INFO("Building VOC loaders and YOLOv1 ...");
+    LOG_FLUSH();
     CustomDataLoader train_loader(train_paths, batch_size, true, VOC_CLASSES);
     CustomDataLoader test_loader(test_paths, batch_size, false, VOC_CLASSES);
 
     YOLO custom_model(num_classes);
     Network trainer(custom_model.get_all_layers(), learning_rate, gradient_clip);
 
+    LOG_INFO("Moving {} YOLO layers to GPU ...", custom_model.get_all_layers().size());
+    LOG_FLUSH();
     for (auto& layer : custom_model.get_all_layers())
     {
         layer->to(dl::Device::GPU);
     }
+    LOG_INFO("YOLO on GPU. Train images={} test={}", train_loader.size(), test_loader.size());
+    LOG_FLUSH();
 
     auto get_lr = [learning_rate](int ep) -> float
     {
@@ -128,10 +138,17 @@ int main()
         std::optional<Batch> batches[2];
         bool has_batch[2] { false, false };
 
+        LOG_INFO("VOC epoch {}/{} train start lr={} batch={}", epoch, total_epochs, current_lr, batch_size);
+        LOG_FLUSH();
         if (train_loader.has_next())
         {
+            LOG_INFO("Loading first VOC train batch ...");
+            LOG_FLUSH();
             batches[0] = train_loader.get_batch(copy_streams[0].get());
             has_batch[0] = true;
+            LOG_INFO("First VOC batch images {} targets {}", batches[0]->images.describe(),
+                batches[0]->targets.describe());
+            LOG_FLUSH();
         }
 
         int slot = 0;
@@ -175,11 +192,19 @@ int main()
 
             epoch_train_loss += batch_loss;
             train_batches++;
+            if (train_batches == 1 || train_batches % 50 == 0)
+            {
+                LOG_INFO("VOC train epoch {} batch {} last_loss={:.4f} pred {}", epoch, train_batches, batch_loss,
+                    pred.describe());
+                LOG_FLUSH();
+            }
             slot = next;
         }
         CHECK_CUDA(cudaStreamSynchronize(copy_streams[0].get()));
         CHECK_CUDA(cudaStreamSynchronize(copy_streams[1].get()));
         float avg_train_loss = epoch_train_loss / static_cast<float>(std::max(1, train_batches));
+        LOG_INFO("VOC epoch {} train done ({} batches). Starting eval ...", epoch, train_batches);
+        LOG_FLUSH();
 
         for (auto& layer : custom_model.get_all_layers())
         {
@@ -212,6 +237,7 @@ int main()
 
         LOG_INFO("VOC Custom | Epoch [{}/{}] | Train Loss: {:.4f} | Test Loss: {:.4f} | mAP@0.5: {} | Time: {}s", epoch,
             total_epochs, avg_train_loss, avg_test_loss, map50, epoch_duration);
+        LOG_FLUSH();
 
         csv_file << epoch << ";" << avg_train_loss << ";" << avg_test_loss << ";" << map50 << ";" << epoch_duration
                  << "\n";
@@ -221,5 +247,13 @@ int main()
     std::string save_path = (results_dir / "yolov1_voc_custom_final.pt").string();
     trainer.save(save_path);
     LOG_INFO("Final model saved: {}", save_path);
+    LOG_FLUSH();
     return 0;
+    }
+    catch (const std::exception& exception)
+    {
+        LOG_ERROR("VOC custom pipeline failed: {}", exception.what());
+        LOG_FLUSH();
+        return 1;
+    }
 }
