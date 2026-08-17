@@ -3,7 +3,7 @@
 #include "DeepLearnLib/FusedCBR2d.hpp"
 #include "DeepLearnLib/MaxPool2d.hpp"
 #include "DeepLearnLib/Tensor.hpp"
-#include "DeepLearnLib/YOLO.hpp"
+#include "YOLO.hpp"
 
 #include <memory>
 #include <vector>

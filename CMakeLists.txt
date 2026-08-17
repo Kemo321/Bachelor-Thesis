@@ -245,6 +245,20 @@ endif()
 file(COPY "${CMAKE_SOURCE_DIR}/config" DESTINATION "${CMAKE_BINARY_DIR}")
 
 add_subdirectory(src)
+
+# Application models (YOLO, SimpleCNN) are not part of DeepLearnLib. They are
+# compiled here so tests and benchmarks can share one object without bloating
+# the core library.
+add_library(DeepLearnModels STATIC
+  benchmarks/models/YOLO.cpp
+  benchmarks/models/SimpleCNN.cpp)
+target_include_directories(DeepLearnModels PUBLIC "${CMAKE_SOURCE_DIR}/benchmarks/models")
+target_link_libraries(DeepLearnModels PUBLIC DeepLearnLib)
+set_target_properties(DeepLearnModels PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+if(NOT MSVC)
+  target_compile_definitions(DeepLearnModels PRIVATE _GLIBCXX_USE_CXX11_ABI=1)
+endif()
+
 if(Torch_FOUND)
   add_subdirectory(torch_baseline)
 endif()
@@ -254,13 +268,13 @@ if(OpenCV_FOUND)
 endif()
 
 # Tabular demo is non-vision: keep it available when OpenCV (and thus benchmarks/) is missing.
-if(NOT TARGET tabular_demo)
-  add_executable(tabular_demo benchmarks/tabular_demo.cpp)
-  target_link_libraries(tabular_demo PRIVATE DeepLearnLib nlohmann_json::nlohmann_json spdlog::spdlog)
-  target_include_directories(tabular_demo PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}/benchmarks")
+if(NOT TARGET train_tabular_custom)
+  add_executable(train_tabular_custom benchmarks/train_tabular_custom.cpp)
+  target_link_libraries(train_tabular_custom PRIVATE DeepLearnLib nlohmann_json::nlohmann_json spdlog::spdlog)
+  target_include_directories(train_tabular_custom PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}/benchmarks")
   file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}" _deeplearn_source_dir)
-  target_compile_definitions(tabular_demo PRIVATE DEEPLEARN_SOURCE_DIR="${_deeplearn_source_dir}")
-  set_target_properties(tabular_demo PROPERTIES
+  target_compile_definitions(train_tabular_custom PRIVATE DEEPLEARN_SOURCE_DIR="${_deeplearn_source_dir}")
+  set_target_properties(train_tabular_custom PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/benchmarks"
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON)

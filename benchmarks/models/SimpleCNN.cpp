@@ -1,4 +1,4 @@
-#include "DeepLearnLib/SimpleCNN.hpp"
+#include "SimpleCNN.hpp"
 
 #include "DeepLearnLib/Conv2d.hpp"
 #include "DeepLearnLib/Flatten.hpp"

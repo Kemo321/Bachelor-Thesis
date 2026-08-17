@@ -26,9 +26,9 @@ if(OpenCV_FOUND)
   target_link_libraries(dllib_tests PRIVATE ${OpenCV_LIBS})
 endif()
 
-target_include_directories(dllib_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(dllib_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} "${CMAKE_SOURCE_DIR}/benchmarks/models")
 
-target_link_libraries(dllib_tests PRIVATE DeepLearnLib GTest::gtest spdlog::spdlog)
+target_link_libraries(dllib_tests PRIVATE DeepLearnLib DeepLearnModels GTest::gtest spdlog::spdlog)
 
 if(CUDAToolkit_FOUND)
   target_link_libraries(dllib_tests PRIVATE CUDA::cudart)

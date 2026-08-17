@@ -1,15 +1,18 @@
 #pragma once
 
-#include <memory>
-#include <vector>
-
 #include "DeepLearnLib/Layer.hpp"
 #include "DeepLearnLib/Tensor.hpp"
 
+#include <memory>
+#include <vector>
+
 /**
- * YOLOv1 architecture on custom dl::Tensor layers (not a LibTorch module).
+ * YOLOv1 architecture assembled from generic DeepLearnLib layers.
  *
- * The backbone extracts features; the head flattens and predicts the 7x7 detection grid.
+ * This type lives outside the core library: DeepLearnLib provides Tensor, Layer,
+ * and kernels; applications compose them into networks. The backbone extracts
+ * features with fused Conv-BN-LeakyReLU blocks; the head flattens and predicts
+ * the 7x7 detection grid.
  */
 class YOLO
 {

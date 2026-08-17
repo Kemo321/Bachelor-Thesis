@@ -1,4 +1,4 @@
-#include "DeepLearnLib/YOLO.hpp"
+#include "YOLO.hpp"
 
 #include "DeepLearnLib/Dropout.hpp"
 #include "DeepLearnLib/Flatten.hpp"

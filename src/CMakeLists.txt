@@ -8,14 +8,12 @@ set(DEEPLEARN_SOURCES
     FullyConnected.cpp
     Flatten.cpp
     Network.cpp
-    YOLO.cpp
     YOLOLoss.cpp
     Profiler.cpp
     mAP.cpp
     Losses.cpp
     Softmax.cpp
     CSVLoader.cpp
-    SimpleCNN.cpp
     Logger.cpp
     Precision.cpp
     FusedCBR2d.cpp
