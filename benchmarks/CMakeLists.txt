@@ -58,7 +58,8 @@ set(TORCH_BENCH_TARGETS
     train_pipeline_torch_synthetic
     inference
     inference_bccd
-    inference_synthetic)
+    inference_synthetic
+    bench_micro_ops)
 
 if(TARGET TorchBaseline)
   add_executable(train_pipeline_torch train_pipeline_torch.cpp)
@@ -69,6 +70,7 @@ if(TARGET TorchBaseline)
   add_executable(inference inference.cpp)
   add_executable(inference_bccd inference_bccd.cpp)
   add_executable(inference_synthetic inference_synthetic.cpp)
+  add_executable(bench_micro_ops bench_micro_ops.cpp bench_micro_more.cpp)
 
   foreach(target ${TORCH_BENCH_TARGETS})
     target_link_libraries(
@@ -88,6 +90,7 @@ if(TARGET TorchBaseline)
   endforeach()
 
   target_link_libraries(bench_torch PRIVATE benchmark::benchmark benchmark::benchmark_main)
+  target_link_libraries(bench_micro_ops PRIVATE benchmark::benchmark benchmark::benchmark_main)
 else()
   message(STATUS "LibTorch baseline not available; skipping torch benchmark targets")
 endif()

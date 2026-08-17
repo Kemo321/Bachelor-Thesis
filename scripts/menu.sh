@@ -155,6 +155,7 @@ run_all() {
   run_optional inference_synthetic
   run_optional bench_custom --benchmark_min_time=0.1s
   run_optional bench_torch --benchmark_min_time=0.1s
+  run_optional bench_micro_ops --benchmark_min_time=0.5s --benchmark_counters_tabular=true
 
   echo "[menu] -- Metrics plots --"
   run_plots || echo "[menu] WARNING: plotting failed; continuing."
@@ -207,14 +208,15 @@ DeepLearnLib
   13) Plot metrics (CSV → PNG)
   14) Run all pipelines & generate plots
   15) Run Sanity Check (fast end-to-end test using sanity.json)
-  16) Exit
+  16) Run micro-benchmarks (custom vs Torch ops)
+  17) Exit
 
 EOF
 }
 
 while true; do
   print_menu
-  read -r -p "Select [0-16]: " choice
+  read -r -p "Select [0-17]: " choice
   case "${choice}" in
     0)
       run_setup_datasets || true
@@ -265,6 +267,9 @@ while true; do
       run_sanity_check
       ;;
     16)
+      run_bin bench_micro_ops --benchmark_min_time=0.5s --benchmark_counters_tabular=true || true
+      ;;
+    17)
       echo "[menu] Bye."
       exit 0
       ;;
