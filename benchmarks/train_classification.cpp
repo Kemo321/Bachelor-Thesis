@@ -6,12 +6,15 @@
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/Profiler.hpp"
 #include "DeepLearnLib/SimpleCNN.hpp"
+#include "DeepLearnLib/Tensor.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cuda_runtime.h>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -35,10 +38,10 @@ auto argmax_row(const std::vector<float>& values, int row, int cols) -> int
     return best;
 }
 
-auto batch_accuracy(const dl::Tensor& logits, const dl::Tensor& one_hot) -> float
+auto batch_accuracy(const dl::Tensor& logits, const dl::Tensor& one_hot, cudaStream_t stream = 0) -> float
 {
-    const std::vector<float> logit_host = logits.to_host();
-    const std::vector<float> target_host = one_hot.to_host();
+    const std::vector<float> logit_host = logits.to_host(stream);
+    const std::vector<float> target_host = one_hot.to_host(stream);
     const int batch = logits.get_shape()[0];
     const int classes = logits.get_shape()[1];
     int correct = 0;
@@ -50,6 +53,46 @@ auto batch_accuracy(const dl::Tensor& logits, const dl::Tensor& one_hot) -> floa
         }
     }
     return static_cast<float>(correct) / static_cast<float>(std::max(1, batch));
+}
+
+auto for_each_prefetched_batch(ClassificationLoader& loader,
+    const std::function<void(Batch&, int, cudaStream_t)>& step) -> int
+{
+    loader.reset();
+    dl::UniqueCudaStream streams[2];
+    std::optional<Batch> batches[2];
+    bool ready[2] { false, false };
+    if (loader.has_next())
+    {
+        batches[0] = loader.get_batch(streams[0].get());
+        ready[0] = true;
+    }
+
+    int slot = 0;
+    int count = 0;
+    while (ready[slot])
+    {
+        const int next = 1 - slot;
+        CHECK_CUDA(cudaStreamSynchronize(streams[slot].get()));
+        const dl::StreamGuard stream_guard(streams[slot].get());
+        step(*batches[slot], count, streams[slot].get());
+        ++count;
+        if (loader.has_next())
+        {
+            CHECK_CUDA(cudaStreamSynchronize(streams[next].get()));
+            batches[next] = loader.get_batch(streams[next].get());
+            ready[next] = true;
+        }
+        else
+        {
+            ready[next] = false;
+            batches[next].reset();
+        }
+        slot = next;
+    }
+    CHECK_CUDA(cudaStreamSynchronize(streams[0].get()));
+    CHECK_CUDA(cudaStreamSynchronize(streams[1].get()));
+    return count;
 }
 
 int main()
@@ -80,8 +123,15 @@ int main()
         ClassificationLoader train_loader(data_root.string(), train_split, batch_size, image_size, true);
         LOG_INFO("Scanning test split '{}' ...", test_split);
         LOG_FLUSH();
-        ClassificationLoader test_loader(data_root.string(), test_split, batch_size, image_size, false);
+        const std::vector<std::string> class_names = train_loader.class_names();
+        ClassificationLoader test_loader(
+            data_root.string(), test_split, batch_size, image_size, false, class_names);
         const int num_classes = train_loader.num_classes();
+        if (test_loader.num_classes() != num_classes)
+        {
+            throw std::runtime_error("CIFAR train/test class counts differ: train=" + std::to_string(num_classes)
+                + " test=" + std::to_string(test_loader.num_classes()));
+        }
         LOG_INFO("[CONFIG] classes={} train={} test={}", num_classes, train_loader.size(), test_loader.size());
         if (train_loader.size() != 50000 || test_loader.size() != 10000)
         {
@@ -126,55 +176,47 @@ int main()
 
             float train_loss = 0.0F;
             float train_acc = 0.0F;
-            int train_batches = 0;
-            train_loader.reset();
-            while (train_loader.has_next())
-            {
-                if (train_batches == 0)
+            const int train_batches = for_each_prefetched_batch(train_loader,
+                [&](Batch& batch, int index, cudaStream_t stream)
                 {
-                    LOG_INFO("Loading first train batch via OpenCV ...");
-                    LOG_FLUSH();
-                }
-                Batch batch = train_loader.get_batch();
-                if (train_batches == 0)
-                {
-                    LOG_INFO("First batch images {} targets {}", batch.images.describe(), batch.targets.describe());
-                    LOG_INFO("Running first forward (cuDNN algo pick happens here) ...");
-                    LOG_FLUSH();
-                }
-                dl::Tensor logits = model.forward_logits(batch.images);
-                if (train_batches == 0)
-                {
-                    LOG_INFO("First logits {} vs targets {}", logits.describe(), batch.targets.describe());
-                    LOG_FLUSH();
-                }
-                train_loss += CrossEntropyLoss::loss(batch.targets, logits).to_host().front();
-                train_acc += batch_accuracy(logits, batch.targets);
+                    if (index == 0)
+                    {
+                        LOG_INFO("First batch images {} targets {}", batch.images.describe(), batch.targets.describe());
+                        LOG_INFO("Running first forward (cuDNN algo pick happens here) ...");
+                        LOG_FLUSH();
+                    }
+                    dl::Tensor logits = model.forward_logits(batch.images, stream);
+                    if (index == 0)
+                    {
+                        LOG_INFO("First logits {} vs targets {}", logits.describe(), batch.targets.describe());
+                        LOG_FLUSH();
+                    }
+                    train_loss += CrossEntropyLoss::loss(batch.targets, logits).to_host(stream).front();
+                    train_acc += batch_accuracy(logits, batch.targets, stream);
 
-                dl::Tensor grad = trainer.clip_loss_gradient(CrossEntropyLoss::loss_derivative(batch.targets, logits));
-                auto layers = model.get_all_layers();
-                for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator)
-                {
-                    grad = (*iterator)->backward(grad);
-                }
-                trainer.clip_parameter_gradients();
-                for (auto& layer : layers)
-                {
-                    layer->step();
-                }
-                ++train_batches;
-                if (train_batches == 1 || train_batches % 50 == 0)
-                {
-                    const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                        std::chrono::steady_clock::now() - epoch_start)
-                                             .count();
-                    LOG_INFO("CIFAR-10 train epoch {} batch {}/{} (~{} images) last_loss={:.4f} elapsed={}s", epoch,
-                        train_batches, (train_loader.size() + static_cast<std::size_t>(batch_size) - 1U)
-                            / static_cast<std::size_t>(batch_size),
-                        train_batches * batch_size, train_loss / static_cast<float>(train_batches), elapsed);
-                    LOG_FLUSH();
-                }
-            }
+                    dl::Tensor grad =
+                        trainer.clip_loss_gradient(CrossEntropyLoss::loss_derivative(batch.targets, logits));
+                    auto layers = model.get_all_layers();
+                    for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator)
+                    {
+                        grad = (*iterator)->backward(grad, stream);
+                    }
+                    trainer.clip_parameter_gradients(stream);
+                    for (auto& layer : layers)
+                    {
+                        layer->step(stream);
+                    }
+                    if (index == 0 || (index + 1) % 50 == 0)
+                    {
+                        const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                            std::chrono::steady_clock::now() - epoch_start)
+                                                 .count();
+                        const int done = index + 1;
+                        LOG_INFO("CIFAR-10 train epoch {} batch {} last_loss={:.4f} elapsed={}s", epoch, done,
+                            train_loss / static_cast<float>(done), elapsed);
+                        LOG_FLUSH();
+                    }
+                });
 
             LOG_INFO("CIFAR-10 epoch {} train done ({} batches). Starting eval ...", epoch, train_batches);
             LOG_FLUSH();
@@ -185,21 +227,18 @@ int main()
 
             float test_loss = 0.0F;
             float test_acc = 0.0F;
-            int test_batches = 0;
-            test_loader.reset();
-            while (test_loader.has_next())
-            {
-                Batch batch = test_loader.get_batch();
-                dl::Tensor logits = model.forward_logits(batch.images);
-                test_loss += CrossEntropyLoss::loss(batch.targets, logits).to_host().front();
-                test_acc += batch_accuracy(logits, batch.targets);
-                ++test_batches;
-                if (test_batches == 1 || test_batches % 50 == 0)
+            const int test_batches = for_each_prefetched_batch(test_loader,
+                [&](Batch& batch, int index, cudaStream_t stream)
                 {
-                    LOG_INFO("CIFAR-10 eval epoch {} batch {}", epoch, test_batches);
-                    LOG_FLUSH();
-                }
-            }
+                    dl::Tensor logits = model.forward_logits(batch.images, stream);
+                    test_loss += CrossEntropyLoss::loss(batch.targets, logits).to_host(stream).front();
+                    test_acc += batch_accuracy(logits, batch.targets, stream);
+                    if (index == 0 || (index + 1) % 50 == 0)
+                    {
+                        LOG_INFO("CIFAR-10 eval epoch {} batch {}", epoch, index + 1);
+                        LOG_FLUSH();
+                    }
+                });
 
             const float gpu_ms = profiler.stop();
             const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(

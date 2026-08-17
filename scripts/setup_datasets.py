@@ -32,6 +32,8 @@ BCCD_ZIP_URL = "https://github.com/Shenggan/BCCD_Dataset/archive/refs/heads/mast
 BCCD_GIT_URL = "https://github.com/Shenggan/BCCD_Dataset.git"
 CIFAR10_URL = "https://s3.amazonaws.com/fast-ai-imageclas/cifar10.tgz"
 CIFAR10_MIN_TRAIN_IMAGES = 50_000
+CIFAR10_MIN_TEST_IMAGES = 10_000
+CIFAR10_CLASS_COUNT = 10
 
 SYNTH_CLASSES = ("square", "circle", "triangle")
 SYNTH_IMAGE_SIZE = 448
@@ -280,6 +282,12 @@ def count_files(path: Path, suffixes: tuple[str, ...] | None = None) -> int:
     return total
 
 
+def count_class_dirs(path: Path) -> int:
+    if not path.is_dir():
+        return 0
+    return sum(1 for child in path.iterdir() if child.is_dir())
+
+
 def _try_cv2():
     try:
         import cv2  # type: ignore
@@ -453,21 +461,43 @@ def setup_synthetic3(data_root: Path) -> None:
 
 def setup_cifar10(data_root: Path) -> None:
     train_dir = data_root / "cifar10" / "train"
+    test_dir = data_root / "cifar10" / "test"
     image_suffixes = (".jpg", ".jpeg", ".png")
-    existing = count_files(train_dir, image_suffixes)
-    if existing >= CIFAR10_MIN_TRAIN_IMAGES:
+    train_images = count_files(train_dir, image_suffixes)
+    test_images = count_files(test_dir, image_suffixes)
+    train_classes = count_class_dirs(train_dir)
+    test_classes = count_class_dirs(test_dir)
+    complete = (
+        train_images >= CIFAR10_MIN_TRAIN_IMAGES
+        and test_images >= CIFAR10_MIN_TEST_IMAGES
+        and train_classes >= CIFAR10_CLASS_COUNT
+        and test_classes >= CIFAR10_CLASS_COUNT
+    )
+    if complete:
         log("CIFAR-10 already present; skipping download")
         return
-    if existing > 0:
-        log(f"CIFAR-10 incomplete ({existing} train images); extracting again")
-        shutil.rmtree(data_root / "cifar10", ignore_errors=True)
+    log(
+        "CIFAR-10 incomplete "
+        f"(train {train_images} images / {train_classes} classes, "
+        f"test {test_images} images / {test_classes} classes); extracting again"
+    )
+    shutil.rmtree(data_root / "cifar10", ignore_errors=True)
     archive = data_root / "_downloads" / "cifar10.tgz"
     download_file((CIFAR10_URL,), archive)
     extract_archive(archive, data_root)
-    extracted = count_files(train_dir, image_suffixes)
-    if extracted < CIFAR10_MIN_TRAIN_IMAGES:
-        raise RuntimeError(f"CIFAR-10 extract did not produce {train_dir}")
-    log(f"CIFAR-10 ready at {data_root / 'cifar10'} ({extracted} train images)")
+    extracted_train = count_files(train_dir, image_suffixes)
+    extracted_test = count_files(test_dir, image_suffixes)
+    if extracted_train < CIFAR10_MIN_TRAIN_IMAGES or extracted_test < CIFAR10_MIN_TEST_IMAGES:
+        raise RuntimeError(
+            f"CIFAR-10 extract did not produce {train_dir} and {test_dir} "
+            f"(got {extracted_train} train / {extracted_test} test images)"
+        )
+    if count_class_dirs(train_dir) < CIFAR10_CLASS_COUNT or count_class_dirs(test_dir) < CIFAR10_CLASS_COUNT:
+        raise RuntimeError(f"CIFAR-10 extract did not produce {CIFAR10_CLASS_COUNT} class folders")
+    log(
+        f"CIFAR-10 ready at {data_root / 'cifar10'} "
+        f"({extracted_train} train / {extracted_test} test images)"
+    )
 
 
 def parse_args() -> argparse.Namespace:
