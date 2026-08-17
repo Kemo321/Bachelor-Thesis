@@ -401,9 +401,6 @@ auto FusedCBR2d::backward(const dl::Tensor& output_error_derivative, cudaStream_
         grad_conv.data(), bn_desc_.get(), gamma_.data(), gamma_grad_.data(), beta_grad_.data(), epsilon,
         save_mean_.data(), save_inv_var_.data()));
 
-    gamma_grad_.add_scaled_(gamma_, kWeightDecay);
-    beta_grad_.add_scaled_(beta_, kWeightDecay);
-
     caches_ready_ = false;
     return conv_.backward(grad_conv, stream);
 }
@@ -412,9 +409,10 @@ void FusedCBR2d::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("FusedCBR2d_Step");
     conv_.learning_rate = learning_rate;
+    conv_.gradient_clip = gradient_clip;
     conv_.step(stream);
-    gamma_.add_scaled_(gamma_grad_, -scaled_learning_rate());
-    beta_.add_scaled_(beta_grad_, -scaled_learning_rate());
+    gamma_.sgd_update_(gamma_grad_, scaled_learning_rate(), kWeightDecay, parameter_clip_bound());
+    beta_.sgd_update_(beta_grad_, scaled_learning_rate(), kWeightDecay, parameter_clip_bound());
 }
 
 void FusedCBR2d::clip_gradients(float abs_bound, cudaStream_t stream)

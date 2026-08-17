@@ -180,8 +180,6 @@ auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative, cudaStream
         bn_desc_.get(), gamma_.data(), gamma_grad_.data(), beta_grad_.data(), epsilon, save_mean_.data(),
         save_inv_var_.data()));
 
-    gamma_grad_.add_scaled_(gamma_, kWeightDecay);
-    beta_grad_.add_scaled_(beta_, kWeightDecay);
     input_cache_ready_ = false;
     return grad_input.as_view();
 }
@@ -190,8 +188,8 @@ void BatchNorm2d::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("BatchNorm2d_Step");
     const dl::StreamGuard stream_guard(stream);
-    gamma_.add_scaled_(gamma_grad_, -scaled_learning_rate());
-    beta_.add_scaled_(beta_grad_, -scaled_learning_rate());
+    gamma_.sgd_update_(gamma_grad_, scaled_learning_rate(), kWeightDecay, parameter_clip_bound());
+    beta_.sgd_update_(beta_grad_, scaled_learning_rate(), kWeightDecay, parameter_clip_bound());
 }
 
 void BatchNorm2d::clip_gradients(float abs_bound, cudaStream_t stream)

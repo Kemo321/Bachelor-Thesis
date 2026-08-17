@@ -308,6 +308,39 @@ namespace
         }
     }
 
+    __global__ void sgd_update_f32_kernel(float* weights, const float* grad, float lr, float decay, float clip,
+        int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index >= count)
+        {
+            return;
+        }
+        float update = grad[index] + (decay * weights[index]);
+        if (clip > 0.0F)
+        {
+            update = update < -clip ? -clip : (update > clip ? clip : update);
+        }
+        weights[index] -= lr * update;
+    }
+
+    __global__ void sgd_update_f16_kernel(__half* weights, const __half* grad, float lr, float decay, float clip,
+        int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index >= count)
+        {
+            return;
+        }
+        const float weight = __half2float(weights[index]);
+        float update = __half2float(grad[index]) + (decay * weight);
+        if (clip > 0.0F)
+        {
+            update = update < -clip ? -clip : (update > clip ? clip : update);
+        }
+        weights[index] = __float2half(weight - (lr * update));
+    }
+
     __global__ void add_row_f32_kernel(float* dst, const float* bias, int count, int features)
     {
         const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
@@ -360,10 +393,17 @@ namespace
 } // namespace
 
 #if DEEPLEARNLIB_ENABLE_CUDA
+namespace
+{
+constexpr std::size_t kCublasWorkspaceBytes = 64ULL * 1024ULL * 1024ULL;
+}
+
 CublasContext::CublasContext()
 {
     CHECK_CUBLAS(cublasCreate(&handle_));
     CHECK_CUBLAS(cublasSetMathMode(handle_, CUBLAS_TF32_TENSOR_OP_MATH));
+    CHECK_CUDA(cudaMalloc(&workspace_, kCublasWorkspaceBytes));
+    CHECK_CUBLAS(cublasSetWorkspace(handle_, workspace_, kCublasWorkspaceBytes));
 }
 
 CublasContext::~CublasContext()
@@ -372,6 +412,11 @@ CublasContext::~CublasContext()
     {
         static_cast<void>(cublasDestroy(handle_));
         handle_ = nullptr;
+    }
+    if (workspace_ != nullptr)
+    {
+        static_cast<void>(cudaFree(workspace_));
+        workspace_ = nullptr;
     }
 }
 
@@ -1111,6 +1156,33 @@ auto Tensor::add_scaled_(const Tensor& other, float scale) -> Tensor&
     {
         add_scaled_inplace_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
             data(), other.data(), scale, count);
+    }
+    CHECK_CUDA(cudaGetLastError());
+    return *this;
+#endif
+}
+
+auto Tensor::sgd_update_(const Tensor& grad, float lr, float decay, float clip) -> Tensor&
+{
+#if !DEEPLEARNLIB_ENABLE_CUDA
+    throw std::runtime_error("sgd_update_ requires CUDA support");
+#else
+    ensure_binary_op(grad, "sgd_update_");
+    if (size_ == 0)
+    {
+        return *this;
+    }
+
+    const int count = static_cast<int>(size_);
+    if (dtype_ == Dtype::Float16)
+    {
+        sgd_update_f16_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            half_data(), grad.half_data(), lr, decay, clip, count);
+    }
+    else
+    {
+        sgd_update_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            data(), grad.data(), lr, decay, clip, count);
     }
     CHECK_CUDA(cudaGetLastError());
     return *this;

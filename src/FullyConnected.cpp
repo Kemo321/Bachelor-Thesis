@@ -192,9 +192,7 @@ auto FullyConnected::backward(const dl::Tensor& output_error_derivative, cudaStr
     }
 
     input_cache_->matmul_into(*grad_output, weights_gradient_, true, false, inertia_);
-    weights_gradient_.add_scaled_(weights_, kWeightDecay);
     biases_gradient_.add_sum_rows_(*grad_output, inertia_);
-    biases_gradient_.add_scaled_(biases_, kWeightDecay);
 
     dl::Tensor& grad_input = dl::Tensor::ensure(grad_input_cache_, input_cache_->get_shape(), dl::Device::GPU,
         weights_.get_dtype());
@@ -207,8 +205,8 @@ void FullyConnected::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("FullyConnected_Step");
     const dl::StreamGuard stream_guard(stream);
-    weights_.add_scaled_(weights_gradient_, -scaled_learning_rate());
-    biases_.add_scaled_(biases_gradient_, -scaled_learning_rate());
+    weights_.sgd_update_(weights_gradient_, scaled_learning_rate(), kWeightDecay, parameter_clip_bound());
+    biases_.sgd_update_(biases_gradient_, scaled_learning_rate(), kWeightDecay, parameter_clip_bound());
 }
 
 void FullyConnected::clip_gradients(float abs_bound, cudaStream_t stream)

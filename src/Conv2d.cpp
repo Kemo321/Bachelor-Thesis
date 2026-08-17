@@ -633,9 +633,6 @@ auto Conv2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t st
     CHECK_CUDNN(cudnnConvolutionBackwardBias(handle, &alpha, output_desc_.get(), grad_output->data(),
         &beta_momentum, bias_desc_.get(), biases_gradient_.data()));
 
-    weights_gradient_.add_scaled_(weights_, kWeightDecay);
-    biases_gradient_.add_scaled_(biases_, kWeightDecay);
-
     input_cache_ready_ = false;
     return grad_input.as_view();
 }
@@ -644,8 +641,8 @@ void Conv2d::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("Conv2d_Step");
     const dl::StreamGuard stream_guard(stream);
-    weights_.add_scaled_(weights_gradient_, -scaled_learning_rate());
-    biases_.add_scaled_(biases_gradient_, -scaled_learning_rate());
+    weights_.sgd_update_(weights_gradient_, scaled_learning_rate(), kWeightDecay, parameter_clip_bound());
+    biases_.sgd_update_(biases_gradient_, scaled_learning_rate(), kWeightDecay, parameter_clip_bound());
 }
 
 void Conv2d::clip_gradients(float abs_bound, cudaStream_t stream)

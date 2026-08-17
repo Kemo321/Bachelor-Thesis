@@ -1188,17 +1188,16 @@ static void BM_YOLO_TrainStep_Custom(benchmark::State& state)
     Network trainer(model.get_all_layers(), 1e-4F, 10.0F);
     const dl::Tensor input = micro_gpu_tensor({ kMicroBatch, 3, kMicroImage, kMicroImage }, 0.1F);
     const dl::Tensor target = micro_gpu_tensor({ kMicroBatch, 7, 7, 30 }, 0.0F);
+    auto layers = model.get_all_layers();
     auto one_step = [&]()
     {
         dl::Tensor pred = model.forward(input);
         (void)YOLOLoss::loss(target, pred, 20);
         dl::Tensor grad = trainer.clip_loss_gradient(YOLOLoss::loss_derivative(target, pred, 20));
-        auto layers = model.get_all_layers();
         for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator)
         {
             grad = (*iterator)->backward(grad);
         }
-        trainer.clip_parameter_gradients();
         for (auto& layer : layers)
         {
             layer->step();

@@ -11,11 +11,6 @@
 #include <string>
 #include <vector>
 
-#include <thrust/device_ptr.h>
-#include <thrust/execution_policy.h>
-#include <thrust/functional.h>
-#include <thrust/reduce.h>
-
 namespace
 {
 
@@ -229,6 +224,32 @@ __global__ void yolo_loss_backward_kernel(const float* pred, const float* tgt, f
     }
 }
 
+__global__ void yolo_mean_loss_kernel(const float* cell_loss, float* mean_loss, int cell_count, float inv_batch)
+{
+    __shared__ float shared_sum[kThreads];
+    float partial = 0.0F;
+    for (int index = static_cast<int>(threadIdx.x); index < cell_count; index += static_cast<int>(blockDim.x))
+    {
+        partial += cell_loss[index];
+    }
+    shared_sum[threadIdx.x] = partial;
+    __syncthreads();
+
+    for (int stride = static_cast<int>(blockDim.x) / 2; stride > 0; stride >>= 1)
+    {
+        if (static_cast<int>(threadIdx.x) < stride)
+        {
+            shared_sum[threadIdx.x] += shared_sum[threadIdx.x + stride];
+        }
+        __syncthreads();
+    }
+
+    if (threadIdx.x == 0)
+    {
+        mean_loss[0] = shared_sum[0] * inv_batch;
+    }
+}
+
 auto launch_config(int count) -> dim3
 {
     return dim3(static_cast<unsigned int>(std::max(1, ceil_div(count, kThreads))));
@@ -272,6 +293,7 @@ struct YoloWorkspace
 {
     std::optional<dl::Tensor> cell_loss;
     std::optional<dl::Tensor> grad;
+    std::optional<dl::Tensor> scalar;
 };
 
 auto yolo_workspace() -> YoloWorkspace&
@@ -333,13 +355,11 @@ auto YOLOLoss::loss(const dl::Tensor& target, const dl::Tensor& prediction, int 
         cell_loss.data(), batch_size, final_dim);
     CHECK_CUDA(cudaGetLastError());
 
-    auto begin = thrust::device_pointer_cast(cell_loss.data());
-    const float total = thrust::reduce(thrust::cuda::par.on(stream), begin,
-        begin + static_cast<std::ptrdiff_t>(cell_count), 0.0F, thrust::plus<float>());
+    dl::Tensor& mean_loss = dl::Tensor::ensure(yolo_workspace().scalar, { 1 }, dl::Device::GPU);
+    yolo_mean_loss_kernel<<<1, kThreads, 0, stream>>>(cell_loss.data(), mean_loss.data(), cell_count,
+        dl::safe_inv(static_cast<float>(batch_size)));
     CHECK_CUDA(cudaGetLastError());
-
-    const float mean_loss = dl::safe_div(total, static_cast<float>(batch_size));
-    return dl::Tensor::from_host({ 1 }, { mean_loss }, dl::Device::GPU, stream);
+    return mean_loss.as_view();
 }
 
 auto YOLOLoss::loss_derivative(const dl::Tensor& target, const dl::Tensor& prediction, int num_classes,

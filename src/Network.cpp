@@ -72,12 +72,22 @@ Network::Network(std::vector<std::shared_ptr<Layer>> layers_vector, float learni
             throw std::runtime_error("Network cannot contain a null layer");
         }
         layer_pointer->learning_rate = learning_rate_val;
+        layer_pointer->gradient_clip = gradient_clip_;
     }
 }
 
 void Network::set_gradient_clip(float abs_bound)
 {
     gradient_clip_ = abs_bound;
+    sync_layer_optimizer_state();
+}
+
+auto Network::sync_layer_optimizer_state() -> void
+{
+    for (auto& layer : layers_)
+    {
+        layer->gradient_clip = gradient_clip_;
+    }
 }
 
 auto Network::gradient_clip() const -> float
@@ -89,10 +99,17 @@ auto Network::clip_loss_gradient(const dl::Tensor& gradient) const -> dl::Tensor
 {
     if (gradient_clip_ <= 0.0F)
     {
-        return gradient.view(gradient.get_shape());
+        return gradient.as_view();
     }
     const float clip = dl::scaled_gradient_clip(gradient_clip_);
-    return gradient.clamp(-clip, clip);
+    dl::Tensor& clipped = dl::Tensor::ensure(loss_grad_clip_cache_, gradient.get_shape(), dl::Device::GPU,
+        gradient.get_dtype());
+    if (gradient.get_size() > 0)
+    {
+        dl::memcpy_d2d_on_current(clipped.data(), gradient.data(), gradient.nbytes());
+        clipped.clamp_(-clip, clip);
+    }
+    return clipped.as_view();
 }
 
 void Network::clip_parameter_gradients(cudaStream_t stream)
@@ -138,12 +155,18 @@ auto Network::fit(const dl::Tensor& x_train, const dl::Tensor& y_train, int epoc
     {
         dl::Tensor prediction = forward(x_train);
 
-        const std::vector<float> loss_host = YOLOLoss::loss(y_train, prediction).to_host();
-        if (loss_host.empty())
+        constexpr int log_interval = 10;
+        const bool should_log = verbose != 0 && (epoch_idx % log_interval == 0 || epoch_idx == epochs - 1);
+        float loss_value = 0.0F;
+        if (should_log)
         {
-            throw std::runtime_error("YOLOLoss::loss returned an empty tensor");
+            const std::vector<float> loss_host = YOLOLoss::loss(y_train, prediction).to_host();
+            if (loss_host.empty())
+            {
+                throw std::runtime_error("YOLOLoss::loss returned an empty tensor");
+            }
+            loss_value = loss_host.front();
         }
-        const float loss_value = loss_host.front();
 
         dl::Tensor gradient_error = clip_loss_gradient(YOLOLoss::loss_derivative(y_train, prediction));
 
@@ -161,14 +184,12 @@ auto Network::fit(const dl::Tensor& x_train, const dl::Tensor& y_train, int epoc
 #endif
         }
 
-        clip_parameter_gradients();
         for (auto& layer : layers_)
         {
             layer->step();
         }
 
-        constexpr int log_interval = 10;
-        if (verbose != 0 && (epoch_idx % log_interval == 0 || epoch_idx == epochs - 1))
+        if (should_log)
         {
             dl::log_info_message("Epoch " + std::to_string(epoch_idx) + "/" + std::to_string(epochs)
                 + " | Loss: " + std::to_string(loss_value));

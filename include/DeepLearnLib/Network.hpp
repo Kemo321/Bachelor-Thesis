@@ -6,6 +6,7 @@
 #include "DeepLearnLib/YOLOLoss.hpp"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -29,7 +30,10 @@ public:
     void clip_parameter_gradients(cudaStream_t stream = 0);
 
 private:
+    auto sync_layer_optimizer_state() -> void;
+
     std::vector<std::shared_ptr<Layer>> layers_;
     YOLOLoss criterion_;
     float gradient_clip_ { dl::kDefaultGradientClip };
+    mutable std::optional<dl::Tensor> loss_grad_clip_cache_;
 };

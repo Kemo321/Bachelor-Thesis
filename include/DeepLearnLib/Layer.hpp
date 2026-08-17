@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DeepLearnLib/SafeMath.hpp"
+#include "DeepLearnLib/Precision.hpp"
 #include "DeepLearnLib/Tensor.hpp"
 #include <cmath>
 #include <map>
@@ -13,6 +14,7 @@ class Layer
 {
 public:
     float learning_rate = 0.001F;
+    float gradient_clip = 0.0F;
 
     virtual ~Layer() = default;
 
@@ -45,6 +47,11 @@ public:
     {
         const float scale = dl::loss_scale();
         return learning_rate / fmaxf(scale, dl::kSafeEps);
+    }
+
+    [[nodiscard]] auto parameter_clip_bound() const -> float
+    {
+        return gradient_clip > 0.0F ? dl::scaled_gradient_clip(gradient_clip) : 0.0F;
     }
 
     virtual auto get_parameters() -> std::map<std::string, dl::Tensor>

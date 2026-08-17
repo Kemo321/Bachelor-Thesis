@@ -94,6 +94,7 @@ private:
     ~CublasContext();
 
     cublasHandle_t handle_ { nullptr };
+    void* workspace_ { nullptr };
 };
 
 auto get_cublas_handle() -> cublasHandle_t;
@@ -253,6 +254,11 @@ public:
     auto mul_into(const Tensor& other, Tensor& out) const -> Tensor&;
     /** In-place: this += scale * other. No allocation. */
     auto add_scaled_(const Tensor& other, float scale) -> Tensor&;
+    /**
+     * Fused SGD: this -= lr * clip(grad + decay * this, [-clip, clip]).
+     * `clip <= 0` disables clipping. No extra buffers.
+     */
+    auto sgd_update_(const Tensor& grad, float lr, float decay, float clip = 0.0F) -> Tensor&;
     /** In-place: each row of [B, C] += bias of shape [1, C] or [C]. */
     auto add_row_(const Tensor& bias) -> Tensor&;
     /**
