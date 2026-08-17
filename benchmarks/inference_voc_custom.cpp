@@ -63,6 +63,7 @@ int main(int argc, char* argv[])
     }
 
     LOG_INFO("[VOC CUSTOM INFERENCE] model={} images={}", model_path.string(), images.size());
+    std::size_t saved = 0;
     for (const auto& image_file : images)
     {
         cv::Mat img = cv::imread(image_file.string());
@@ -79,7 +80,8 @@ int main(int argc, char* argv[])
         draw_detections(img, final_detections, VOC_CLASSES, cv::Scalar(0, 0, 255));
         const std::string save_path = (out_dir / ("inference_" + image_file.filename().string())).string();
         cv::imwrite(save_path, img);
-        LOG_INFO("Image ({} clean detections) saved at: {}", final_detections.size(), save_path);
+        ++saved;
     }
+    LOG_INFO("Successfully processed and saved {} images.", saved);
     return 0;
 }

@@ -64,6 +64,7 @@ int main()
     std::shuffle(sample_images.begin(), sample_images.end(), rng);
     sample_images.resize(std::min<std::size_t>(30, sample_images.size()));
 
+    std::size_t saved = 0;
     for (const auto& img_path : sample_images)
     {
         cv::Mat img = cv::imread(img_path);
@@ -83,7 +84,8 @@ int main()
         draw_detections(img, final_det, SYNTH_CLASSES, cv::Scalar(0, 255, 0));
         const std::string filename = fs::path(img_path).filename().string();
         cv::imwrite((out_dir / ("torch_" + filename)).string(), img);
-        LOG_INFO("Wrote {}", (out_dir / ("torch_" + filename)).string());
+        ++saved;
     }
+    LOG_INFO("Successfully processed and saved {} images.", saved);
     return 0;
 }

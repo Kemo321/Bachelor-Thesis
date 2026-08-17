@@ -81,6 +81,11 @@ auto log_info_message(const std::string& message) -> void
     Logger::get()->info("{}", message);
 }
 
+auto log_debug_message(const std::string& message) -> void
+{
+    Logger::get()->debug("{}", message);
+}
+
 auto log_flush() -> void
 {
     Logger::get()->flush();

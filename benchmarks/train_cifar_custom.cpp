@@ -117,13 +117,8 @@ int main()
         LOG_INFO("[CIFAR-10 CLASSIFICATION] Starting on device: {}", gpu_count > 0 ? "GPU" : "CPU");
         LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} gradient_clip={} dataset_root={}", batch_size,
             total_epochs, learning_rate, gradient_clip, data_root.string());
-        LOG_FLUSH();
 
-        LOG_INFO("Scanning train split '{}' ...", train_split);
-        LOG_FLUSH();
         ClassificationLoader train_loader(data_root.string(), train_split, batch_size, image_size, true);
-        LOG_INFO("Scanning test split '{}' ...", test_split);
-        LOG_FLUSH();
         const std::vector<std::string> class_names = train_loader.class_names();
         ClassificationLoader test_loader(
             data_root.string(), test_split, batch_size, image_size, false, class_names);
@@ -139,21 +134,17 @@ int main()
             LOG_WARN("CIFAR-10 expected 50000 train / 10000 test images; got {} / {}. Incomplete extract?",
                 train_loader.size(), test_loader.size());
         }
-        LOG_FLUSH();
 
-        LOG_INFO("Constructing SimpleCNN ...");
-        LOG_FLUSH();
         SimpleCNN model(num_classes, image_size);
         Network trainer(model.get_all_layers(), learning_rate, gradient_clip);
-        LOG_INFO("Moving {} layers to GPU ...", model.get_all_layers().size());
-        LOG_FLUSH();
         for (auto& layer : model.get_all_layers())
         {
             layer->to(dl::Device::GPU);
             layer->learning_rate = learning_rate;
             layer->train();
         }
-        LOG_INFO("Model on GPU. Opening metrics at {}", (results_dir / "metrics_custom.csv").string());
+        LOG_INFO("Model on GPU ({} layers). Metrics: {}", model.get_all_layers().size(),
+            (results_dir / "metrics_custom.csv").string());
         LOG_FLUSH();
 
         fs::create_directories(results_dir);
@@ -165,9 +156,6 @@ int main()
         {
             auto epoch_start = std::chrono::steady_clock::now();
             profiler.start();
-            LOG_INFO("CIFAR-10 epoch {}/{} train start ({} images, batch {})", epoch, total_epochs, train_loader.size(),
-                batch_size);
-            LOG_FLUSH();
 
             for (auto& layer : model.get_all_layers())
             {
@@ -180,18 +168,7 @@ int main()
             const int train_batches = for_each_prefetched_batch(train_loader,
                 [&](Batch& batch, int index, cudaStream_t stream)
                 {
-                    if (index == 0)
-                    {
-                        LOG_INFO("First batch images {} targets {}", batch.images.describe(), batch.targets.describe());
-                        LOG_INFO("Running first forward (cuDNN algo pick happens here) ...");
-                        LOG_FLUSH();
-                    }
                     dl::Tensor logits = model.forward_logits(batch.images, stream);
-                    if (index == 0)
-                    {
-                        LOG_INFO("First logits {} vs targets {}", logits.describe(), batch.targets.describe());
-                        LOG_FLUSH();
-                    }
                     train_loss += CrossEntropyLoss::loss(batch.targets, logits).to_host(stream).front();
                     train_acc += batch_accuracy(logits, batch.targets, stream);
 
@@ -212,14 +189,12 @@ int main()
                             std::chrono::steady_clock::now() - epoch_start)
                                                  .count();
                         const int done = index + 1;
-                        LOG_INFO("CIFAR-10 train epoch {} batch {} last_loss={:.4f} elapsed={}s", epoch, done,
+                        LOG_DEBUG("CIFAR-10 train epoch {} batch {} last_loss={:.4f} elapsed={}s", epoch, done,
                             train_loss / static_cast<float>(done), elapsed);
-                        LOG_FLUSH();
                     }
                 });
 
-            LOG_INFO("CIFAR-10 epoch {} train done ({} batches). Starting eval ...", epoch, train_batches);
-            LOG_FLUSH();
+            LOG_DEBUG("CIFAR-10 epoch {} train done ({} batches). Starting eval ...", epoch, train_batches);
             for (auto& layer : model.get_all_layers())
             {
                 layer->eval();
@@ -228,16 +203,11 @@ int main()
             float test_loss = 0.0F;
             float test_acc = 0.0F;
             const int test_batches = for_each_prefetched_batch(test_loader,
-                [&](Batch& batch, int index, cudaStream_t stream)
+                [&](Batch& batch, int, cudaStream_t stream)
                 {
                     dl::Tensor logits = model.forward_logits(batch.images, stream);
                     test_loss += CrossEntropyLoss::loss(batch.targets, logits).to_host(stream).front();
                     test_acc += batch_accuracy(logits, batch.targets, stream);
-                    if (index == 0 || (index + 1) % 50 == 0)
-                    {
-                        LOG_INFO("CIFAR-10 eval epoch {} batch {}", epoch, index + 1);
-                        LOG_FLUSH();
-                    }
                 });
 
             const float gpu_ms = profiler.stop();

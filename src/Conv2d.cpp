@@ -454,7 +454,7 @@ auto Conv2d::select_algorithms() -> void
 {
     const auto handle = dl::get_cudnn_handle();
     const size_t budget = workspace_budget();
-    dl::log_info_message(std::string("Conv2d selecting cuDNN algos in=")
+    dl::log_debug_message(std::string("Conv2d selecting cuDNN algos in=")
         + std::to_string(input_shape_cache_.empty() ? 0 : input_shape_cache_[0]) + "x"
         + std::to_string(input_shape_cache_.size() > 1 ? input_shape_cache_[1] : 0) + "x"
         + std::to_string(input_shape_cache_.size() > 2 ? input_shape_cache_[2] : 0) + "x"
@@ -510,11 +510,10 @@ auto Conv2d::select_algorithms() -> void
         &bwd_filter_bytes));
     ensure_workspace(std::max({ fwd_bytes, bwd_data_bytes, bwd_filter_bytes }));
     algorithms_selected_ = true;
-    dl::log_info_message(std::string("Conv2d algos ready fwd=") + std::to_string(static_cast<int>(fwd_algo_))
+    dl::log_debug_message(std::string("Conv2d algos ready fwd=") + std::to_string(static_cast<int>(fwd_algo_))
         + " bwd_data=" + std::to_string(static_cast<int>(bwd_data_algo_)) + " bwd_filter="
         + std::to_string(static_cast<int>(bwd_filter_algo_)) + " workspace="
         + std::to_string(workspace_.size() / (1024U * 1024U)) + " MiB");
-    dl::log_flush();
 }
 
 auto Conv2d::ensure_workspace(size_t bytes) -> void

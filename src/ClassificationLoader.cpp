@@ -114,10 +114,9 @@ ClassificationLoader::ClassificationLoader(std::string dataset_root, std::string
     {
         throw std::runtime_error("ClassificationLoader found no images in " + split_root_);
     }
-    LOG_INFO("ClassificationLoader {} classes={} images={} batch={} image_size={} shuffle={} decode_workers={}",
+    LOG_DEBUG("ClassificationLoader {} classes={} images={} batch={} image_size={} shuffle={} decode_workers={}",
         split_root_, class_names_.size(), samples_.size(), batch_size_, image_size_, shuffle_,
         dl::parallel_worker_count(batch_size_));
-    LOG_FLUSH();
     reset();
 }
 

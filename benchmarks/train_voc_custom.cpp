@@ -83,26 +83,22 @@ int main()
         LOG_INFO("[VOC CUSTOM PIPELINE] Starting on device: {}", gpu_count > 0 ? "GPU" : "CPU");
         LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} gradient_clip={} dataset_root={}", batch_size,
             total_epochs, learning_rate, gradient_clip, data_root.string());
-        LOG_FLUSH();
 
         DataPaths train_paths, val_paths, test_paths;
         split_dataset((data_root / "VOC2012").string(), train_paths, val_paths, test_paths, VOC_CLASSES);
 
-        LOG_INFO("Building VOC loaders and YOLOv1 ...");
-        LOG_FLUSH();
         CustomDataLoader train_loader(train_paths, batch_size, true, VOC_CLASSES);
         CustomDataLoader test_loader(test_paths, batch_size, false, VOC_CLASSES);
 
         YOLO custom_model(num_classes);
         Network trainer(custom_model.get_all_layers(), learning_rate, gradient_clip);
 
-        LOG_INFO("Moving {} YOLO layers to GPU ...", custom_model.get_all_layers().size());
-        LOG_FLUSH();
         for (auto& layer : custom_model.get_all_layers())
         {
             layer->to(dl::Device::GPU);
         }
-        LOG_INFO("YOLO on GPU. Train images={} test={}", train_loader.size(), test_loader.size());
+        LOG_INFO("YOLO on GPU ({} layers). Train images={} test={}", custom_model.get_all_layers().size(),
+            train_loader.size(), test_loader.size());
         LOG_FLUSH();
 
         auto get_lr = [learning_rate](int ep) -> float
@@ -139,17 +135,10 @@ int main()
             std::optional<Batch> batches[2];
             bool has_batch[2] { false, false };
 
-            LOG_INFO("VOC epoch {}/{} train start lr={} batch={}", epoch, total_epochs, current_lr, batch_size);
-            LOG_FLUSH();
             if (train_loader.has_next())
             {
-                LOG_INFO("Loading first VOC train batch ...");
-                LOG_FLUSH();
                 batches[0] = train_loader.get_batch(copy_streams[0].get());
                 has_batch[0] = true;
-                LOG_INFO("First VOC batch images {} targets {}", batches[0]->images.describe(),
-                    batches[0]->targets.describe());
-                LOG_FLUSH();
             }
 
             int slot = 0;
@@ -182,9 +171,8 @@ int main()
                 train_batches++;
                 if (train_batches == 1 || train_batches % 50 == 0)
                 {
-                    LOG_INFO("VOC train epoch {} batch {} last_loss={:.4f} pred {}", epoch, train_batches, batch_loss,
+                    LOG_DEBUG("VOC train epoch {} batch {} last_loss={:.4f} pred {}", epoch, train_batches, batch_loss,
                         pred.describe());
-                    LOG_FLUSH();
                 }
 
                 if (train_loader.has_next())
@@ -203,8 +191,7 @@ int main()
             CHECK_CUDA(cudaStreamSynchronize(copy_streams[0].get()));
             CHECK_CUDA(cudaStreamSynchronize(copy_streams[1].get()));
             float avg_train_loss = epoch_train_loss / static_cast<float>(std::max(1, train_batches));
-            LOG_INFO("VOC epoch {} train done ({} batches). Starting eval ...", epoch, train_batches);
-            LOG_FLUSH();
+            LOG_DEBUG("VOC epoch {} train done ({} batches). Starting eval ...", epoch, train_batches);
 
             for (auto& layer : custom_model.get_all_layers())
             {
