@@ -3,8 +3,11 @@
 #include "DeepLearnLib/Tensor.hpp"
 
 #include <cstddef>
+#include <cstdint>
+#include <future>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 extern const std::vector<std::string> VOC_CLASSES_DEFAULT;
@@ -45,13 +48,20 @@ struct Batch
  * Sequential/shuffled mini-batch loader (OpenCV decode + dl::Tensor upload).
  *
  * Training applies affine scale/translation and HSV jitter on the CPU, then
- * uploads CHW images and YOLO targets with from_host.
+ * uploads CHW images and YOLO targets with from_host. Decode uses a bounded
+ * thread pool and the next host batch is prefetched during GPU compute.
  */
 class CustomDataLoader
 {
 public:
     CustomDataLoader(const DataPaths& paths, int batch_size, bool is_train,
         const std::vector<std::string>& class_names = VOC_CLASSES_DEFAULT);
+    ~CustomDataLoader();
+
+    CustomDataLoader(const CustomDataLoader&) = delete;
+    auto operator=(const CustomDataLoader&) -> CustomDataLoader& = delete;
+    CustomDataLoader(CustomDataLoader&&) = delete;
+    auto operator=(CustomDataLoader&&) -> CustomDataLoader& = delete;
 
     auto reset() -> void;
     [[nodiscard]] auto has_next() const -> bool;
@@ -60,6 +70,14 @@ public:
     [[nodiscard]] auto batch_size() const -> int;
 
 private:
+    struct HostBatch
+    {
+        int n { 0 };
+        int attributes { 0 };
+        std::vector<float> images;
+        std::vector<float> targets;
+    };
+
     DataPaths paths_;
     int batch_size_;
     bool is_train_;
@@ -68,7 +86,14 @@ private:
     std::size_t cursor_;
     std::vector<std::size_t> order_;
     std::mt19937 rng_;
+    std::future<HostBatch> prefetch_;
 
     auto load_sample(std::size_t sample_index, std::vector<float>& image_chw, std::vector<float>& target,
-        std::mt19937& rng) -> void;
+        std::mt19937& rng) const -> void;
+    auto take_job() -> std::pair<std::vector<std::size_t>, std::vector<std::uint32_t>>;
+    [[nodiscard]] auto decode_job(std::vector<std::size_t> sample_indices, std::vector<std::uint32_t> rng_seeds) const
+        -> HostBatch;
+    auto upload_host_batch(HostBatch host, cudaStream_t stream) const -> Batch;
+    auto launch_prefetch() -> void;
+    auto join_prefetch() -> void;
 };

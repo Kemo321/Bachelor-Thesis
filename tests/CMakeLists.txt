@@ -20,6 +20,12 @@ add_executable(
   test_profiler_map.cpp
   test_simplecnn.cpp)
 
+if(OpenCV_FOUND)
+  target_sources(dllib_tests PRIVATE test_classification_loader.cpp)
+  target_include_directories(dllib_tests PRIVATE ${OpenCV_INCLUDE_DIRS})
+  target_link_libraries(dllib_tests PRIVATE ${OpenCV_LIBS})
+endif()
+
 target_include_directories(dllib_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(dllib_tests PRIVATE DeepLearnLib GTest::gtest spdlog::spdlog)

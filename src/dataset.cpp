@@ -1,6 +1,7 @@
 #include "DeepLearnLib/dataset.hpp"
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Nvtx.hpp"
+#include "DeepLearnLib/ParallelFor.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -14,6 +15,7 @@
 #include <random>
 #include <stdexcept>
 #include <unordered_map>
+#include <utility>
 
 const std::vector<std::string> VOC_CLASSES_DEFAULT = {
     "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow",
@@ -328,8 +330,14 @@ CustomDataLoader::CustomDataLoader(const DataPaths& paths, int batch_size, bool 
     reset();
 }
 
+CustomDataLoader::~CustomDataLoader()
+{
+    join_prefetch();
+}
+
 auto CustomDataLoader::reset() -> void
 {
+    join_prefetch();
     cursor_ = 0;
     order_.resize(paths_.images.size());
     std::iota(order_.begin(), order_.end(), 0);
@@ -337,11 +345,12 @@ auto CustomDataLoader::reset() -> void
     {
         std::shuffle(order_.begin(), order_.end(), rng_);
     }
+    launch_prefetch();
 }
 
 auto CustomDataLoader::has_next() const -> bool
 {
-    return cursor_ < order_.size();
+    return prefetch_.valid() || cursor_ < order_.size();
 }
 
 auto CustomDataLoader::size() const -> std::size_t
@@ -355,7 +364,7 @@ auto CustomDataLoader::batch_size() const -> int
 }
 
 auto CustomDataLoader::load_sample(std::size_t sample_index, std::vector<float>& image_chw, std::vector<float>& target,
-    std::mt19937& rng) -> void
+    std::mt19937& rng) const -> void
 {
     const std::size_t image_elems = static_cast<std::size_t>(IMAGE_CHANNELS * img_size_ * img_size_);
     image_chw.assign(image_elems, 0.0F);
@@ -395,79 +404,119 @@ auto CustomDataLoader::load_sample(std::size_t sample_index, std::vector<float>&
     encode_targets(paths_.labels[sample_index], is_train_, scale, dx, dy, num_classes_, target);
 }
 
-auto CustomDataLoader::get_batch(cudaStream_t stream) -> Batch
+auto CustomDataLoader::take_job() -> std::pair<std::vector<std::size_t>, std::vector<std::uint32_t>>
 {
-    const dl::NvtxRange nvtx_range("DataLoader_GetBatch");
-    if (!has_next())
+    std::vector<std::size_t> sample_indices;
+    std::vector<std::uint32_t> rng_seeds;
+    if (cursor_ >= order_.size())
     {
-        throw std::runtime_error("CustomDataLoader::get_batch called with no remaining samples");
+        return { sample_indices, rng_seeds };
     }
-
     const std::size_t remaining = order_.size() - cursor_;
     const int this_batch = static_cast<int>(std::min(remaining, static_cast<std::size_t>(batch_size_)));
-    const int attributes = BOXES_PER_CELL * BOX_PARAMS + num_classes_;
-    const std::size_t image_elems = static_cast<std::size_t>(IMAGE_CHANNELS * img_size_ * img_size_);
-    const std::size_t target_elems = static_cast<std::size_t>(GRID_SIZE * GRID_SIZE * attributes);
-
-    std::vector<float> images_host(static_cast<std::size_t>(this_batch) * image_elems, 0.0F);
-    std::vector<float> targets_host(static_cast<std::size_t>(this_batch) * target_elems, 0.0F);
-    std::vector<std::size_t> sample_indices(static_cast<std::size_t>(this_batch));
-    std::vector<std::uint32_t> rng_seeds(static_cast<std::size_t>(this_batch));
+    sample_indices.resize(static_cast<std::size_t>(this_batch));
+    rng_seeds.resize(static_cast<std::size_t>(this_batch));
     for (int batch_idx = 0; batch_idx < this_batch; ++batch_idx)
     {
         sample_indices[static_cast<std::size_t>(batch_idx)] = order_[cursor_++];
         rng_seeds[static_cast<std::size_t>(batch_idx)] = rng_();
     }
+    return { std::move(sample_indices), std::move(rng_seeds) };
+}
 
-    std::vector<std::future<void>> workers;
-    workers.reserve(static_cast<std::size_t>(this_batch));
-    for (int batch_idx = 0; batch_idx < this_batch; ++batch_idx)
+auto CustomDataLoader::decode_job(std::vector<std::size_t> sample_indices, std::vector<std::uint32_t> rng_seeds) const
+    -> HostBatch
+{
+    HostBatch host;
+    host.n = static_cast<int>(sample_indices.size());
+    host.attributes = BOXES_PER_CELL * BOX_PARAMS + num_classes_;
+    if (host.n == 0)
     {
-        workers.emplace_back(std::async(std::launch::async,
-            [this, batch_idx, image_elems, target_elems, &images_host, &targets_host, &sample_indices, &rng_seeds]()
-            {
-                std::mt19937 local_rng(rng_seeds[static_cast<std::size_t>(batch_idx)]);
-                std::vector<float> sample_image;
-                std::vector<float> sample_target;
-                load_sample(sample_indices[static_cast<std::size_t>(batch_idx)], sample_image, sample_target,
-                    local_rng);
-
-                const auto image_offset = static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(image_elems);
-                const auto target_offset =
-                    static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(target_elems);
-                if (sample_image.size() == image_elems)
-                {
-                    std::copy(sample_image.begin(), sample_image.end(), images_host.begin() + image_offset);
-                }
-                if (sample_target.size() == target_elems)
-                {
-                    std::copy(sample_target.begin(), sample_target.end(), targets_host.begin() + target_offset);
-                }
-            }));
+        return host;
     }
 
-    std::exception_ptr first_error;
-    for (auto& worker : workers)
-    {
-        try
+    const std::size_t image_elems = static_cast<std::size_t>(IMAGE_CHANNELS * img_size_ * img_size_);
+    const std::size_t target_elems = static_cast<std::size_t>(GRID_SIZE * GRID_SIZE * host.attributes);
+    host.images.assign(static_cast<std::size_t>(host.n) * image_elems, 0.0F);
+    host.targets.assign(static_cast<std::size_t>(host.n) * target_elems, 0.0F);
+
+    dl::parallel_for(host.n,
+        [this, &sample_indices, &rng_seeds, &host, image_elems, target_elems](int batch_idx)
         {
-            worker.get();
-        }
-        catch (...)
-        {
-            if (!first_error)
+            std::mt19937 local_rng(rng_seeds[static_cast<std::size_t>(batch_idx)]);
+            std::vector<float> sample_image;
+            std::vector<float> sample_target;
+            load_sample(sample_indices[static_cast<std::size_t>(batch_idx)], sample_image, sample_target, local_rng);
+
+            const auto image_offset = static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(image_elems);
+            const auto target_offset =
+                static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(target_elems);
+            if (sample_image.size() == image_elems)
             {
-                first_error = std::current_exception();
+                std::copy(sample_image.begin(), sample_image.end(), host.images.begin() + image_offset);
             }
-        }
-    }
-    if (first_error)
+            if (sample_target.size() == target_elems)
+            {
+                std::copy(sample_target.begin(), sample_target.end(), host.targets.begin() + target_offset);
+            }
+        });
+    return host;
+}
+
+auto CustomDataLoader::upload_host_batch(HostBatch host, cudaStream_t stream) const -> Batch
+{
+    return Batch { dl::Tensor::from_host({ host.n, IMAGE_CHANNELS, img_size_, img_size_ }, host.images, dl::Device::GPU,
+                       stream, dl::compute_dtype()),
+        dl::Tensor::from_host({ host.n, GRID_SIZE, GRID_SIZE, host.attributes }, host.targets, dl::Device::GPU, stream,
+            dl::compute_dtype()) };
+}
+
+auto CustomDataLoader::launch_prefetch() -> void
+{
+    auto job = take_job();
+    if (job.first.empty())
     {
-        std::rethrow_exception(first_error);
+        return;
+    }
+    prefetch_ = std::async(std::launch::async,
+        [this, indices = std::move(job.first), seeds = std::move(job.second)]()
+        { return decode_job(std::move(indices), std::move(seeds)); });
+}
+
+auto CustomDataLoader::join_prefetch() -> void
+{
+    if (!prefetch_.valid())
+    {
+        return;
+    }
+    try
+    {
+        prefetch_.wait();
+    }
+    catch (...)
+    {
+    }
+    prefetch_ = {};
+}
+
+auto CustomDataLoader::get_batch(cudaStream_t stream) -> Batch
+{
+    const dl::NvtxRange nvtx_range("DataLoader_GetBatch");
+    if (!prefetch_.valid())
+    {
+        launch_prefetch();
+    }
+    if (!prefetch_.valid())
+    {
+        throw std::runtime_error("CustomDataLoader::get_batch called with no remaining samples");
     }
 
-    return Batch { dl::Tensor::from_host({ this_batch, IMAGE_CHANNELS, img_size_, img_size_ }, images_host,
-                       dl::Device::GPU, stream, dl::compute_dtype()),
-        dl::Tensor::from_host({ this_batch, GRID_SIZE, GRID_SIZE, attributes }, targets_host, dl::Device::GPU, stream,
-            dl::compute_dtype()) };
+    HostBatch host = prefetch_.get();
+    prefetch_ = {};
+    launch_prefetch();
+    if (host.n <= 0)
+    {
+        throw std::runtime_error("CustomDataLoader decoded an empty batch");
+    }
+    return upload_host_batch(std::move(host), stream);
 }

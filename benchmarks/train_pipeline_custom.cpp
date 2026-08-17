@@ -161,18 +161,6 @@ int main()
             const dl::StreamGuard stream_guard(compute_stream);
             dl::Tensor pred = custom_model.forward(batches[slot]->images, compute_stream);
 
-            if (train_loader.has_next())
-            {
-                CHECK_CUDA(cudaStreamSynchronize(copy_streams[next].get()));
-                batches[next] = train_loader.get_batch(copy_streams[next].get());
-                has_batch[next] = true;
-            }
-            else
-            {
-                has_batch[next] = false;
-                batches[next].reset();
-            }
-
             const float batch_loss =
                 YOLOLoss::loss(batches[slot]->targets, pred, num_classes, compute_stream).to_host(compute_stream).front();
 
@@ -197,6 +185,18 @@ int main()
                 LOG_INFO("VOC train epoch {} batch {} last_loss={:.4f} pred {}", epoch, train_batches, batch_loss,
                     pred.describe());
                 LOG_FLUSH();
+            }
+
+            if (train_loader.has_next())
+            {
+                CHECK_CUDA(cudaStreamSynchronize(copy_streams[next].get()));
+                batches[next] = train_loader.get_batch(copy_streams[next].get());
+                has_batch[next] = true;
+            }
+            else
+            {
+                has_batch[next] = false;
+                batches[next].reset();
             }
             slot = next;
         }
