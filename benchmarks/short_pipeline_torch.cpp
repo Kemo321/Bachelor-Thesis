@@ -1,5 +1,4 @@
 #include "DeepLearnLib/Logger.hpp"
-#include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
 #include "TorchDataset.hpp"
 #include "TorchYOLO.hpp"
@@ -33,7 +32,7 @@ int main()
             auto t = batch.target.to(device);
             opt.zero_grad();
             auto pred = model->forward(d);
-            auto loss = YOLOLoss::loss(t, pred);
+            auto loss = compute_yolo_loss(pred, t);
             loss.backward();
             opt.step();
             l_sum += loss.item<float>();

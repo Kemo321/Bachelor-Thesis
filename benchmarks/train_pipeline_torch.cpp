@@ -1,7 +1,6 @@
 #include "experiment_config.hpp"
 
 #include "DeepLearnLib/Logger.hpp"
-#include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
 #include "TorchDataset.hpp"
 #include "TorchYOLO.hpp"
@@ -93,7 +92,7 @@ int main()
 
             optimizer.zero_grad();
             auto pred = model->forward(data);
-            auto loss = YOLOLoss::loss(target, pred, num_classes);
+            auto loss = compute_yolo_loss(pred, target);
 
             loss.backward();
             optimizer.step();
@@ -114,7 +113,7 @@ int main()
                 auto data = batch.data.to(device, true);
                 auto target = batch.target.to(device, true);
                 auto pred = model->forward(data);
-                epoch_test_loss += YOLOLoss::loss(target, pred, num_classes).item().toFloat();
+                epoch_test_loss += compute_yolo_loss(pred, target).item().toFloat();
                 test_batches++;
             }
         }

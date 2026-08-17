@@ -3,7 +3,6 @@
 #include <limits>
 #include <torch/torch.h>
 
-#include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
 #include "TorchDataset.hpp"
 #include "TorchYOLO.hpp"
@@ -49,7 +48,7 @@ static void BM_YOLOv1_SingleEpochTraining(benchmark::State& state)
 
             optimizer.zero_grad();
             auto pred = model->forward(data);
-            auto loss = YOLOLoss::loss(target, pred);
+            auto loss = compute_yolo_loss(pred, target);
 
             loss.backward();
             optimizer.step();
