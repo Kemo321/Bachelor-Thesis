@@ -6,6 +6,7 @@
 #include "DeepLearnLib/Tensor.hpp"
 
 #include <cmath>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -115,7 +116,9 @@ TEST_F(GenericComponentTest, SoftmaxRejectsCpuInputAndBackwardWithoutForward)
 TEST_F(GenericComponentTest, CsvLoaderReadsFeaturesAndTargets)
 {
     // Given: A rectangular float CSV with a header and two target columns
-    const auto csv_path = std::filesystem::temp_directory_path() / "dllib_csv_loader_test.csv";
+    const auto csv_path = std::filesystem::temp_directory_path()
+        / ("dllib_csv_loader_test_"
+            + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".csv");
     {
         std::ofstream stream(csv_path);
         stream << "f0,f1,t0,t1\n";
