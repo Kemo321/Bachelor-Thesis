@@ -1,9 +1,9 @@
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/Precision.hpp"
 #include "DeepLearnLib/Profiler.hpp"
-#include "YOLO.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
+#include "YOLO.hpp"
 
 #include <benchmark/benchmark.h>
 #include <cuda_runtime.h>

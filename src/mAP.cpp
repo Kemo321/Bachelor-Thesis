@@ -106,16 +106,9 @@ auto average_precision_for_class(const std::vector<Detection>& predicted, const 
             {
                 return 0.0F;
             }
-            return std::transform_reduce(std::execution::par_unseq, precision.begin(), precision.end(), recall.begin(),
-                0.0F,
-                [](float lhs, float rhs)
-                {
-                    return std::max(lhs, rhs);
-                },
-                [recall_threshold](float precision_value, float recall_value) -> float
-                {
-                    return recall_value >= recall_threshold ? precision_value : 0.0F;
-                });
+            return std::transform_reduce(std::execution::par_unseq, precision.begin(), precision.end(), recall.begin(), 0.0F, [](float lhs, float rhs)
+                { return std::max(lhs, rhs); }, [recall_threshold](float precision_value, float recall_value) -> float
+                { return recall_value >= recall_threshold ? precision_value : 0.0F; });
         });
     return dl::guarded_div(average_precision, static_cast<float>(kVocPoints));
 }

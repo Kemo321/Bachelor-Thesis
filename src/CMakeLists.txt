@@ -42,7 +42,6 @@ set(DEEPLEARN_CUDA_SOURCES
     Profiler.cpp
     Losses.cpp
     Softmax.cpp
-    Precision.cpp
     FusedCBR2d.cpp
 )
 
@@ -68,6 +67,14 @@ target_include_directories(
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(DeepLearnLib PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-mavx2 -mfma>)
 endif()
+
+# spdlog's bundled fmt is not a valid C++17 constexpr under nvcc's host GCC
+# (CI Debug treats it as an error). Keep spdlog out of CUDA TUs; this flag
+# covers any remaining host-side include of the headers.
+target_compile_options(
+  DeepLearnLib
+  PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-diag-suppress=177,1675>
+          $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Wno-invalid-constexpr>)
 
 if(MSVC)
   target_compile_options(

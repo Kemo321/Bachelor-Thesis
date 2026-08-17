@@ -6,16 +6,11 @@
 #include <stdexcept>
 #include <string>
 
-#include <thrust/device_ptr.h>
-#include <thrust/execution_policy.h>
-#include <thrust/fill.h>
-#include <thrust/iterator/counting_iterator.h>
-#include <thrust/transform.h>
-
 namespace
 {
 
 constexpr float kWeightDecay = 0.0005F;
+constexpr int kFillThreads = 256;
 
 struct UniformFill
 {
@@ -36,16 +31,34 @@ struct UniformFill
     }
 };
 
+__global__ void uniform_fill_kernel(float* out, int count, UniformFill fill)
+{
+    const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+    if (index < count)
+    {
+        out[index] = fill(index);
+    }
+}
+
+__global__ void fill_constant_kernel(float* out, int count, float value)
+{
+    const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+    if (index < count)
+    {
+        out[index] = value;
+    }
+}
+
 auto fill_uniform(dl::Tensor& tensor, float low, float high, unsigned long long seed) -> void
 {
     if (tensor.get_size() == 0)
     {
         return;
     }
-    auto out = thrust::device_pointer_cast(tensor.data());
-    thrust::transform(thrust::cuda::par.on(dl::current_stream()), thrust::make_counting_iterator(0),
-        thrust::make_counting_iterator(static_cast<int>(tensor.get_size())), out,
-        UniformFill { low, high, seed });
+    const int count = static_cast<int>(tensor.get_size());
+    const dim3 grid(static_cast<unsigned int>((count + kFillThreads - 1) / kFillThreads));
+    uniform_fill_kernel<<<grid, kFillThreads, 0, dl::current_stream()>>>(
+        tensor.data(), count, UniformFill { low, high, seed });
     CHECK_CUDA(cudaGetLastError());
 }
 
@@ -55,8 +68,15 @@ auto fill_constant(dl::Tensor& tensor, float value) -> void
     {
         return;
     }
-    auto out = thrust::device_pointer_cast(tensor.data());
-    thrust::fill(thrust::cuda::par.on(dl::current_stream()), out, out + static_cast<std::ptrdiff_t>(tensor.get_size()), value);
+    if (value == 0.0F)
+    {
+        CHECK_CUDA(cudaMemsetAsync(tensor.data(), 0, tensor.nbytes(), dl::current_stream()));
+        CHECK_CUDA(cudaGetLastError());
+        return;
+    }
+    const int count = static_cast<int>(tensor.get_size());
+    const dim3 grid(static_cast<unsigned int>((count + kFillThreads - 1) / kFillThreads));
+    fill_constant_kernel<<<grid, kFillThreads, 0, dl::current_stream()>>>(tensor.data(), count, value);
     CHECK_CUDA(cudaGetLastError());
 }
 

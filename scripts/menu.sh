@@ -63,10 +63,6 @@ find_bin() {
   return 1
 }
 
-has_bin() {
-  find_bin "$1" >/dev/null
-}
-
 run_bin() {
   local name="$1"
   shift || true
@@ -83,15 +79,32 @@ run_bin() {
   (cd "$(dirname "${bin}")" && "${bin}" "$@")
 }
 
-# Used by Run All: skip missing targets (especially Torch) and keep going on failure.
+is_torch_target() {
+  local name="$1"
+  [[ "${name}" == *_torch || "${name}" == bench_micro_ops ]]
+}
+
+# Used by Run All / Sanity: try to compile the target, then run it.
+# Skip (do not abort the sequence) if the target is not in this build
+# (typical for Torch binaries when LibTorch was not found) or if it fails.
 run_optional() {
   local name="$1"
   shift || true
-  if ! has_bin "${name}"; then
-    echo "[menu] Skipping '${name}' (binary not found; Torch baselines require LibTorch)."
+  if ! ensure_built "${name}"; then
+    if is_torch_target "${name}"; then
+      echo "[menu] Skipping '${name}' (not in this build — Torch baselines need LibTorch)."
+    else
+      echo "[menu] Skipping '${name}' (compile failed). Custom targets should exist after a successful CMake configure with OpenCV."
+    fi
     return 0
   fi
-  if ! run_bin "${name}" "$@"; then
+  local bin
+  if ! bin="$(find_bin "${name}")"; then
+    echo "[menu] Skipping '${name}' (ninja succeeded but the executable is not under ${BUILD_DIR})."
+    return 0
+  fi
+  echo "[menu] Running ${bin} $*"
+  if ! (cd "$(dirname "${bin}")" && "${bin}" "$@"); then
     echo "[menu] WARNING: '${name}' failed; continuing."
     return 0
   fi
@@ -132,7 +145,8 @@ run_plots() {
 run_all() {
   echo
   echo "[menu] === Run All Pipelines & Generate Plots ==="
-  echo "[menu] Missing Torch binaries are skipped. Failures do not abort the sequence."
+  echo "[menu] Each target is compiled on demand (dev.sh only builds dllib_tests)."
+  echo "[menu] Torch binaries are skipped if LibTorch was not configured. Failures do not abort the sequence."
   echo
 
   echo "[menu] -- Training (Tabular) --"

@@ -11,25 +11,25 @@ namespace dl
 namespace
 {
 
-struct PrecisionState
-{
-    bool enabled { false };
-    float scale { 1.0F };
-};
+    struct PrecisionState
+    {
+        bool enabled { false };
+        float scale { 1.0F };
+    };
 
-auto state() -> PrecisionState&
-{
-    static PrecisionState current;
-    return current;
-}
+    auto state() -> PrecisionState&
+    {
+        static PrecisionState current;
+        return current;
+    }
 
-auto normalize_precision(const std::string& precision) -> std::string
-{
-    std::string lower = precision;
-    std::transform(lower.begin(), lower.end(), lower.begin(),
-        [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
-    return lower;
-}
+    auto normalize_precision(const std::string& precision) -> std::string
+    {
+        std::string lower = precision;
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char character)
+            { return static_cast<char>(std::tolower(character)); });
+        return lower;
+    }
 
 } // namespace
 

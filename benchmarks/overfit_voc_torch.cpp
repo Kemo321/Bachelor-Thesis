@@ -92,8 +92,7 @@ int main()
             ++batches;
         }
         const float avg_loss = epoch_loss / static_cast<float>(std::max(1, batches));
-        const auto elapsed =
-            std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
+        const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
         const auto vram = current_vram_mib();
         log_train_epoch("Overfit VOC Torch", epoch, total_epochs, avg_loss, elapsed, vram);
         write_loss_row(csv_file, epoch, avg_loss, elapsed, vram);

@@ -60,7 +60,8 @@ int main()
     YOLOv1 model(num_classes);
     model->to(device);
 
-    auto get_lr = [&config](int ep) -> float { return scheduled_learning_rate(config, ep); };
+    auto get_lr = [&config](int ep) -> float
+    { return scheduled_learning_rate(config, ep); };
 
     torch::optim::SGD optimizer(model->parameters(),
         torch::optim::SGDOptions(get_lr(1)).momentum(momentum).weight_decay(weight_decay));

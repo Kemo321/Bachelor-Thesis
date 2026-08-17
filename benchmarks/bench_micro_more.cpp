@@ -11,15 +11,15 @@
 #include "DeepLearnLib/Losses.hpp"
 #include "DeepLearnLib/MaxPool2d.hpp"
 #include "DeepLearnLib/Network.hpp"
-#include "SimpleCNN.hpp"
 #include "DeepLearnLib/Softmax.hpp"
-#include "YOLO.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
 #include "DeepLearnLib/mAP.hpp"
 #include "DeepLearnLib/utils.hpp"
+#include "SimpleCNN.hpp"
 #include "TorchDataset.hpp"
 #include "TorchYOLO.hpp"
+#include "YOLO.hpp"
 
 #include <exception>
 #include <filesystem>
@@ -1285,7 +1285,7 @@ static void BM_SimpleCNN_Fwd_Torch(benchmark::State& state)
         torch::nn::MaxPool2d(torch::nn::MaxPool2dOptions(2).stride(2)),
         torch::nn::Conv2d(torch::nn::Conv2dOptions(16, 32, 3).padding(1)),
         torch::nn::LeakyReLU(torch::nn::LeakyReLUOptions().negative_slope(0.1)),
-        torch::nn::MaxPool2d(torch::nn::MaxPool2dOptions(2).stride(2)),         torch::nn::Flatten(),
+        torch::nn::MaxPool2d(torch::nn::MaxPool2dOptions(2).stride(2)), torch::nn::Flatten(),
         torch::nn::Linear(32 * 8 * 8, 10));
     model->to(torch::kCUDA);
     model->eval();

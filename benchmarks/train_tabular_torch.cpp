@@ -65,8 +65,7 @@ int main()
     std::vector<int64_t> labels(static_cast<std::size_t>(batch));
     for (int row = 0; row < batch; ++row)
     {
-        labels[static_cast<std::size_t>(row)] =
-            std::clamp(static_cast<int>(std::lround(label_host[static_cast<std::size_t>(row)])), 0, num_classes - 1);
+        labels[static_cast<std::size_t>(row)] = std::clamp(static_cast<int>(std::lround(label_host[static_cast<std::size_t>(row)])), 0, num_classes - 1);
     }
 
     torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
@@ -90,8 +89,7 @@ int main()
         optimizer.step();
         const auto predicted = logits.argmax(1);
         const float accuracy = predicted.eq(targets).to(torch::kFloat).mean().item<float>();
-        const auto elapsed =
-            std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
+        const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
         const auto vram = current_vram_mib();
         log_train_epoch("Tabular Torch", epoch, epochs, loss.item<float>(), elapsed, vram);
         LOG_INFO("Tabular Torch | Acc: {:.4f}", accuracy);

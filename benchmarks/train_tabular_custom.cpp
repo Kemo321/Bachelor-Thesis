@@ -99,8 +99,7 @@ int main()
             layer->step();
         }
 
-        const auto elapsed =
-            std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
+        const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
         const auto vram = current_vram_mib();
         log_train_epoch("Tabular Custom", epoch, epochs, loss, elapsed, vram);
         LOG_INFO("Tabular Custom | Acc: {:.4f}", accuracy);

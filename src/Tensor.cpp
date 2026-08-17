@@ -1,4 +1,5 @@
 #include "DeepLearnLib/Tensor.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
@@ -6,43 +7,11 @@
 #include <numeric>
 #include <stdexcept>
 #include <string>
-#if DEEPLEARNLIB_ENABLE_CUDA
-#include <thrust/device_ptr.h>
-#include <thrust/execution_policy.h>
-#include <thrust/fill.h>
-#include <thrust/for_each.h>
-#include <thrust/functional.h>
-#include <thrust/iterator/counting_iterator.h>
-#include <thrust/logical.h>
-#include <thrust/reduce.h>
-#include <thrust/transform.h>
-#endif
 
 namespace dl
 {
 namespace
 {
-
-#if DEEPLEARNLIB_ENABLE_CUDA
-    struct ClampValue
-    {
-        float lo;
-        float hi;
-
-        __host__ __device__ auto operator()(float value) const -> float
-        {
-            if (value < lo)
-            {
-                return lo;
-            }
-            if (value > hi)
-            {
-                return hi;
-            }
-            return value;
-        }
-    };
-#endif
 
     static auto calculate_size(const std::vector<int>& shape) -> int
     {
@@ -118,78 +87,6 @@ namespace
     }
 
 #if DEEPLEARNLIB_ENABLE_CUDA
-    struct Transpose2D
-    {
-        const float* input;
-        float* output;
-        int rows;
-        int cols;
-
-        __host__ __device__ void operator()(int index) const
-        {
-            const int row = index / cols;
-            const int col = index % cols;
-            output[(col * rows) + row] = input[index];
-        }
-    };
-
-    struct Transpose2DHalf
-    {
-        const __half* input;
-        __half* output;
-        int rows;
-        int cols;
-
-        __host__ __device__ void operator()(int index) const
-        {
-            const int row = index / cols;
-            const int col = index % cols;
-            output[(col * rows) + row] = input[index];
-        }
-    };
-
-    template <typename FloatOp>
-    struct HalfBinaryAdaptor
-    {
-        FloatOp op;
-
-        __device__ auto operator()(__half lhs, __half rhs) const -> __half
-        {
-            return __float2half(op(__half2float(lhs), __half2float(rhs)));
-        }
-    };
-
-    template <typename FloatOp>
-    struct HalfUnaryAdaptor
-    {
-        FloatOp op;
-
-        __device__ auto operator()(__half value) const -> __half
-        {
-            return __float2half(op(__half2float(value)));
-        }
-    };
-
-    struct ScaleValue
-    {
-        float scale;
-
-        __host__ __device__ auto operator()(float value) const -> float
-        {
-            return value * scale;
-        }
-    };
-
-    struct AddScalar
-    {
-        float scalar;
-
-        __host__ __device__ auto operator()(float value) const -> float
-        {
-            return value + scalar;
-        }
-    };
-
     __global__ void f32_to_f16_kernel(const float* input, __half* output, int count)
     {
         const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
@@ -388,6 +285,82 @@ namespace
         }
         dst[col] = __float2half((beta * __half2float(dst[col])) + acc);
     }
+
+    __global__ void add_scalar_f32_kernel(float* dst, float scalar, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            dst[index] += scalar;
+        }
+    }
+
+    __global__ void add_scalar_f16_kernel(__half* dst, float scalar, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            dst[index] = __float2half(__half2float(dst[index]) + scalar);
+        }
+    }
+
+    __global__ void transpose_2d_f32_kernel(const float* input, float* output, int rows, int cols, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            const int row = index / cols;
+            const int col = index % cols;
+            output[(col * rows) + row] = input[index];
+        }
+    }
+
+    __global__ void transpose_2d_f16_kernel(const __half* input, __half* output, int rows, int cols, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count)
+        {
+            const int row = index / cols;
+            const int col = index % cols;
+            output[(col * rows) + row] = input[index];
+        }
+    }
+
+    constexpr int kReduceThreads = 256;
+
+    __global__ void sum_f32_kernel(const float* input, float* out, int count)
+    {
+        __shared__ float shared_sum[kReduceThreads];
+        float partial = 0.0F;
+        for (int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x); index < count;
+             index += static_cast<int>(blockDim.x * gridDim.x))
+        {
+            partial += input[index];
+        }
+        shared_sum[threadIdx.x] = partial;
+        __syncthreads();
+        for (int stride = kReduceThreads / 2; stride > 0; stride >>= 1)
+        {
+            if (static_cast<int>(threadIdx.x) < stride)
+            {
+                shared_sum[threadIdx.x] += shared_sum[threadIdx.x + stride];
+            }
+            __syncthreads();
+        }
+        if (threadIdx.x == 0)
+        {
+            atomicAdd(out, shared_sum[0]);
+        }
+    }
+
+    __global__ void any_nonfinite_f32_kernel(const float* input, int* flag, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index < count && !isfinite(input[index]))
+        {
+            *flag = 1;
+        }
+    }
 #endif
 
 } // namespace
@@ -395,7 +368,7 @@ namespace
 #if DEEPLEARNLIB_ENABLE_CUDA
 namespace
 {
-constexpr std::size_t kCublasWorkspaceBytes = 64ULL * 1024ULL * 1024ULL;
+    constexpr std::size_t kCublasWorkspaceBytes = 64ULL * 1024ULL * 1024ULL;
 }
 
 CublasContext::CublasContext()
@@ -433,7 +406,7 @@ auto get_cublas_handle() -> cublasHandle_t
 
 namespace
 {
-thread_local cudaStream_t g_current_stream = 0;
+    thread_local cudaStream_t g_current_stream = 0;
 }
 
 auto current_stream() -> cudaStream_t
@@ -704,115 +677,115 @@ auto Tensor::ensure_binary_op(const Tensor& other, const char* op_name) const ->
 namespace
 {
 
-struct GemmPlan
-{
-    int M { 0 };
-    int N { 0 };
-    int K { 0 };
-    int lda { 0 };
-    int ldb { 0 };
-    int ldc { 0 };
-    cublasOperation_t trans_a { CUBLAS_OP_N };
-    cublasOperation_t trans_b { CUBLAS_OP_N };
-    std::vector<int> result_shape;
-};
+    struct GemmPlan
+    {
+        int M { 0 };
+        int N { 0 };
+        int K { 0 };
+        int lda { 0 };
+        int ldb { 0 };
+        int ldc { 0 };
+        cublasOperation_t trans_a { CUBLAS_OP_N };
+        cublasOperation_t trans_b { CUBLAS_OP_N };
+        std::vector<int> result_shape;
+    };
 
-auto plan_rowmajor_gemm(const Tensor& a, const Tensor& b, bool transpose_a, bool transpose_b) -> GemmPlan
-{
-    if (a.get_device() != Device::GPU || b.get_device() != Device::GPU)
+    auto plan_rowmajor_gemm(const Tensor& a, const Tensor& b, bool transpose_a, bool transpose_b) -> GemmPlan
     {
-        throw std::runtime_error("matmul requires both tensors to reside on the GPU");
-    }
-    if (a.data() == nullptr || b.data() == nullptr)
-    {
-        throw std::runtime_error("matmul requires valid device pointers");
-    }
-    if (a.get_shape().empty() || b.get_shape().empty())
-    {
-        throw std::runtime_error("matmul requires non-scalar tensors");
-    }
-    if (a.get_dtype() != b.get_dtype())
-    {
-        throw std::runtime_error("matmul requires tensors of equal dtype");
-    }
-    if (transpose_a && a.get_shape().size() != 2)
-    {
-        throw std::runtime_error("matmul transpose_a currently requires a rank-2 tensor");
-    }
-    if (transpose_b && b.get_shape().size() != 2)
-    {
-        throw std::runtime_error("matmul transpose_b currently requires a rank-2 tensor");
-    }
+        if (a.get_device() != Device::GPU || b.get_device() != Device::GPU)
+        {
+            throw std::runtime_error("matmul requires both tensors to reside on the GPU");
+        }
+        if (a.data() == nullptr || b.data() == nullptr)
+        {
+            throw std::runtime_error("matmul requires valid device pointers");
+        }
+        if (a.get_shape().empty() || b.get_shape().empty())
+        {
+            throw std::runtime_error("matmul requires non-scalar tensors");
+        }
+        if (a.get_dtype() != b.get_dtype())
+        {
+            throw std::runtime_error("matmul requires tensors of equal dtype");
+        }
+        if (transpose_a && a.get_shape().size() != 2)
+        {
+            throw std::runtime_error("matmul transpose_a currently requires a rank-2 tensor");
+        }
+        if (transpose_b && b.get_shape().size() != 2)
+        {
+            throw std::runtime_error("matmul transpose_b currently requires a rank-2 tensor");
+        }
 
-    const std::vector<int>& a_shape = a.get_shape();
-    const std::vector<int>& b_shape = b.get_shape();
-    GemmPlan plan;
-    plan.M = transpose_a ? a_shape[1] : static_cast<int>(a.get_size() / static_cast<size_t>(a_shape.back()));
-    plan.K = transpose_a ? a_shape[0] : a_shape.back();
-    const int other_k = transpose_b ? b_shape[1] : b_shape.front();
-    plan.N = transpose_b ? b_shape[0] : static_cast<int>(b.get_size() / static_cast<size_t>(other_k));
-    if (plan.K != other_k)
-    {
-        throw std::runtime_error("matmul inner dimensions must match (" + std::to_string(plan.K) + " vs "
-            + std::to_string(other_k) + ")");
-    }
-    if (plan.K <= 0)
-    {
-        throw std::runtime_error("matmul inner dimension must be positive");
-    }
+        const std::vector<int>& a_shape = a.get_shape();
+        const std::vector<int>& b_shape = b.get_shape();
+        GemmPlan plan;
+        plan.M = transpose_a ? a_shape[1] : static_cast<int>(a.get_size() / static_cast<size_t>(a_shape.back()));
+        plan.K = transpose_a ? a_shape[0] : a_shape.back();
+        const int other_k = transpose_b ? b_shape[1] : b_shape.front();
+        plan.N = transpose_b ? b_shape[0] : static_cast<int>(b.get_size() / static_cast<size_t>(other_k));
+        if (plan.K != other_k)
+        {
+            throw std::runtime_error("matmul inner dimensions must match (" + std::to_string(plan.K) + " vs "
+                + std::to_string(other_k) + ")");
+        }
+        if (plan.K <= 0)
+        {
+            throw std::runtime_error("matmul inner dimension must be positive");
+        }
 
-    plan.result_shape.reserve(a_shape.size() + b_shape.size() - 2);
-    if (transpose_a)
-    {
-        plan.result_shape.push_back(a_shape[1]);
-    }
-    else
-    {
-        plan.result_shape.insert(plan.result_shape.end(), a_shape.begin(), a_shape.end() - 1);
-    }
-    if (transpose_b)
-    {
-        plan.result_shape.push_back(b_shape[0]);
-    }
-    else
-    {
-        plan.result_shape.insert(plan.result_shape.end(), b_shape.begin() + 1, b_shape.end());
-    }
-    if (plan.result_shape.empty())
-    {
-        plan.result_shape.push_back(1);
-    }
+        plan.result_shape.reserve(a_shape.size() + b_shape.size() - 2);
+        if (transpose_a)
+        {
+            plan.result_shape.push_back(a_shape[1]);
+        }
+        else
+        {
+            plan.result_shape.insert(plan.result_shape.end(), a_shape.begin(), a_shape.end() - 1);
+        }
+        if (transpose_b)
+        {
+            plan.result_shape.push_back(b_shape[0]);
+        }
+        else
+        {
+            plan.result_shape.insert(plan.result_shape.end(), b_shape.begin() + 1, b_shape.end());
+        }
+        if (plan.result_shape.empty())
+        {
+            plan.result_shape.push_back(1);
+        }
 
-    plan.trans_a = transpose_b ? CUBLAS_OP_T : CUBLAS_OP_N;
-    plan.trans_b = transpose_a ? CUBLAS_OP_T : CUBLAS_OP_N;
-    plan.lda = transpose_b ? b_shape[1] : plan.N;
-    plan.ldb = a_shape.back();
-    plan.ldc = plan.N;
-    return plan;
-}
-
-auto launch_rowmajor_gemm(const Tensor& a, const Tensor& b, Tensor& c, const GemmPlan& plan, float beta) -> void
-{
-    if (plan.M == 0 || plan.N == 0)
-    {
-        return;
+        plan.trans_a = transpose_b ? CUBLAS_OP_T : CUBLAS_OP_N;
+        plan.trans_b = transpose_a ? CUBLAS_OP_T : CUBLAS_OP_N;
+        plan.lda = transpose_b ? b_shape[1] : plan.N;
+        plan.ldb = a_shape.back();
+        plan.ldc = plan.N;
+        return plan;
     }
 
-    const float alpha { 1.0F };
-    CHECK_CUBLAS(cublasSetStream(get_cublas_handle(), current_stream()));
-    if (a.get_dtype() == Dtype::Float16)
+    auto launch_rowmajor_gemm(const Tensor& a, const Tensor& b, Tensor& c, const GemmPlan& plan, float beta) -> void
     {
-        CHECK_CUBLAS(cublasGemmEx(get_cublas_handle(), plan.trans_a, plan.trans_b, plan.N, plan.M, plan.K, &alpha,
-            b.data(), CUDA_R_16F, plan.lda, a.data(), CUDA_R_16F, plan.ldb, &beta, c.data(), CUDA_R_16F, plan.ldc,
-            CUBLAS_COMPUTE_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+        if (plan.M == 0 || plan.N == 0)
+        {
+            return;
+        }
+
+        const float alpha { 1.0F };
+        CHECK_CUBLAS(cublasSetStream(get_cublas_handle(), current_stream()));
+        if (a.get_dtype() == Dtype::Float16)
+        {
+            CHECK_CUBLAS(cublasGemmEx(get_cublas_handle(), plan.trans_a, plan.trans_b, plan.N, plan.M, plan.K, &alpha,
+                b.data(), CUDA_R_16F, plan.lda, a.data(), CUDA_R_16F, plan.ldb, &beta, c.data(), CUDA_R_16F, plan.ldc,
+                CUBLAS_COMPUTE_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+        }
+        else
+        {
+            CHECK_CUBLAS(cublasGemmEx(get_cublas_handle(), plan.trans_a, plan.trans_b, plan.N, plan.M, plan.K, &alpha,
+                b.data(), CUDA_R_32F, plan.lda, a.data(), CUDA_R_32F, plan.ldb, &beta, c.data(), CUDA_R_32F, plan.ldc,
+                CUBLAS_COMPUTE_32F_FAST_TF32, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+        }
     }
-    else
-    {
-        CHECK_CUBLAS(cublasGemmEx(get_cublas_handle(), plan.trans_a, plan.trans_b, plan.N, plan.M, plan.K, &alpha,
-            b.data(), CUDA_R_32F, plan.lda, a.data(), CUDA_R_32F, plan.ldb, &beta, c.data(), CUDA_R_32F, plan.ldc,
-            CUBLAS_COMPUTE_32F_FAST_TF32, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-    }
-}
 
 } // namespace
 #endif
@@ -874,7 +847,7 @@ auto Tensor::ensure(std::optional<Tensor>& slot, const std::vector<int>& shape, 
 auto Tensor::operator+(const Tensor& other) const -> Tensor
 {
 #if !DEEPLEARNLIB_ENABLE_CUDA
-    throw std::runtime_error("operator+ requires CUDA/Thrust support");
+    throw std::runtime_error("operator+ requires CUDA support");
 #else
     ensure_binary_op(other, "operator+");
     Tensor result(shape_, Device::GPU, dtype_);
@@ -882,24 +855,8 @@ auto Tensor::operator+(const Tensor& other) const -> Tensor
     {
         return result;
     }
-
-    if (dtype_ == Dtype::Float16)
-    {
-        auto lhs = thrust::device_pointer_cast(half_data());
-        auto rhs = thrust::device_pointer_cast(other.half_data());
-        auto out = thrust::device_pointer_cast(result.half_data());
-        thrust::transform(thrust::cuda::par.on(current_stream()), lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out,
-            HalfBinaryAdaptor<thrust::plus<float>> { thrust::plus<float>() });
-    }
-    else
-    {
-        auto lhs = thrust::device_pointer_cast(data());
-        auto rhs = thrust::device_pointer_cast(other.data());
-        auto out = thrust::device_pointer_cast(result.data());
-        thrust::transform(thrust::cuda::par.on(current_stream()), lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out,
-            thrust::plus<float>());
-    }
-    CHECK_CUDA(cudaGetLastError());
+    CHECK_CUDA(cudaMemcpyAsync(result.data(), data(), nbytes(), cudaMemcpyDeviceToDevice, current_stream()));
+    result.add_(other);
     return result;
 #endif
 }
@@ -907,7 +864,7 @@ auto Tensor::operator+(const Tensor& other) const -> Tensor
 auto Tensor::operator-(const Tensor& other) const -> Tensor
 {
 #if !DEEPLEARNLIB_ENABLE_CUDA
-    throw std::runtime_error("operator- requires CUDA/Thrust support");
+    throw std::runtime_error("operator- requires CUDA support");
 #else
     ensure_binary_op(other, "operator-");
     Tensor result(shape_, Device::GPU, dtype_);
@@ -915,24 +872,8 @@ auto Tensor::operator-(const Tensor& other) const -> Tensor
     {
         return result;
     }
-
-    if (dtype_ == Dtype::Float16)
-    {
-        auto lhs = thrust::device_pointer_cast(half_data());
-        auto rhs = thrust::device_pointer_cast(other.half_data());
-        auto out = thrust::device_pointer_cast(result.half_data());
-        thrust::transform(thrust::cuda::par.on(current_stream()), lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out,
-            HalfBinaryAdaptor<thrust::minus<float>> { thrust::minus<float>() });
-    }
-    else
-    {
-        auto lhs = thrust::device_pointer_cast(data());
-        auto rhs = thrust::device_pointer_cast(other.data());
-        auto out = thrust::device_pointer_cast(result.data());
-        thrust::transform(thrust::cuda::par.on(current_stream()), lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out,
-            thrust::minus<float>());
-    }
-    CHECK_CUDA(cudaGetLastError());
+    CHECK_CUDA(cudaMemcpyAsync(result.data(), data(), nbytes(), cudaMemcpyDeviceToDevice, current_stream()));
+    result.add_scaled_(other, -1.0F);
     return result;
 #endif
 }
@@ -940,7 +881,7 @@ auto Tensor::operator-(const Tensor& other) const -> Tensor
 auto Tensor::operator*(const Tensor& other) const -> Tensor
 {
 #if !DEEPLEARNLIB_ENABLE_CUDA
-    throw std::runtime_error("operator* requires CUDA/Thrust support");
+    throw std::runtime_error("operator* requires CUDA support");
 #else
     ensure_binary_op(other, "operator*");
     Tensor result(shape_, Device::GPU, dtype_);
@@ -948,24 +889,7 @@ auto Tensor::operator*(const Tensor& other) const -> Tensor
     {
         return result;
     }
-
-    if (dtype_ == Dtype::Float16)
-    {
-        auto lhs = thrust::device_pointer_cast(half_data());
-        auto rhs = thrust::device_pointer_cast(other.half_data());
-        auto out = thrust::device_pointer_cast(result.half_data());
-        thrust::transform(thrust::cuda::par.on(current_stream()), lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out,
-            HalfBinaryAdaptor<thrust::multiplies<float>> { thrust::multiplies<float>() });
-    }
-    else
-    {
-        auto lhs = thrust::device_pointer_cast(data());
-        auto rhs = thrust::device_pointer_cast(other.data());
-        auto out = thrust::device_pointer_cast(result.data());
-        thrust::transform(thrust::cuda::par.on(current_stream()), lhs, lhs + static_cast<std::ptrdiff_t>(size_), rhs, out,
-            thrust::multiplies<float>());
-    }
-    CHECK_CUDA(cudaGetLastError());
+    mul_into(other, result);
     return result;
 #endif
 }
@@ -973,7 +897,7 @@ auto Tensor::operator*(const Tensor& other) const -> Tensor
 auto Tensor::operator*(float scalar) const -> Tensor
 {
 #if !DEEPLEARNLIB_ENABLE_CUDA
-    throw std::runtime_error("operator* requires CUDA/Thrust support");
+    throw std::runtime_error("operator* requires CUDA support");
 #else
     ensure_gpu("operator*");
     if (!is_contiguous())
@@ -986,22 +910,8 @@ auto Tensor::operator*(float scalar) const -> Tensor
     {
         return result;
     }
-
-    if (dtype_ == Dtype::Float16)
-    {
-        auto in = thrust::device_pointer_cast(half_data());
-        auto out = thrust::device_pointer_cast(result.half_data());
-        thrust::transform(thrust::cuda::par.on(current_stream()), in, in + static_cast<std::ptrdiff_t>(size_), out,
-            HalfUnaryAdaptor<ScaleValue> { ScaleValue { scalar } });
-    }
-    else
-    {
-        auto in = thrust::device_pointer_cast(data());
-        auto out = thrust::device_pointer_cast(result.data());
-        thrust::transform(thrust::cuda::par.on(current_stream()), in, in + static_cast<std::ptrdiff_t>(size_), out,
-            thrust::placeholders::_1 * scalar);
-    }
-    CHECK_CUDA(cudaGetLastError());
+    CHECK_CUDA(cudaMemcpyAsync(result.data(), data(), nbytes(), cudaMemcpyDeviceToDevice, current_stream()));
+    result.mul_(scalar);
     return result;
 #endif
 }
@@ -1009,7 +919,7 @@ auto Tensor::operator*(float scalar) const -> Tensor
 auto Tensor::operator+(float scalar) const -> Tensor
 {
 #if !DEEPLEARNLIB_ENABLE_CUDA
-    throw std::runtime_error("operator+ requires CUDA/Thrust support");
+    throw std::runtime_error("operator+ requires CUDA support");
 #else
     ensure_gpu("operator+");
     if (!is_contiguous())
@@ -1022,20 +932,17 @@ auto Tensor::operator+(float scalar) const -> Tensor
     {
         return result;
     }
-
+    CHECK_CUDA(cudaMemcpyAsync(result.data(), data(), nbytes(), cudaMemcpyDeviceToDevice, current_stream()));
+    const int count = static_cast<int>(size_);
     if (dtype_ == Dtype::Float16)
     {
-        auto in = thrust::device_pointer_cast(half_data());
-        auto out = thrust::device_pointer_cast(result.half_data());
-        thrust::transform(thrust::cuda::par.on(current_stream()), in, in + static_cast<std::ptrdiff_t>(size_), out,
-            HalfUnaryAdaptor<AddScalar> { AddScalar { scalar } });
+        add_scalar_f16_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            result.half_data(), scalar, count);
     }
     else
     {
-        auto in = thrust::device_pointer_cast(data());
-        auto out = thrust::device_pointer_cast(result.data());
-        thrust::transform(thrust::cuda::par.on(current_stream()), in, in + static_cast<std::ptrdiff_t>(size_), out,
-            thrust::placeholders::_1 + scalar);
+        add_scalar_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            result.data(), scalar, count);
     }
     CHECK_CUDA(cudaGetLastError());
     return result;
@@ -1282,7 +1189,7 @@ auto Tensor::add_sum_rows_(const Tensor& matrix, float beta) -> Tensor&
 auto Tensor::clamp(float lo, float hi) const -> Tensor
 {
 #if !DEEPLEARNLIB_ENABLE_CUDA
-    throw std::runtime_error("clamp requires CUDA/Thrust support");
+    throw std::runtime_error("clamp requires CUDA support");
 #else
     ensure_gpu("clamp");
     if (!is_contiguous())
@@ -1299,22 +1206,8 @@ auto Tensor::clamp(float lo, float hi) const -> Tensor
     {
         return result;
     }
-
-    if (dtype_ == Dtype::Float16)
-    {
-        auto in = thrust::device_pointer_cast(half_data());
-        auto out = thrust::device_pointer_cast(result.half_data());
-        thrust::transform(thrust::cuda::par.on(current_stream()), in, in + static_cast<std::ptrdiff_t>(size_), out,
-            HalfUnaryAdaptor<ClampValue> { ClampValue { lo, hi } });
-    }
-    else
-    {
-        auto in = thrust::device_pointer_cast(data());
-        auto out = thrust::device_pointer_cast(result.data());
-        thrust::transform(thrust::cuda::par.on(current_stream()), in, in + static_cast<std::ptrdiff_t>(size_), out,
-            ClampValue { lo, hi });
-    }
-    CHECK_CUDA(cudaGetLastError());
+    CHECK_CUDA(cudaMemcpyAsync(result.data(), data(), nbytes(), cudaMemcpyDeviceToDevice, current_stream()));
+    result.clamp_(lo, hi);
     return result;
 #endif
 }
@@ -1354,21 +1247,6 @@ auto Tensor::clamp_(float lo, float hi) -> Tensor&
 #endif
 }
 
-#if DEEPLEARNLIB_ENABLE_CUDA
-namespace
-{
-
-struct IsNonFinite
-{
-    __host__ __device__ auto operator()(float value) const -> bool
-    {
-        return !isfinite(value);
-    }
-};
-
-} // namespace
-#endif
-
 auto Tensor::has_non_finite() const -> bool
 {
     if (size_ == 0)
@@ -1378,20 +1256,27 @@ auto Tensor::has_non_finite() const -> bool
 #if DEEPLEARNLIB_ENABLE_CUDA
     if (device_ == Device::GPU)
     {
+        const Tensor* source = this;
+        Tensor as_float({ 1 }, Device::CPU);
         if (dtype_ == Dtype::Float16)
         {
-            Tensor as_float = to_dtype(Dtype::Float32, current_stream());
-            auto begin = thrust::device_pointer_cast(as_float.data());
-            const bool found = thrust::any_of(thrust::cuda::par.on(current_stream()), begin,
-                begin + static_cast<std::ptrdiff_t>(size_), IsNonFinite {});
-            CHECK_CUDA(cudaGetLastError());
-            return found;
+            as_float = to_dtype(Dtype::Float32, current_stream());
+            source = &as_float;
         }
-        auto begin = thrust::device_pointer_cast(data());
-        const bool found = thrust::any_of(thrust::cuda::par.on(current_stream()), begin,
-            begin + static_cast<std::ptrdiff_t>(size_), IsNonFinite {});
+        static int* flag = nullptr;
+        if (flag == nullptr)
+        {
+            CHECK_CUDA(cudaMalloc(&flag, sizeof(int)));
+        }
+        CHECK_CUDA(cudaMemsetAsync(flag, 0, sizeof(int), current_stream()));
+        const int count = static_cast<int>(source->get_size());
+        any_nonfinite_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            source->data(), flag, count);
         CHECK_CUDA(cudaGetLastError());
-        return found;
+        int host_flag = 0;
+        CHECK_CUDA(cudaMemcpyAsync(&host_flag, flag, sizeof(int), cudaMemcpyDeviceToHost, current_stream()));
+        CHECK_CUDA(cudaStreamSynchronize(current_stream()));
+        return host_flag != 0;
     }
 #endif
     const float* host = get_data();
@@ -1421,7 +1306,7 @@ auto Tensor::assert_finite(const char* context) const -> void
 auto Tensor::sum(int dim) const -> Tensor
 {
 #if !DEEPLEARNLIB_ENABLE_CUDA
-    throw std::runtime_error("sum requires CUDA/Thrust support");
+    throw std::runtime_error("sum requires CUDA support");
 #else
     ensure_gpu("sum");
     if (dim != -1)
@@ -1434,26 +1319,22 @@ auto Tensor::sum(int dim) const -> Tensor
     }
 
     Tensor result({ 1 }, Device::GPU, Dtype::Float32);
-    float total { 0.0F };
+    CHECK_CUDA(cudaMemsetAsync(result.data(), 0, sizeof(float), current_stream()));
     if (size_ > 0)
     {
+        const Tensor* source = this;
+        Tensor as_float({ 1 }, Device::CPU);
         if (dtype_ == Dtype::Float16)
         {
-            Tensor as_float = to_dtype(Dtype::Float32, current_stream());
-            auto begin = thrust::device_pointer_cast(as_float.data());
-            total = thrust::reduce(thrust::cuda::par.on(current_stream()), begin,
-                begin + static_cast<std::ptrdiff_t>(size_), 0.0F, thrust::plus<float>());
+            as_float = to_dtype(Dtype::Float32, current_stream());
+            source = &as_float;
         }
-        else
-        {
-            auto begin = thrust::device_pointer_cast(data());
-            total = thrust::reduce(thrust::cuda::par.on(current_stream()), begin,
-                begin + static_cast<std::ptrdiff_t>(size_), 0.0F, thrust::plus<float>());
-        }
+        const int count = static_cast<int>(source->get_size());
+        const int blocks = std::max(1, (count + kReduceThreads - 1) / kReduceThreads);
+        sum_f32_kernel<<<static_cast<unsigned int>(std::min(blocks, 1024)), kReduceThreads, 0, current_stream()>>>(
+            source->data(), result.data(), count);
         CHECK_CUDA(cudaGetLastError());
     }
-    CHECK_CUDA(cudaMemcpyAsync(result.data(), &total, sizeof(float), cudaMemcpyHostToDevice, current_stream()));
-    CHECK_CUDA(cudaStreamSynchronize(current_stream()));
     return result;
 #endif
 }
@@ -1478,7 +1359,7 @@ auto Tensor::as_view() const -> Tensor
 auto Tensor::transpose() const -> Tensor
 {
 #if !DEEPLEARNLIB_ENABLE_CUDA
-    throw std::runtime_error("transpose requires CUDA/Thrust support");
+    throw std::runtime_error("transpose requires CUDA support");
 #else
     ensure_gpu("transpose");
     if (shape_.size() != 2)
@@ -1498,17 +1379,16 @@ auto Tensor::transpose() const -> Tensor
         return result;
     }
 
+    const int count = static_cast<int>(size_);
     if (dtype_ == Dtype::Float16)
     {
-        thrust::for_each(thrust::cuda::par.on(current_stream()), thrust::make_counting_iterator(0),
-            thrust::make_counting_iterator(static_cast<int>(size_)),
-            Transpose2DHalf { half_data(), result.half_data(), rows, cols });
+        transpose_2d_f16_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            half_data(), result.half_data(), rows, cols, count);
     }
     else
     {
-        thrust::for_each(thrust::cuda::par.on(current_stream()), thrust::make_counting_iterator(0),
-            thrust::make_counting_iterator(static_cast<int>(size_)),
-            Transpose2D { data(), result.data(), rows, cols });
+        transpose_2d_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            data(), result.data(), rows, cols, count);
     }
     CHECK_CUDA(cudaGetLastError());
     return result;
@@ -1532,81 +1412,81 @@ auto Tensor::zeros_like(const Tensor& other) -> Tensor
 namespace
 {
 
-constexpr int kPinnedSlots = 4;
+    constexpr int kPinnedSlots = 4;
 
-struct PinnedSlot
-{
-    float* ptr { nullptr };
-    size_t bytes { 0 };
-    cudaEvent_t event { nullptr };
-    bool recorded { false };
-};
-
-struct PinnedPool
-{
-    PinnedSlot slots[kPinnedSlots];
-    int next { 0 };
-
-    ~PinnedPool()
+    struct PinnedSlot
     {
-        for (PinnedSlot& slot : slots)
-        {
-            if (slot.event != nullptr)
-            {
-                static_cast<void>(cudaEventDestroy(slot.event));
-            }
-            if (slot.ptr != nullptr)
-            {
-                static_cast<void>(cudaFreeHost(slot.ptr));
-            }
-        }
-    }
+        float* ptr { nullptr };
+        size_t bytes { 0 };
+        cudaEvent_t event { nullptr };
+        bool recorded { false };
+    };
 
-    auto acquire(size_t bytes) -> float*
+    struct PinnedPool
     {
-        PinnedSlot& slot = slots[next];
-        next = (next + 1) % kPinnedSlots;
-        if (slot.recorded)
-        {
-            CHECK_CUDA(cudaEventSynchronize(slot.event));
-            slot.recorded = false;
-        }
-        if (slot.bytes < bytes)
-        {
-            if (slot.ptr != nullptr)
-            {
-                CHECK_CUDA(cudaFreeHost(slot.ptr));
-                slot.ptr = nullptr;
-            }
-            CHECK_CUDA(cudaMallocHost(&slot.ptr, bytes));
-            slot.bytes = bytes;
-        }
-        if (slot.event == nullptr)
-        {
-            CHECK_CUDA(cudaEventCreateWithFlags(&slot.event, cudaEventDisableTiming));
-        }
-        return slot.ptr;
-    }
+        PinnedSlot slots[kPinnedSlots];
+        int next { 0 };
 
-    auto record(float* ptr, cudaStream_t stream) -> void
+        ~PinnedPool()
+        {
+            for (PinnedSlot& slot : slots)
+            {
+                if (slot.event != nullptr)
+                {
+                    static_cast<void>(cudaEventDestroy(slot.event));
+                }
+                if (slot.ptr != nullptr)
+                {
+                    static_cast<void>(cudaFreeHost(slot.ptr));
+                }
+            }
+        }
+
+        auto acquire(size_t bytes) -> float*
+        {
+            PinnedSlot& slot = slots[next];
+            next = (next + 1) % kPinnedSlots;
+            if (slot.recorded)
+            {
+                CHECK_CUDA(cudaEventSynchronize(slot.event));
+                slot.recorded = false;
+            }
+            if (slot.bytes < bytes)
+            {
+                if (slot.ptr != nullptr)
+                {
+                    CHECK_CUDA(cudaFreeHost(slot.ptr));
+                    slot.ptr = nullptr;
+                }
+                CHECK_CUDA(cudaMallocHost(&slot.ptr, bytes));
+                slot.bytes = bytes;
+            }
+            if (slot.event == nullptr)
+            {
+                CHECK_CUDA(cudaEventCreateWithFlags(&slot.event, cudaEventDisableTiming));
+            }
+            return slot.ptr;
+        }
+
+        auto record(float* ptr, cudaStream_t stream) -> void
+        {
+            for (PinnedSlot& slot : slots)
+            {
+                if (slot.ptr == ptr)
+                {
+                    CHECK_CUDA(cudaEventRecord(slot.event, stream));
+                    slot.recorded = true;
+                    return;
+                }
+            }
+        }
+    };
+
+    auto pinned_pool() -> PinnedPool&
     {
-        for (PinnedSlot& slot : slots)
-        {
-            if (slot.ptr == ptr)
-            {
-                CHECK_CUDA(cudaEventRecord(slot.event, stream));
-                slot.recorded = true;
-                return;
-            }
-        }
+        static PinnedPool pool;
+        return pool;
     }
-};
-
-auto pinned_pool() -> PinnedPool&
-{
-    static PinnedPool pool;
-    return pool;
-}
 
 } // namespace
 #endif

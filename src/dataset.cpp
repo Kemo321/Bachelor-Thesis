@@ -449,8 +449,7 @@ auto CustomDataLoader::decode_job(std::vector<std::size_t> sample_indices, std::
             load_sample(sample_indices[static_cast<std::size_t>(batch_idx)], sample_image, sample_target, local_rng);
 
             const auto image_offset = static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(image_elems);
-            const auto target_offset =
-                static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(target_elems);
+            const auto target_offset = static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(target_elems);
             if (sample_image.size() == image_elems)
             {
                 std::copy(sample_image.begin(), sample_image.end(), host.images.begin() + image_offset);

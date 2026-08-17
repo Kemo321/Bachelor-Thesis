@@ -195,13 +195,14 @@ TEST(ParallelForCpuTest, PropagatesWorkerExceptions)
 {
     // Given: A functor that throws on one index
     // When / Then: parallel_for rethrows after joining workers
-    EXPECT_THROW(dl::parallel_for(8,
-                      [](int index)
-                      {
-                          if (index == 3)
-                          {
-                              throw std::runtime_error("worker boom");
-                          }
-                      }),
+    EXPECT_THROW(
+        dl::parallel_for(8,
+            [](int index)
+            {
+                if (index == 3)
+                {
+                    throw std::runtime_error("worker boom");
+                }
+            }),
         std::runtime_error);
 }

@@ -6,8 +6,8 @@
 #include "DeepLearnLib/Losses.hpp"
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/Profiler.hpp"
-#include "SimpleCNN.hpp"
 #include "DeepLearnLib/Tensor.hpp"
+#include "SimpleCNN.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -195,8 +195,7 @@ int main()
                     train_loss += CrossEntropyLoss::loss(batch.targets, logits).to_host(stream).front();
                     train_acc += batch_accuracy(logits, batch.targets, stream);
 
-                    dl::Tensor grad =
-                        trainer.clip_loss_gradient(CrossEntropyLoss::loss_derivative(batch.targets, logits));
+                    dl::Tensor grad = trainer.clip_loss_gradient(CrossEntropyLoss::loss_derivative(batch.targets, logits));
                     auto layers = model.get_all_layers();
                     for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator)
                     {

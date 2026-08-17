@@ -4,9 +4,9 @@
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/Precision.hpp"
-#include "YOLO.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
+#include "YOLO.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -60,8 +60,7 @@ int main()
             ++batches;
         }
         const float avg_loss = l_sum / static_cast<float>(std::max(1, batches));
-        const auto elapsed =
-            std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
+        const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
         const auto vram = current_vram_mib();
         log_train_epoch("Short VOC Custom", epoch, kEpochs, avg_loss, elapsed, vram);
         write_loss_row(csv, epoch, avg_loss, elapsed, vram);

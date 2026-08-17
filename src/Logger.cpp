@@ -12,10 +12,10 @@ namespace dl
 {
 namespace
 {
-constexpr std::size_t kAsyncQueueSize = 8192;
-constexpr std::size_t kAsyncWorkerThreads = 1;
-constexpr std::size_t kRotatingFileBytes = 5 * 1024 * 1024;
-constexpr std::size_t kRotatingFileCount = 3;
+    constexpr std::size_t kAsyncQueueSize = 8192;
+    constexpr std::size_t kAsyncWorkerThreads = 1;
+    constexpr std::size_t kRotatingFileBytes = 5 * 1024 * 1024;
+    constexpr std::size_t kRotatingFileCount = 3;
 } // namespace
 
 Logger::Logger()
@@ -79,6 +79,11 @@ auto log_error_message(const std::string& message) -> void
 auto log_info_message(const std::string& message) -> void
 {
     Logger::get()->info("{}", message);
+}
+
+auto log_flush() -> void
+{
+    Logger::get()->flush();
 }
 
 } // namespace dl

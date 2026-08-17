@@ -23,7 +23,8 @@ auto is_image_file(const fs::path& path) -> bool
 {
     std::string extension = path.extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(),
-        [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+        [](unsigned char character)
+        { return static_cast<char>(std::tolower(character)); });
     return extension == ".jpg" || extension == ".jpeg" || extension == ".png" || extension == ".bmp";
 }
 
@@ -229,15 +230,13 @@ auto ClassificationLoader::decode_indices(const std::vector<std::size_t>& indice
         {
             std::vector<float> sample_image;
             const int class_id = load_sample(indices[static_cast<std::size_t>(batch_idx)], sample_image);
-            const auto image_offset =
-                static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(image_elems);
+            const auto image_offset = static_cast<std::ptrdiff_t>(batch_idx) * static_cast<std::ptrdiff_t>(image_elems);
             if (sample_image.size() == image_elems)
             {
                 std::copy(sample_image.begin(), sample_image.end(), host.images.begin() + image_offset);
             }
             const int clamped = std::clamp(class_id, 0, classes - 1);
-            host.targets[(static_cast<std::size_t>(batch_idx) * target_elems) + static_cast<std::size_t>(clamped)] =
-                1.0F;
+            host.targets[(static_cast<std::size_t>(batch_idx) * target_elems) + static_cast<std::size_t>(clamped)] = 1.0F;
         });
     return host;
 }
@@ -256,7 +255,8 @@ auto ClassificationLoader::launch_prefetch() -> void
     {
         return;
     }
-    prefetch_ = std::async(std::launch::async, [this, indices = std::move(indices)]() { return decode_indices(indices); });
+    prefetch_ = std::async(std::launch::async, [this, indices = std::move(indices)]()
+        { return decode_indices(indices); });
 }
 
 auto ClassificationLoader::join_prefetch() -> void

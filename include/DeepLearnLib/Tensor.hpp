@@ -24,6 +24,7 @@ namespace dl
 
 auto log_error_message(const std::string& message) -> void;
 auto log_info_message(const std::string& message) -> void;
+auto log_flush() -> void;
 
 /** Host vs GPU placement for `dl::Tensor` storage. Training uses `GPU`. */
 enum class Device

@@ -9,16 +9,22 @@
 #include <string>
 #include <type_traits>
 
-#include <thrust/device_ptr.h>
-#include <thrust/execution_policy.h>
-#include <thrust/fill.h>
-
 namespace
 {
 
 constexpr float kWeightDecay = 0.0005F;
 constexpr int kMomentThreads = 256;
 constexpr int kElementwiseThreads = 256;
+constexpr int kFillThreads = 256;
+
+__global__ void fill_constant_kernel(float* out, int count, float value)
+{
+    const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+    if (index < count)
+    {
+        out[index] = value;
+    }
+}
 
 auto fill_constant(dl::Tensor& tensor, float value) -> void
 {
@@ -26,9 +32,15 @@ auto fill_constant(dl::Tensor& tensor, float value) -> void
     {
         return;
     }
-    auto out = thrust::device_pointer_cast(tensor.data());
-    thrust::fill(thrust::cuda::par.on(dl::current_stream()), out, out + static_cast<std::ptrdiff_t>(tensor.get_size()),
-        value);
+    if (value == 0.0F)
+    {
+        CHECK_CUDA(cudaMemsetAsync(tensor.data(), 0, tensor.nbytes(), dl::current_stream()));
+        CHECK_CUDA(cudaGetLastError());
+        return;
+    }
+    const int count = static_cast<int>(tensor.get_size());
+    const dim3 grid(static_cast<unsigned int>((count + kFillThreads - 1) / kFillThreads));
+    fill_constant_kernel<<<grid, kFillThreads, 0, dl::current_stream()>>>(tensor.data(), count, value);
     CHECK_CUDA(cudaGetLastError());
 }
 

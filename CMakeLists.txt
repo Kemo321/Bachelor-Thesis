@@ -162,7 +162,23 @@ else()
 endif()
 
 set(CAFFE2_USE_KINETO OFF CACHE BOOL "" FORCE)
+set(USE_KINETO OFF CACHE BOOL "" FORCE)
 set(kineto_LIBRARIES "")
+# TorchConfig warns when kineto_LIBRARY is NOTFOUND even if Kineto is disabled.
+set(kineto_LIBRARY "" CACHE FILEPATH "Disabled; DeepLearnLib does not link Kineto" FORCE)
+
+# Quiet third-party configure noise: LibTorch ignores CMAKE_CUDA_ARCHITECTURES
+# and looks for Kineto; Highway still sets CMP0111 to OLD; Google Benchmark
+# probes LLVM FileCheck even when assembly tests are disabled.
+macro(message)
+  if("${ARGV}" MATCHES "kineto_LIBRARY-NOTFOUND"
+     OR "${ARGV}" MATCHES "not compatible with `CMAKE_CUDA_ARCHITECTURES`"
+     OR "${ARGV}" MATCHES "Failed to find LLVM FileCheck"
+     OR "${ARGV}" MATCHES "The OLD behavior for policy CMP0111")
+  else()
+    _message(${ARGV})
+  endif()
+endmacro()
 
 set(DEEPLEARN_CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")
 
@@ -176,7 +192,17 @@ if(MSVC AND NOT DEFINED ENV{INCLUDE})
 endif()
 
 if(_deeplearn_try_torch)
+  # Caffe2 warns that it ignores CMAKE_CUDA_ARCHITECTURES. Hide the variable
+  # during find_package; TORCH_CUDA_ARCH_LIST (set by cuda_env.sh) is what Torch uses.
+  set(_deeplearn_cuda_archs_for_torch "${CMAKE_CUDA_ARCHITECTURES}")
+  set(_deeplearn_env_cuda_archs "$ENV{CMAKE_CUDA_ARCHITECTURES}")
+  set(ENV{CMAKE_CUDA_ARCHITECTURES} "")
+  unset(CMAKE_CUDA_ARCHITECTURES)
+  unset(CMAKE_CUDA_ARCHITECTURES CACHE)
   find_package(Torch QUIET)
+  set(ENV{CMAKE_CUDA_ARCHITECTURES} "${_deeplearn_env_cuda_archs}")
+  set(CMAKE_CUDA_ARCHITECTURES "${_deeplearn_cuda_archs_for_torch}" CACHE STRING "CMake CUDA architectures" FORCE)
+  set(DEEPLEARN_CUDA_ARCHITECTURES "${_deeplearn_cuda_archs_for_torch}")
 endif()
 if(Torch_FOUND)
     message(STATUS "LibTorch found for baseline targets.")
@@ -192,12 +218,24 @@ message(STATUS "LibTorch TORCH_CUDA_ARCH_LIST: ${TORCH_CUDA_ARCH_LIST}")
 
 add_subdirectory(extern/googletest EXCLUDE_FROM_ALL)
 
+# Vendored Highway still sets CMP0111 to OLD; do not treat that as a configure warning.
+if(POLICY CMP0111)
+  cmake_policy(SET CMP0111 NEW)
+endif()
+set(CMAKE_POLICY_WARNING_CMP0111 OFF CACHE BOOL "" FORCE)
+
 set(HWY_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
 set(HWY_ENABLE_CONTRIB OFF CACHE BOOL "" FORCE)
 set(HWY_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(_deeplearn_warn_deprecated "${CMAKE_WARN_DEPRECATED}")
+set(CMAKE_WARN_DEPRECATED OFF)
 add_subdirectory(extern/highway EXCLUDE_FROM_ALL)
+set(CMAKE_WARN_DEPRECATED "${_deeplearn_warn_deprecated}")
 
 set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_ASSEMBLY_TESTS OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_WERROR OFF CACHE BOOL "" FORCE)
 add_subdirectory(extern/benchmark EXCLUDE_FROM_ALL)
 
 set(CUTLASS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extern/cutlass")

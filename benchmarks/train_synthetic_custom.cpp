@@ -3,9 +3,9 @@
 
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Network.hpp"
-#include "YOLO.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
+#include "YOLO.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -55,7 +55,8 @@ int main()
         layer->to(dl::Device::GPU);
     }
 
-    auto get_lr = [&config](int ep) -> float { return scheduled_learning_rate(config, ep); };
+    auto get_lr = [&config](int ep) -> float
+    { return scheduled_learning_rate(config, ep); };
 
     fs::create_directories(results_dir);
     std::ofstream csv_file((results_dir / "metrics_custom.csv").string());
@@ -83,8 +84,7 @@ int main()
             dl::Tensor pred = custom_model.forward(batch.images);
             const float batch_loss = YOLOLoss::loss(batch.targets, pred, num_classes).to_host().front();
 
-            dl::Tensor grad_error =
-                trainer.clip_loss_gradient(YOLOLoss::loss_derivative(batch.targets, pred, num_classes));
+            dl::Tensor grad_error = trainer.clip_loss_gradient(YOLOLoss::loss_derivative(batch.targets, pred, num_classes));
 
             auto layers = custom_model.get_all_layers();
             for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator)

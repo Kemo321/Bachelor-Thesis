@@ -4,9 +4,9 @@
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/Tensor.hpp"
-#include "YOLO.hpp"
 #include "DeepLearnLib/dataset.hpp"
 #include "DeepLearnLib/utils.hpp"
+#include "YOLO.hpp"
 
 #include <algorithm>
 #include <filesystem>

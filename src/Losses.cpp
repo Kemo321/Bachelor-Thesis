@@ -1,55 +1,19 @@
 #include "DeepLearnLib/Losses.hpp"
 #include "DeepLearnLib/SafeMath.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-#include <thrust/device_ptr.h>
-#include <thrust/execution_policy.h>
-#include <thrust/functional.h>
-#include <thrust/iterator/counting_iterator.h>
-#include <thrust/transform.h>
-#include <thrust/transform_reduce.h>
-
 namespace
 {
 
 constexpr int kSoftmaxThreads = 256;
-
-struct SquaredDiffAt
-{
-    const float* prediction;
-    const float* target;
-
-    __host__ __device__ auto operator()(int index) const -> float
-    {
-        const float delta = prediction[index] - target[index];
-        return delta * delta;
-    }
-};
-
-struct MeanSquareGrad
-{
-    float scale;
-
-    __host__ __device__ auto operator()(float prediction, float target) const -> float
-    {
-        return (prediction - target) * scale;
-    }
-};
-
-struct SoftmaxMinusTarget
-{
-    float inv_batch;
-
-    __host__ __device__ auto operator()(float softmax_value, float target) const -> float
-    {
-        return (softmax_value - target) * inv_batch;
-    }
-};
+constexpr int kLossThreads = 256;
+constexpr int kReduceThreads = 256;
 
 auto require_same_gpu(const dl::Tensor& target, const dl::Tensor& prediction, const char* name) -> void
 {
@@ -149,6 +113,51 @@ __global__ void cross_entropy_rows_kernel(const float* probabilities, const floa
     row_loss[row] = loss;
 }
 
+__global__ void mse_sqdiff_sum_kernel(const float* prediction, const float* target, float* out, int count)
+{
+    __shared__ float shared_sum[kReduceThreads];
+    float partial = 0.0F;
+    for (int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x); index < count;
+         index += static_cast<int>(blockDim.x * gridDim.x))
+    {
+        const float delta = prediction[index] - target[index];
+        partial += delta * delta;
+    }
+    shared_sum[threadIdx.x] = partial;
+    __syncthreads();
+    for (int stride = kReduceThreads / 2; stride > 0; stride >>= 1)
+    {
+        if (static_cast<int>(threadIdx.x) < stride)
+        {
+            shared_sum[threadIdx.x] += shared_sum[threadIdx.x + stride];
+        }
+        __syncthreads();
+    }
+    if (threadIdx.x == 0)
+    {
+        atomicAdd(out, shared_sum[0]);
+    }
+}
+
+__global__ void mse_grad_kernel(const float* prediction, const float* target, float* gradient, int count, float scale)
+{
+    const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+    if (index < count)
+    {
+        gradient[index] = (prediction[index] - target[index]) * scale;
+    }
+}
+
+__global__ void softmax_minus_target_kernel(
+    const float* probabilities, const float* target, float* gradient, int count, float inv_batch)
+{
+    const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+    if (index < count)
+    {
+        gradient[index] = (probabilities[index] - target[index]) * inv_batch;
+    }
+}
+
 auto softmax_probabilities(const dl::Tensor& logits) -> dl::Tensor
 {
     const int batch = logits.get_shape()[0];
@@ -170,11 +179,14 @@ auto MSELoss::loss(const dl::Tensor& target, const dl::Tensor& prediction) -> dl
         return scalar_from_host(0.0F);
     }
 
-    const float sum_squares = thrust::transform_reduce(thrust::cuda::par.on(dl::current_stream()), thrust::make_counting_iterator(0),
-        thrust::make_counting_iterator(static_cast<int>(prediction.get_size())),
-        SquaredDiffAt { prediction.data(), target.data() }, 0.0F, thrust::plus<float>());
+    dl::Tensor sum_squares({ 1 }, dl::Device::GPU);
+    CHECK_CUDA(cudaMemsetAsync(sum_squares.data(), 0, sizeof(float), dl::current_stream()));
+    const int count = static_cast<int>(prediction.get_size());
+    const int blocks = std::max(1, (count + kReduceThreads - 1) / kReduceThreads);
+    mse_sqdiff_sum_kernel<<<static_cast<unsigned int>(std::min(blocks, 1024)), kReduceThreads, 0, dl::current_stream()>>>(
+        prediction.data(), target.data(), sum_squares.data(), count);
     CHECK_CUDA(cudaGetLastError());
-    const float mean = dl::safe_div(sum_squares, static_cast<float>(prediction.get_size()));
+    const float mean = dl::safe_div(sum_squares.to_host()[0], static_cast<float>(prediction.get_size()));
     return scalar_from_host(mean);
 }
 
@@ -188,11 +200,10 @@ auto MSELoss::loss_derivative(const dl::Tensor& target, const dl::Tensor& predic
     }
 
     const float scale = 2.0F * dl::safe_inv(static_cast<float>(prediction.get_size()));
-    auto pred_ptr = thrust::device_pointer_cast(prediction.data());
-    auto tgt_ptr = thrust::device_pointer_cast(target.data());
-    auto grad_ptr = thrust::device_pointer_cast(gradient.data());
-    thrust::transform(thrust::cuda::par.on(dl::current_stream()), pred_ptr, pred_ptr + static_cast<std::ptrdiff_t>(prediction.get_size()), tgt_ptr,
-        grad_ptr, MeanSquareGrad { scale });
+    const int count = static_cast<int>(prediction.get_size());
+    const dim3 grid(static_cast<unsigned int>((count + kLossThreads - 1) / kLossThreads));
+    mse_grad_kernel<<<grid, kLossThreads, 0, dl::current_stream()>>>(
+        prediction.data(), target.data(), gradient.data(), count, scale);
     CHECK_CUDA(cudaGetLastError());
     return gradient;
 }
@@ -230,13 +241,11 @@ auto CrossEntropyLoss::loss_derivative(const dl::Tensor& target, const dl::Tenso
     const int batch = pred_f32.get_shape()[0];
     dl::Tensor probabilities = softmax_probabilities(pred_f32);
     dl::Tensor gradient(pred_f32.get_shape(), dl::Device::GPU);
-    auto prob_ptr = thrust::device_pointer_cast(probabilities.data());
-    auto tgt_ptr = thrust::device_pointer_cast(tgt_f32.data());
-    auto grad_ptr = thrust::device_pointer_cast(gradient.data());
     const float inv_batch = dl::safe_inv(static_cast<float>(batch));
-    thrust::transform(thrust::cuda::par.on(dl::current_stream()), prob_ptr,
-        prob_ptr + static_cast<std::ptrdiff_t>(pred_f32.get_size()), tgt_ptr, grad_ptr,
-        SoftmaxMinusTarget { inv_batch });
+    const int count = static_cast<int>(pred_f32.get_size());
+    const dim3 grid(static_cast<unsigned int>((count + kLossThreads - 1) / kLossThreads));
+    softmax_minus_target_kernel<<<grid, kLossThreads, 0, dl::current_stream()>>>(
+        probabilities.data(), tgt_f32.data(), gradient.data(), count, inv_batch);
     CHECK_CUDA(cudaGetLastError());
     gradient = gradient * dl::loss_scale();
     return gradient.to_dtype(result_dtype);

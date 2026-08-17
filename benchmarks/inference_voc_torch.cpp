@@ -35,8 +35,7 @@ int main(int argc, char* argv[])
     const float nms_threshold = config.value("nms_threshold", 0.5F);
     const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/voc"));
     const fs::path default_model = results_dir / "yolov1_voc_torch_final.pt";
-    const fs::path default_images =
-        resolve_from_source(config.value("dataset_root", "data/VOCdevkit")) / "VOC2012" / "JPEGImages";
+    const fs::path default_images = resolve_from_source(config.value("dataset_root", "data/VOCdevkit")) / "VOC2012" / "JPEGImages";
 
     if (argc != 1 && argc != 3)
     {

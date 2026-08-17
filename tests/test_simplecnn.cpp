@@ -1,7 +1,7 @@
 #include "test_helpers.hpp"
 
-#include "SimpleCNN.hpp"
 #include "DeepLearnLib/Tensor.hpp"
+#include "SimpleCNN.hpp"
 
 #include <vector>
 

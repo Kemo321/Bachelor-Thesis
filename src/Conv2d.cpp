@@ -1,5 +1,4 @@
 #include "DeepLearnLib/Conv2d.hpp"
-#include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Nvtx.hpp"
 
 #include <algorithm>
@@ -9,15 +8,10 @@
 #include <string>
 #include <utility>
 
-#include <thrust/device_ptr.h>
-#include <thrust/execution_policy.h>
-#include <thrust/fill.h>
-#include <thrust/functional.h>
-#include <thrust/iterator/counting_iterator.h>
-#include <thrust/transform.h>
-
 namespace
 {
+
+constexpr int kFillThreads = 256;
 
 struct UniformFill
 {
@@ -38,16 +32,25 @@ struct UniformFill
     }
 };
 
+__global__ void uniform_fill_kernel(float* out, int count, UniformFill fill)
+{
+    const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+    if (index < count)
+    {
+        out[index] = fill(index);
+    }
+}
+
 auto fill_uniform(dl::Tensor& tensor, float low, float high, unsigned long long seed) -> void
 {
     if (tensor.get_size() == 0)
     {
         return;
     }
-    auto out = thrust::device_pointer_cast(tensor.data());
-    thrust::transform(thrust::cuda::par.on(dl::current_stream()), thrust::make_counting_iterator(0),
-        thrust::make_counting_iterator(static_cast<int>(tensor.get_size())), out,
-        UniformFill { low, high, seed });
+    const int count = static_cast<int>(tensor.get_size());
+    const dim3 grid(static_cast<unsigned int>((count + kFillThreads - 1) / kFillThreads));
+    uniform_fill_kernel<<<grid, kFillThreads, 0, dl::current_stream()>>>(
+        tensor.data(), count, UniformFill { low, high, seed });
     CHECK_CUDA(cudaGetLastError());
 }
 
@@ -57,8 +60,7 @@ auto fill_zero(dl::Tensor& tensor) -> void
     {
         return;
     }
-    auto out = thrust::device_pointer_cast(tensor.data());
-    thrust::fill(thrust::cuda::par.on(dl::current_stream()), out, out + static_cast<std::ptrdiff_t>(tensor.get_size()), 0.0F);
+    CHECK_CUDA(cudaMemsetAsync(tensor.data(), 0, tensor.nbytes(), dl::current_stream()));
     CHECK_CUDA(cudaGetLastError());
 }
 
@@ -452,12 +454,13 @@ auto Conv2d::select_algorithms() -> void
 {
     const auto handle = dl::get_cudnn_handle();
     const size_t budget = workspace_budget();
-    LOG_INFO("Conv2d selecting cuDNN algos in={}x{}x{}x{} out={} workspace_budget={} MiB",
-        input_shape_cache_.empty() ? 0 : input_shape_cache_[0],
-        input_shape_cache_.size() > 1 ? input_shape_cache_[1] : 0,
-        input_shape_cache_.size() > 2 ? input_shape_cache_[2] : 0,
-        input_shape_cache_.size() > 3 ? input_shape_cache_[3] : 0,
-        dl::format_shape(output_shape_cache_), budget / (1024U * 1024U));
+    dl::log_info_message(std::string("Conv2d selecting cuDNN algos in=")
+        + std::to_string(input_shape_cache_.empty() ? 0 : input_shape_cache_[0]) + "x"
+        + std::to_string(input_shape_cache_.size() > 1 ? input_shape_cache_[1] : 0) + "x"
+        + std::to_string(input_shape_cache_.size() > 2 ? input_shape_cache_[2] : 0) + "x"
+        + std::to_string(input_shape_cache_.size() > 3 ? input_shape_cache_[3] : 0) + " out="
+        + dl::format_shape(output_shape_cache_) + " workspace_budget="
+        + std::to_string(budget / (1024U * 1024U)) + " MiB");
 
     cudnnConvolutionFwdAlgoPerf_t fwd_perfs[kMaxAlgoResults] {};
     int fwd_count { 0 };
@@ -507,10 +510,11 @@ auto Conv2d::select_algorithms() -> void
         &bwd_filter_bytes));
     ensure_workspace(std::max({ fwd_bytes, bwd_data_bytes, bwd_filter_bytes }));
     algorithms_selected_ = true;
-    LOG_INFO("Conv2d algos ready fwd={} bwd_data={} bwd_filter={} workspace={} MiB", static_cast<int>(fwd_algo_),
-        static_cast<int>(bwd_data_algo_), static_cast<int>(bwd_filter_algo_),
-        workspace_.size() / (1024U * 1024U));
-    LOG_FLUSH();
+    dl::log_info_message(std::string("Conv2d algos ready fwd=") + std::to_string(static_cast<int>(fwd_algo_))
+        + " bwd_data=" + std::to_string(static_cast<int>(bwd_data_algo_)) + " bwd_filter="
+        + std::to_string(static_cast<int>(bwd_filter_algo_)) + " workspace="
+        + std::to_string(workspace_.size() / (1024U * 1024U)) + " MiB");
+    dl::log_flush();
 }
 
 auto Conv2d::ensure_workspace(size_t bytes) -> void

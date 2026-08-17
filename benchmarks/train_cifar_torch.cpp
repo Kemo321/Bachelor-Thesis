@@ -161,8 +161,7 @@ int main()
             const float avg_test = test_loss / static_cast<float>(std::max(1, test_batches));
             const float avg_train_acc = train_acc / static_cast<float>(std::max(1, train_batches));
             const float avg_test_acc = test_acc / static_cast<float>(std::max(1, test_batches));
-            const auto elapsed =
-                std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
+            const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
             const auto vram = current_vram_mib();
             log_train_epoch("CIFAR-10 Torch", epoch, total_epochs, avg_train, avg_test, elapsed, vram);
             LOG_INFO("CIFAR-10 Torch | Train Acc: {:.4f} | Test Acc: {:.4f}", avg_train_acc, avg_test_acc);

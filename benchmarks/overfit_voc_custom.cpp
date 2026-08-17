@@ -5,10 +5,10 @@
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/Tensor.hpp"
-#include "YOLO.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
 #include "DeepLearnLib/utils.hpp"
+#include "YOLO.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -78,8 +78,7 @@ int main()
             dl::Tensor pred = custom_model.forward(batch.images);
             epoch_loss += YOLOLoss::loss(batch.targets, pred, num_classes).to_host().front();
 
-            dl::Tensor grad_error =
-                trainer.clip_loss_gradient(YOLOLoss::loss_derivative(batch.targets, pred, num_classes));
+            dl::Tensor grad_error = trainer.clip_loss_gradient(YOLOLoss::loss_derivative(batch.targets, pred, num_classes));
             auto layers = custom_model.get_all_layers();
             for (auto it = layers.rbegin(); it != layers.rend(); ++it)
             {
@@ -93,8 +92,7 @@ int main()
             ++batches;
         }
         const float avg_loss = epoch_loss / static_cast<float>(std::max(1, batches));
-        const auto elapsed =
-            std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
+        const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
         const auto vram = current_vram_mib();
         log_train_epoch("Overfit VOC Custom", epoch, total_epochs, avg_loss, elapsed, vram);
         write_loss_row(csv_file, epoch, avg_loss, elapsed, vram);

@@ -5,8 +5,8 @@
 #include "DeepLearnLib/Softmax.hpp"
 #include "DeepLearnLib/Tensor.hpp"
 
-#include <cmath>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>

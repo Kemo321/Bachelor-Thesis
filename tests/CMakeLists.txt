@@ -50,7 +50,7 @@ if(ENABLE_COVERAGE AND NOT MSVC)
   target_compile_options(
     DeepLearnLib
     PRIVATE $<$<COMPILE_LANGUAGE:CXX>:--coverage>
-            $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=--coverage>)
+            $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=--coverage;-Xcompiler=-Wno-invalid-constexpr>)
   target_compile_options(dllib_tests PRIVATE --coverage)
   target_link_options(dllib_tests PRIVATE --coverage)
 endif()
