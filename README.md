@@ -27,7 +27,7 @@ DeepLearnLib provides a dense `dl::Tensor` with GPU storage, in-place arithmetic
 - **Models** — `benchmarks/models/YOLO.{hpp,cpp}` and `SimpleCNN.{hpp,cpp}` are compiled into `DeepLearnModels` and linked only by apps and tests.
 - **Torch baselines** — optional LibTorch binaries (`*_torch`) for apples-to-apples timing. They are not part of the custom stack.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for memory management, kernel fusion, and the dataloader prefetch pool.
+See the numbered thesis chapters in [docs/README.md](docs/README.md). Start with [Chapter 1 — Introduction and setup](docs/01_INTRODUCTION_AND_SETUP.md). How to add a generic layer: [docs/ADDING_LAYERS.md](docs/ADDING_LAYERS.md).
 
 ## Prerequisites
 
@@ -104,7 +104,7 @@ Details: [docs/BENCHMARKS.md](docs/BENCHMARKS.md). Adding a layer: [docs/ADDING_
 ├── torch_baseline/           # Optional LibTorch YOLO / dataset
 ├── config/                   # experiments.json, sanity.json
 ├── scripts/                  # menu.sh, dev.sh, plot_metrics.py
-├── docs/                     # Architecture and contributor guides
+├── docs/                     # Thesis chapters 01–06 plus ADDING_LAYERS.md
 └── docker-compose.yml
 ```
 
