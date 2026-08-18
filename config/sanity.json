@@ -22,7 +22,7 @@
     "voc_subset": "VOC2012",
     "results_dir": "results/voc",
     "num_classes": 20,
-    "dataloader_workers": 0,
+    "dataloader_workers": 8,
     "momentum": 0.9,
     "weight_decay": 0.0005,
     "lr_schedule": [
@@ -57,7 +57,7 @@
     "dataset_root": "data/BCCD_Dataset/BCCD",
     "results_dir": "results/bccd",
     "num_classes": 3,
-    "dataloader_workers": 0,
+    "dataloader_workers": 8,
     "momentum": 0.9,
     "weight_decay": 0.0005,
     "lr_schedule": [
@@ -92,7 +92,7 @@
     "dataset_root": "data/Synthetic3/train",
     "results_dir": "results/synthetic",
     "num_classes": 3,
-    "dataloader_workers": 0,
+    "dataloader_workers": 8,
     "momentum": 0.9,
     "weight_decay": 0.0005,
     "lr_schedule": [

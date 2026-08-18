@@ -30,7 +30,7 @@ int main()
     const int batch_size = config.value("batch_size", 16);
     const int total_epochs = config.value("epochs", 800);
     const int num_classes = config.value("num_classes", 3);
-    const int dataloader_workers = config.value("dataloader_workers", 4);
+    const int dataloader_workers = config.value("dataloader_workers", 8);
     const double momentum = config.value("momentum", 0.9);
     const double weight_decay = config.value("weight_decay", 0.0005);
     const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/BCCD_Dataset/BCCD"));
@@ -38,7 +38,8 @@ int main()
 
     torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
     LOG_INFO("[BCCD TORCH PIPELINE] Starting on device: {}", device.is_cuda() ? "GPU" : "CPU");
-    LOG_INFO("[CONFIG] batch_size={} epochs={} dataset_root={}", batch_size, total_epochs, data_root.string());
+    LOG_INFO("[CONFIG] batch_size={} epochs={} dataloader_workers={} dataset_root={}", batch_size, total_epochs,
+        dataloader_workers, data_root.string());
 
     if (device.is_cuda())
     {
