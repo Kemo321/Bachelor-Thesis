@@ -28,9 +28,10 @@ auto flatten_features(int image_size) -> int
 
 } // namespace
 
-SimpleCNN::SimpleCNN(int num_classes, int image_size)
+SimpleCNN::SimpleCNN(int num_classes, int image_size, int in_channels)
     : num_classes_(num_classes)
     , image_size_(image_size)
+    , in_channels_(in_channels)
     , softmax_(std::make_shared<Softmax>())
 {
     if (num_classes_ <= 0)
@@ -41,8 +42,12 @@ SimpleCNN::SimpleCNN(int num_classes, int image_size)
     {
         throw std::runtime_error("SimpleCNN requires a positive image size");
     }
+    if (in_channels_ <= 0)
+    {
+        throw std::runtime_error("SimpleCNN requires a positive input channel count");
+    }
 
-    layers_.push_back(std::make_shared<Conv2d>(3, 16, 3, 1, 1));
+    layers_.push_back(std::make_shared<Conv2d>(in_channels_, 16, 3, 1, 1));
     layers_.push_back(std::make_shared<LeakyReLU>(0.1F));
     layers_.push_back(std::make_shared<MaxPool2d>(2, 2));
     layers_.push_back(std::make_shared<Conv2d>(16, 32, 3, 1, 1));
@@ -50,8 +55,8 @@ SimpleCNN::SimpleCNN(int num_classes, int image_size)
     layers_.push_back(std::make_shared<MaxPool2d>(2, 2));
     layers_.push_back(std::make_shared<Flatten>());
     layers_.push_back(std::make_shared<FullyConnected>(flatten_features(image_size_), num_classes_));
-    LOG_DEBUG("SimpleCNN classes={} image_size={} flatten_features={} layers={}", num_classes_, image_size_,
-        flatten_features(image_size_), layers_.size());
+    LOG_DEBUG("SimpleCNN classes={} image_size={} in_channels={} flatten_features={} layers={}", num_classes_,
+        image_size_, in_channels_, flatten_features(image_size_), layers_.size());
 }
 
 auto SimpleCNN::forward_logits(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
@@ -85,4 +90,9 @@ auto SimpleCNN::num_classes() const -> int
 auto SimpleCNN::image_size() const -> int
 {
     return image_size_;
+}
+
+auto SimpleCNN::in_channels() const -> int
+{
+    return in_channels_;
 }

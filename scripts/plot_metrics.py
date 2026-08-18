@@ -2,9 +2,10 @@
 """Generate thesis-quality PNG figures from pipeline metrics CSVs.
 
 Looks for ``metrics_custom.csv`` and ``metrics_torch.csv`` under each experiment
-directory (default: results/voc, results/bccd, results/synthetic, results/cifar10,
-results/tabular, results/overfit, results/voc_short). Missing Torch files or mAP
-columns are skipped with a warning rather than aborting.
+directory (VOC, BCCD, synthetic, CIFAR-10, MNIST, tabular variants, overfit).
+Also plots accuracy, confusion matrices, and classification sample grids when
+those artifacts are present. Missing Torch files or mAP columns are skipped
+with a warning rather than aborting.
 """
 
 from __future__ import annotations
@@ -27,7 +28,18 @@ except ImportError as exc:  # pragma: no cover
     )
     raise SystemExit(1) from exc
 
-EXPERIMENT_DIRS = ("voc", "bccd", "synthetic", "cifar10", "tabular", "overfit", "voc_short")
+EXPERIMENT_DIRS = (
+    "voc",
+    "bccd",
+    "synthetic",
+    "cifar10",
+    "mnist",
+    "tabular",
+    "tabular_iris",
+    "tabular_wisconsin",
+    "overfit",
+    "voc_short",
+)
 
 CUSTOM_TRAIN = "#1B4F72"
 CUSTOM_TEST = "#5DADE2"
@@ -76,8 +88,10 @@ def _normalize_columns(frame: pd.DataFrame) -> pd.DataFrame:
         key = str(column).strip().lower().replace(" ", "")
         if key.startswith("epoch"):
             rename[column] = "Epoch"
-        elif "acc" in key:
-            continue
+        elif key in {"acc", "trainacc"} or ("train" in key and "acc" in key):
+            rename[column] = "TrainAcc"
+        elif key in {"testacc", "valacc"} or (("test" in key or "val" in key) and "acc" in key):
+            rename[column] = "TestAcc"
         elif key in {"loss", "trainloss"} or ("train" in key and "loss" in key):
             rename[column] = "TrainLoss"
         elif key in {"testloss", "valloss"} or (("test" in key or "val" in key) and "loss" in key):
@@ -210,13 +224,98 @@ def plot_vram(
     _save(fig, destination)
 
 
+def plot_accuracy(
+    custom: pd.DataFrame | None, torch_df: pd.DataFrame | None, title: str, destination: Path
+) -> None:
+    fig, ax = plt.subplots(figsize=(7.4, 4.6))
+    plotted = False
+    if custom is not None and "TrainAcc" in custom.columns:
+        ax.plot(custom["Epoch"], custom["TrainAcc"], color=CUSTOM_TRAIN, lw=1.8, label="Custom train acc")
+        plotted = True
+        if "TestAcc" in custom.columns:
+            ax.plot(custom["Epoch"], custom["TestAcc"], color=CUSTOM_TEST, lw=1.8, ls="--", label="Custom test acc")
+    if torch_df is not None and "TrainAcc" in torch_df.columns:
+        ax.plot(torch_df["Epoch"], torch_df["TrainAcc"], color=TORCH_TRAIN, lw=1.8, label="Torch train acc")
+        plotted = True
+        if "TestAcc" in torch_df.columns:
+            ax.plot(torch_df["Epoch"], torch_df["TestAcc"], color=TORCH_TEST, lw=1.8, ls="--", label="Torch test acc")
+    if not plotted:
+        plt.close(fig)
+        print(f"[plot] No accuracy columns for {title}; skipping accuracy figure.")
+        return
+    ax.set_title(f"{title}: Accuracy")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Accuracy")
+    ax.set_ylim(0.0, 1.05)
+    ax.legend(loc="best")
+    _save(fig, destination)
+
+
+def plot_confusion(path: Path, title: str, destination: Path) -> None:
+    if not path.is_file():
+        return
+    try:
+        frame = pd.read_csv(path, sep=";")
+        if frame.shape[1] == 1:
+            frame = pd.read_csv(path)
+        frame = frame.set_index(frame.columns[0])
+    except (OSError, pd.errors.ParserError, ValueError) as exc:
+        print(f"[plot] Failed to parse confusion {path}: {exc}", file=sys.stderr)
+        return
+    values = frame.to_numpy(dtype=float)
+    if values.size == 0:
+        return
+    labels = [str(column) for column in frame.columns]
+    fig_w = max(5.5, min(12.0, 0.55 * len(labels) + 3.5))
+    fig, ax = plt.subplots(figsize=(fig_w, fig_w * 0.86))
+    image = ax.imshow(values, cmap="Blues")
+    fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
+    ax.set_xticks(range(len(labels)))
+    ax.set_yticks(range(len(labels)))
+    ax.set_xticklabels(labels, rotation=45, ha="right")
+    ax.set_yticklabels(labels)
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("True")
+    ax.set_title(title)
+    max_value = float(values.max()) if values.size else 0.0
+    for row in range(values.shape[0]):
+        for col in range(values.shape[1]):
+            color = "white" if values[row, col] > (0.55 * max_value) else "#1B2631"
+            ax.text(col, row, f"{int(values[row, col])}", ha="center", va="center", color=color, fontsize=8)
+    _save(fig, destination)
+
+
+def plot_sample_grid(directory: Path, title: str, destination: Path) -> None:
+    if not directory.is_dir():
+        return
+    images = sorted(path for path in directory.glob("*.png"))[:16]
+    if not images:
+        return
+    cols = 4
+    rows = (len(images) + cols - 1) // cols
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.2, rows * 2.2))
+    axes_list = list(axes.flat) if hasattr(axes, "flat") else [axes]
+    for index, axis in enumerate(axes_list):
+        axis.axis("off")
+        if index >= len(images):
+            continue
+        axis.imshow(plt.imread(str(images[index])))
+        axis.set_title(images[index].stem.replace("_", " "), fontsize=7)
+    fig.suptitle(title, fontsize=12)
+    fig.tight_layout()
+    _save(fig, destination)
+
+
 def experiment_title(name: str) -> str:
     mapping = {
         "voc": "PASCAL VOC",
         "bccd": "BCCD",
         "synthetic": "Synthetic",
         "cifar10": "CIFAR-10",
-        "tabular": "Tabular",
+        "mnist": "MNIST",
+        "tabular": "Tabular demo",
+        "tabular_iris": "Iris",
+        "tabular_wisconsin": "Wisconsin WDBC",
         "overfit": "VOC Overfit",
         "voc_short": "VOC Short",
     }
@@ -258,6 +357,7 @@ def process_experiment(experiment_dir: Path, gallery_dir: Path) -> int:
     written = 0
     outputs = [
         ("train_vs_test_loss.png", plot_train_vs_test_loss),
+        ("accuracy.png", plot_accuracy),
         ("map50.png", plot_map),
         ("epoch_duration.png", plot_epoch_duration),
         ("vram.png", plot_vram),
@@ -268,6 +368,30 @@ def process_experiment(experiment_dir: Path, gallery_dir: Path) -> int:
         if dest.is_file():
             gallery = gallery_dir / f"{experiment_dir.name}_{filename}"
             gallery.parent.mkdir(parents=True, exist_ok=True)
+            gallery.write_bytes(dest.read_bytes())
+            written += 1
+
+    extra = [
+        (experiment_dir / "confusion_custom.csv", f"{title}: Custom confusion", "confusion_custom.png"),
+        (experiment_dir / "confusion_torch.csv", f"{title}: Torch confusion", "confusion_torch.png"),
+    ]
+    for csv_path, conf_title, filename in extra:
+        dest = plot_dir / filename
+        plot_confusion(csv_path, conf_title, dest)
+        if dest.is_file():
+            gallery = gallery_dir / f"{experiment_dir.name}_{filename}"
+            gallery.write_bytes(dest.read_bytes())
+            written += 1
+
+    sample_dirs = [
+        (experiment_dir / "samples_custom", f"{title}: Custom samples", "samples_custom.png"),
+        (experiment_dir / "samples_torch", f"{title}: Torch samples", "samples_torch.png"),
+    ]
+    for directory, sample_title, filename in sample_dirs:
+        dest = plot_dir / filename
+        plot_sample_grid(directory, sample_title, dest)
+        if dest.is_file():
+            gallery = gallery_dir / f"{experiment_dir.name}_{filename}"
             gallery.write_bytes(dest.read_bytes())
             written += 1
     return written

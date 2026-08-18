@@ -52,8 +52,29 @@ TEST_F(SimpleCnnTest, TrainableStackHasExpectedDepth)
     EXPECT_EQ(layers.size(), 8U);
     EXPECT_EQ(model.num_classes(), 4);
     EXPECT_EQ(model.image_size(), 32);
+    EXPECT_EQ(model.in_channels(), 3);
     for (const auto& layer : layers)
     {
         ASSERT_NE(layer, nullptr);
     }
+}
+
+TEST_F(SimpleCnnTest, AcceptsSingleChannelMnistInput)
+{
+    constexpr int batch = 2;
+    constexpr int num_classes = 10;
+    constexpr int image_size = 28;
+    SimpleCNN model(num_classes, image_size, 1);
+    for (auto& layer : model.get_all_layers())
+    {
+        layer->to(Device::GPU);
+        layer->eval();
+    }
+    Tensor input = Tensor::from_host({ batch, 1, image_size, image_size },
+        std::vector<float>(static_cast<std::size_t>(batch * 1 * image_size * image_size), 0.5F), Device::GPU);
+    Tensor logits = model.forward_logits(input);
+    synchronize_device();
+    EXPECT_EQ(model.in_channels(), 1);
+    EXPECT_EQ(logits.get_shape(), (std::vector<int> { batch, num_classes }));
+    expect_all_finite(logits.to_host());
 }
