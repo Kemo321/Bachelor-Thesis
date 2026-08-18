@@ -9,7 +9,6 @@
 namespace
 {
 
-constexpr float kWeightDecay = 0.0005F;
 constexpr int kFillThreads = 256;
 
 __global__ void fill_constant_kernel(float* out, int count, float value)
@@ -201,8 +200,8 @@ void BatchNorm2d::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("BatchNorm2d_Step");
     const dl::StreamGuard stream_guard(stream);
-    gamma_.sgd_update_(gamma_grad_, scaled_learning_rate(), kWeightDecay, parameter_clip_bound());
-    beta_.sgd_update_(beta_grad_, scaled_learning_rate(), kWeightDecay, parameter_clip_bound());
+    gamma_.sgd_update_(gamma_grad_, scaled_learning_rate(), weight_decay, parameter_clip_bound());
+    beta_.sgd_update_(beta_grad_, scaled_learning_rate(), weight_decay, parameter_clip_bound());
 }
 
 void BatchNorm2d::clip_gradients(float abs_bound, cudaStream_t stream)

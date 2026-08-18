@@ -13,7 +13,6 @@
 namespace
 {
 
-constexpr float kWeightDecay = 0.0005F;
 constexpr int kMomentThreads = 256;
 constexpr int kElementwiseThreads = 256;
 constexpr int kFillThreads = 256;
@@ -438,6 +437,7 @@ void FusedCBR2d::step(cudaStream_t stream)
     conv_.learning_rate = learning_rate;
     conv_.gradient_clip = gradient_clip;
     conv_.momentum = momentum;
+    conv_.weight_decay = weight_decay;
     conv_.step(stream);
     const float clip = parameter_clip_bound();
     const float lr = scaled_learning_rate();
@@ -445,12 +445,12 @@ void FusedCBR2d::step(cudaStream_t stream)
     {
         dl::Tensor& gamma_velocity = ensure_zero_like(gamma_velocity_, gamma_);
         dl::Tensor& beta_velocity = ensure_zero_like(beta_velocity_, beta_);
-        gamma_.sgd_momentum_update_(gamma_grad_, gamma_velocity, lr, momentum, kWeightDecay, clip);
-        beta_.sgd_momentum_update_(beta_grad_, beta_velocity, lr, momentum, kWeightDecay, clip);
+        gamma_.sgd_momentum_update_(gamma_grad_, gamma_velocity, lr, momentum, weight_decay, clip);
+        beta_.sgd_momentum_update_(beta_grad_, beta_velocity, lr, momentum, weight_decay, clip);
         return;
     }
-    gamma_.sgd_update_(gamma_grad_, lr, kWeightDecay, clip);
-    beta_.sgd_update_(beta_grad_, lr, kWeightDecay, clip);
+    gamma_.sgd_update_(gamma_grad_, lr, weight_decay, clip);
+    beta_.sgd_update_(beta_grad_, lr, weight_decay, clip);
 }
 
 void FusedCBR2d::clip_gradients(float abs_bound, cudaStream_t stream)

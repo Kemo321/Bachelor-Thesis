@@ -1,13 +1,17 @@
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
+#include "DeepLearnLib/Layer.hpp"
 #include "DeepLearnLib/Precision.hpp"
 #include "DeepLearnLib/SafeMath.hpp"
 
@@ -100,24 +104,47 @@ inline auto pipeline_gradient_clip(const nlohmann::json& config) -> float
 /**
  * @brief Piecewise-constant LR from config["lr_schedule"] (ordered by until_epoch).
  *
- * Falls back to config["learning_rate"] when the schedule is absent or empty.
+ * When the schedule is absent, applies StepLR: keep `learning_rate` until 70% of
+ * `epochs`, drop 10x until 90%, then drop another 10x.
  */
 inline auto scheduled_learning_rate(const nlohmann::json& config, int epoch) -> float
 {
     const float fallback = config.value("learning_rate", 1.0e-4F);
-    if (!config.contains("lr_schedule") || !config.at("lr_schedule").is_array() || config.at("lr_schedule").empty())
+    if (config.contains("lr_schedule") && config.at("lr_schedule").is_array() && !config.at("lr_schedule").empty())
+    {
+        float last = fallback;
+        for (const auto& step : config.at("lr_schedule"))
+        {
+            last = step.value("learning_rate", last);
+            if (epoch <= step.value("until_epoch", epoch))
+            {
+                return last;
+            }
+        }
+        return last;
+    }
+
+    const int total = std::max(1, config.value("epochs", epoch));
+    const int drop_70 = std::max(1, static_cast<int>(std::lround(0.70 * static_cast<double>(total))));
+    const int drop_90 = std::max(drop_70, static_cast<int>(std::lround(0.90 * static_cast<double>(total))));
+    if (epoch <= drop_70)
     {
         return fallback;
     }
-
-    float last = fallback;
-    for (const auto& step : config.at("lr_schedule"))
+    if (epoch <= drop_90)
     {
-        last = step.value("learning_rate", last);
-        if (epoch <= step.value("until_epoch", epoch))
-        {
-            return last;
-        }
+        return fallback * 0.1F;
     }
-    return last;
+    return fallback * 0.01F;
+}
+
+inline auto apply_sgd_hyperparameters(const std::vector<std::shared_ptr<Layer>>& layers, float learning_rate,
+    float momentum, float weight_decay) -> void
+{
+    for (const auto& layer : layers)
+    {
+        layer->learning_rate = learning_rate;
+        layer->momentum = momentum;
+        layer->weight_decay = weight_decay;
+    }
 }

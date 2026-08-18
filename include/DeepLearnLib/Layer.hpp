@@ -31,6 +31,8 @@ public:
      * Non-zero uses a velocity buffer: `v = mu * v + (g + wd w); w -= lr * v`.
      */
     float momentum = 0.0F;
+    /** L2 term added to the gradient before the SGD/momentum update. */
+    float weight_decay = 0.0005F;
 
     virtual ~Layer() = default;
 

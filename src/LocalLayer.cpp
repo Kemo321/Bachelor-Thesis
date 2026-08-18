@@ -11,7 +11,6 @@
 namespace
 {
 
-constexpr float kWeightDecay = 0.0005F;
 constexpr int kFillThreads = 256;
 constexpr int kLocalThreads = 256;
 
@@ -310,12 +309,12 @@ void LocalLayer::step(cudaStream_t stream)
     {
         dl::Tensor& weight_velocity = ensure_zero_like(weights_velocity_, weights_);
         dl::Tensor& bias_velocity = ensure_zero_like(biases_velocity_, biases_);
-        weights_.sgd_momentum_update_(weights_gradient_, weight_velocity, lr, momentum, kWeightDecay, clip);
-        biases_.sgd_momentum_update_(biases_gradient_, bias_velocity, lr, momentum, kWeightDecay, clip);
+        weights_.sgd_momentum_update_(weights_gradient_, weight_velocity, lr, momentum, weight_decay, clip);
+        biases_.sgd_momentum_update_(biases_gradient_, bias_velocity, lr, momentum, weight_decay, clip);
         return;
     }
-    weights_.sgd_update_(weights_gradient_, lr, kWeightDecay, clip);
-    biases_.sgd_update_(biases_gradient_, lr, kWeightDecay, clip);
+    weights_.sgd_update_(weights_gradient_, lr, weight_decay, clip);
+    biases_.sgd_update_(biases_gradient_, lr, weight_decay, clip);
 }
 
 void LocalLayer::clip_gradients(float abs_bound, cudaStream_t stream)
