@@ -29,6 +29,16 @@ public:
     void set_parameters(const std::map<std::string, dl::Tensor>& params) override;
     auto to(dl::Device device) -> void override;
 
+    [[nodiscard]] auto input_size() const -> int
+    {
+        return input_size_;
+    }
+
+    [[nodiscard]] auto output_size() const -> int
+    {
+        return output_size_;
+    }
+
 private:
     dl::Tensor weights_;
     dl::Tensor biases_;
@@ -38,6 +48,8 @@ private:
     bool input_cache_ready_ { false };
     dl::Tensor weights_gradient_;
     dl::Tensor biases_gradient_;
+    std::optional<dl::Tensor> weights_velocity_;
+    std::optional<dl::Tensor> biases_velocity_;
     int input_size_;
     int output_size_;
     float inertia_;

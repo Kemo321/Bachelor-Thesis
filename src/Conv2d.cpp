@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -62,6 +63,16 @@ auto fill_zero(dl::Tensor& tensor) -> void
     }
     CHECK_CUDA(cudaMemsetAsync(tensor.data(), 0, tensor.nbytes(), dl::current_stream()));
     CHECK_CUDA(cudaGetLastError());
+}
+
+auto ensure_zero_like(std::optional<dl::Tensor>& slot, const dl::Tensor& like) -> dl::Tensor&
+{
+    if (!slot.has_value() || slot->get_shape() != like.get_shape() || slot->get_dtype() != like.get_dtype())
+    {
+        slot = dl::Tensor(like.get_shape(), like.get_device(), like.get_dtype());
+        fill_zero(*slot);
+    }
+    return *slot;
 }
 
 auto require_gpu_nchw(const dl::Tensor& tensor, const char* name) -> void
@@ -644,8 +655,22 @@ void Conv2d::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("Conv2d_Step");
     const dl::StreamGuard stream_guard(stream);
-    weights_.sgd_update_(weights_gradient_, scaled_learning_rate(), kWeightDecay, parameter_clip_bound());
-    biases_.sgd_update_(biases_gradient_, scaled_learning_rate(), kWeightDecay, parameter_clip_bound());
+    if (frozen())
+    {
+        return;
+    }
+    const float clip = parameter_clip_bound();
+    const float lr = scaled_learning_rate();
+    if (momentum > 0.0F)
+    {
+        dl::Tensor& weight_velocity = ensure_zero_like(weights_velocity_, weights_);
+        dl::Tensor& bias_velocity = ensure_zero_like(biases_velocity_, biases_);
+        weights_.sgd_momentum_update_(weights_gradient_, weight_velocity, lr, momentum, kWeightDecay, clip);
+        biases_.sgd_momentum_update_(biases_gradient_, bias_velocity, lr, momentum, kWeightDecay, clip);
+        return;
+    }
+    weights_.sgd_update_(weights_gradient_, lr, kWeightDecay, clip);
+    biases_.sgd_update_(biases_gradient_, lr, kWeightDecay, clip);
 }
 
 void Conv2d::clip_gradients(float abs_bound, cudaStream_t stream)

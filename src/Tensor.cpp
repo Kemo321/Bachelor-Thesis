@@ -238,6 +238,43 @@ namespace
         weights[index] = __float2half(weight - (lr * update));
     }
 
+    __global__ void sgd_momentum_update_f32_kernel(float* weights, const float* grad, float* velocity, float lr,
+        float momentum, float decay, float clip, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index >= count)
+        {
+            return;
+        }
+        float update = grad[index] + (decay * weights[index]);
+        if (clip > 0.0F)
+        {
+            update = update < -clip ? -clip : (update > clip ? clip : update);
+        }
+        const float velocity_value = (momentum * velocity[index]) + update;
+        velocity[index] = velocity_value;
+        weights[index] -= lr * velocity_value;
+    }
+
+    __global__ void sgd_momentum_update_f16_kernel(__half* weights, const __half* grad, __half* velocity, float lr,
+        float momentum, float decay, float clip, int count)
+    {
+        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+        if (index >= count)
+        {
+            return;
+        }
+        const float weight = __half2float(weights[index]);
+        float update = __half2float(grad[index]) + (decay * weight);
+        if (clip > 0.0F)
+        {
+            update = update < -clip ? -clip : (update > clip ? clip : update);
+        }
+        const float velocity_value = (momentum * __half2float(velocity[index])) + update;
+        velocity[index] = __float2half(velocity_value);
+        weights[index] = __float2half(weight - (lr * velocity_value));
+    }
+
     __global__ void add_row_f32_kernel(float* dst, const float* bias, int count, int features)
     {
         const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
@@ -1090,6 +1127,35 @@ auto Tensor::sgd_update_(const Tensor& grad, float lr, float decay, float clip) 
     {
         sgd_update_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
             data(), grad.data(), lr, decay, clip, count);
+    }
+    CHECK_CUDA(cudaGetLastError());
+    return *this;
+#endif
+}
+
+auto Tensor::sgd_momentum_update_(const Tensor& grad, Tensor& velocity, float lr, float momentum, float decay,
+    float clip) -> Tensor&
+{
+#if !DEEPLEARNLIB_ENABLE_CUDA
+    throw std::runtime_error("sgd_momentum_update_ requires CUDA support");
+#else
+    ensure_binary_op(grad, "sgd_momentum_update_");
+    ensure_binary_op(velocity, "sgd_momentum_update_");
+    if (size_ == 0)
+    {
+        return *this;
+    }
+
+    const int count = static_cast<int>(size_);
+    if (dtype_ == Dtype::Float16)
+    {
+        sgd_momentum_update_f16_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            half_data(), grad.half_data(), velocity.half_data(), lr, momentum, decay, clip, count);
+    }
+    else
+    {
+        sgd_momentum_update_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+            data(), grad.data(), velocity.data(), lr, momentum, decay, clip, count);
     }
     CHECK_CUDA(cudaGetLastError());
     return *this;

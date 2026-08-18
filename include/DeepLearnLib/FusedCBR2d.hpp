@@ -41,6 +41,21 @@ public:
         return leaky_slope_;
     }
 
+    [[nodiscard]] auto in_channels() const -> int
+    {
+        return conv_.in_channels();
+    }
+
+    [[nodiscard]] auto out_channels() const -> int
+    {
+        return out_channels_;
+    }
+
+    [[nodiscard]] auto kernel_size() const -> int
+    {
+        return conv_.kernel_size();
+    }
+
 private:
     auto configure_bn_descriptors(const dl::Tensor& conv_output) -> void;
     auto apply_bn_leaky_into(const dl::Tensor& conv_output, dl::Tensor& output, cudaStream_t stream) -> void;
@@ -55,6 +70,8 @@ private:
     dl::Tensor beta_;
     dl::Tensor gamma_grad_;
     dl::Tensor beta_grad_;
+    std::optional<dl::Tensor> gamma_velocity_;
+    std::optional<dl::Tensor> beta_velocity_;
     dl::Tensor running_mean_;
     dl::Tensor running_var_;
     dl::Tensor batch_var_;

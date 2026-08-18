@@ -174,6 +174,21 @@ public:
     void set_parameters(const std::map<std::string, dl::Tensor>& params) override;
     auto to(dl::Device device) -> void override;
 
+    [[nodiscard]] auto in_channels() const -> int
+    {
+        return in_channels_;
+    }
+
+    [[nodiscard]] auto out_channels() const -> int
+    {
+        return out_channels_;
+    }
+
+    [[nodiscard]] auto kernel_size() const -> int
+    {
+        return kernel_size_;
+    }
+
 private:
     auto configure_io_descriptors(int batch, int height, int width) -> void;
     auto select_algorithms() -> void;
@@ -187,6 +202,8 @@ private:
     bool input_cache_ready_ { false };
     dl::Tensor weights_gradient_;
     dl::Tensor biases_gradient_;
+    std::optional<dl::Tensor> weights_velocity_;
+    std::optional<dl::Tensor> biases_velocity_;
 
     std::vector<int> input_shape_cache_;
     std::vector<int> output_shape_cache_;

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cuda_fp16.h>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -42,6 +43,16 @@ auto fill_constant(dl::Tensor& tensor, float value) -> void
     const dim3 grid(static_cast<unsigned int>((count + kFillThreads - 1) / kFillThreads));
     fill_constant_kernel<<<grid, kFillThreads, 0, dl::current_stream()>>>(tensor.data(), count, value);
     CHECK_CUDA(cudaGetLastError());
+}
+
+auto ensure_zero_like(std::optional<dl::Tensor>& slot, const dl::Tensor& like) -> dl::Tensor&
+{
+    if (!slot.has_value() || slot->get_shape() != like.get_shape() || slot->get_dtype() != like.get_dtype())
+    {
+        slot = dl::Tensor(like.get_shape(), like.get_device(), like.get_dtype());
+        fill_constant(*slot, 0.0F);
+    }
+    return *slot;
 }
 
 auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) -> void
@@ -420,11 +431,26 @@ auto FusedCBR2d::backward(const dl::Tensor& output_error_derivative, cudaStream_
 void FusedCBR2d::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("FusedCBR2d_Step");
+    if (frozen())
+    {
+        return;
+    }
     conv_.learning_rate = learning_rate;
     conv_.gradient_clip = gradient_clip;
+    conv_.momentum = momentum;
     conv_.step(stream);
-    gamma_.sgd_update_(gamma_grad_, scaled_learning_rate(), kWeightDecay, parameter_clip_bound());
-    beta_.sgd_update_(beta_grad_, scaled_learning_rate(), kWeightDecay, parameter_clip_bound());
+    const float clip = parameter_clip_bound();
+    const float lr = scaled_learning_rate();
+    if (momentum > 0.0F)
+    {
+        dl::Tensor& gamma_velocity = ensure_zero_like(gamma_velocity_, gamma_);
+        dl::Tensor& beta_velocity = ensure_zero_like(beta_velocity_, beta_);
+        gamma_.sgd_momentum_update_(gamma_grad_, gamma_velocity, lr, momentum, kWeightDecay, clip);
+        beta_.sgd_momentum_update_(beta_grad_, beta_velocity, lr, momentum, kWeightDecay, clip);
+        return;
+    }
+    gamma_.sgd_update_(gamma_grad_, lr, kWeightDecay, clip);
+    beta_.sgd_update_(beta_grad_, lr, kWeightDecay, clip);
 }
 
 void FusedCBR2d::clip_gradients(float abs_bound, cudaStream_t stream)

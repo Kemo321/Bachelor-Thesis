@@ -26,8 +26,29 @@ public:
     float learning_rate = 0.001F;
     /** Absolute per-parameter clip bound. `0` disables clipping. */
     float gradient_clip = 0.0F;
+    /**
+     * Darknet-style SGD momentum. `0` keeps vanilla SGD (`w -= lr * (g + wd w)`).
+     * Non-zero uses a velocity buffer: `v = mu * v + (g + wd w); w -= lr * v`.
+     */
+    float momentum = 0.0F;
 
     virtual ~Layer() = default;
+
+    /** Skip `step()` (and optionally skip backward through a frozen prefix). */
+    void freeze()
+    {
+        frozen_ = true;
+    }
+
+    void unfreeze()
+    {
+        frozen_ = false;
+    }
+
+    [[nodiscard]] auto frozen() const -> bool
+    {
+        return frozen_;
+    }
 
     /**
      * @brief Enable training behaviour (Dropout, BatchNorm running stats, …).
@@ -140,5 +161,6 @@ public:
 
 protected:
     bool is_training_ = true;
+    bool frozen_ { false };
     dl::Device device_ = dl::Device::GPU;
 };

@@ -14,9 +14,13 @@ set(DEEPLEARN_SOURCES
     Losses.cpp
     Softmax.cpp
     CSVLoader.cpp
+    PackedImageLoader.cpp
     Logger.cpp
     Precision.cpp
     FusedCBR2d.cpp
+    LocalLayer.cpp
+    DarknetDetectionLoss.cpp
+    DarknetWeights.cpp
 )
 
 if(OpenCV_FOUND)
@@ -43,6 +47,8 @@ set(DEEPLEARN_CUDA_SOURCES
     Losses.cpp
     Softmax.cpp
     FusedCBR2d.cpp
+    LocalLayer.cpp
+    DarknetDetectionLoss.cpp
 )
 
 foreach(_cuda_src IN LISTS DEEPLEARN_CUDA_SOURCES)

@@ -155,6 +155,113 @@ std::vector<Detection> decode_yolo_tensor(const std::vector<float>& output_data,
     return all_detections;
 }
 
+std::vector<Detection> decode_darknet_detection(const std::vector<float>& output_data, float conf_threshold,
+    int img_width, int img_height, int num_classes, int side, int num_boxes, bool sqrt_wh)
+{
+    const int cells = side * side;
+    const int pred_len = cells * (num_classes + num_boxes + (num_boxes * 4));
+    if (static_cast<int>(output_data.size()) < pred_len)
+    {
+        throw std::runtime_error("decode_darknet_detection expected a flat Darknet detection buffer");
+    }
+
+    std::vector<Detection> detections;
+    detections.reserve(static_cast<std::size_t>(cells * num_boxes));
+    for (int cell = 0; cell < cells; ++cell)
+    {
+        const int row = cell / side;
+        const int col = cell % side;
+        for (int box_idx = 0; box_idx < num_boxes; ++box_idx)
+        {
+            const int p_index = (cells * num_classes) + (cell * num_boxes) + box_idx;
+            const float objectness = output_data[static_cast<std::size_t>(p_index)];
+            int class_id = 0;
+            float best_class = -1.0e6F;
+            for (int class_idx = 0; class_idx < num_classes; ++class_idx)
+            {
+                const float class_prob = output_data[static_cast<std::size_t>((cell * num_classes) + class_idx)];
+                if (class_prob > best_class)
+                {
+                    best_class = class_prob;
+                    class_id = class_idx;
+                }
+            }
+            const float score = objectness * best_class;
+            if (score <= conf_threshold)
+            {
+                continue;
+            }
+            const int box_index = (cells * (num_classes + num_boxes)) + (((cell * num_boxes) + box_idx) * 4);
+            const float tx = output_data[static_cast<std::size_t>(box_index + 0)];
+            const float ty = output_data[static_cast<std::size_t>(box_index + 1)];
+            float tw = output_data[static_cast<std::size_t>(box_index + 2)];
+            float th = output_data[static_cast<std::size_t>(box_index + 3)];
+            if (sqrt_wh)
+            {
+                tw = tw * tw;
+                th = th * th;
+            }
+            const float center_x = ((tx + static_cast<float>(col)) / static_cast<float>(side))
+                * static_cast<float>(img_width);
+            const float center_y = ((ty + static_cast<float>(row)) / static_cast<float>(side))
+                * static_cast<float>(img_height);
+            const float box_width = tw * static_cast<float>(img_width);
+            const float box_height = th * static_cast<float>(img_height);
+            const int x_min = std::max(0, static_cast<int>(center_x - (box_width * 0.5F)));
+            const int y_min = std::max(0, static_cast<int>(center_y - (box_height * 0.5F)));
+            detections.push_back(Detection { static_cast<float>(x_min), static_cast<float>(y_min), box_width,
+                box_height, score, class_id });
+        }
+    }
+    return detections;
+}
+
+std::vector<Detection> detections_from_darknet_truth(const std::vector<float>& truth, int img_width, int img_height,
+    int num_classes, int side)
+{
+    const int cells = side * side;
+    const int attrs = 1 + 4 + num_classes;
+    const int expected = cells * attrs;
+    if (static_cast<int>(truth.size()) < expected)
+    {
+        throw std::runtime_error("detections_from_darknet_truth expected a Darknet truth grid");
+    }
+
+    std::vector<Detection> detections;
+    for (int cell = 0; cell < cells; ++cell)
+    {
+        const int base = cell * attrs;
+        if (truth[static_cast<std::size_t>(base)] <= 0.0F)
+        {
+            continue;
+        }
+        int class_id = 0;
+        float best = -1.0F;
+        for (int class_idx = 0; class_idx < num_classes; ++class_idx)
+        {
+            const float value = truth[static_cast<std::size_t>(base + 1 + class_idx)];
+            if (value > best)
+            {
+                best = value;
+                class_id = class_idx;
+            }
+        }
+        const float gx = truth[static_cast<std::size_t>(base + 1 + num_classes + 0)];
+        const float gy = truth[static_cast<std::size_t>(base + 1 + num_classes + 1)];
+        const float tw = truth[static_cast<std::size_t>(base + 1 + num_classes + 2)];
+        const float th = truth[static_cast<std::size_t>(base + 1 + num_classes + 3)];
+        const float center_x = (gx / static_cast<float>(side)) * static_cast<float>(img_width);
+        const float center_y = (gy / static_cast<float>(side)) * static_cast<float>(img_height);
+        const float box_width = tw * static_cast<float>(img_width);
+        const float box_height = th * static_cast<float>(img_height);
+        const int x_min = std::max(0, static_cast<int>(center_x - (box_width * 0.5F)));
+        const int y_min = std::max(0, static_cast<int>(center_y - (box_height * 0.5F)));
+        detections.push_back(Detection { static_cast<float>(x_min), static_cast<float>(y_min), box_width, box_height,
+            1.0F, class_id });
+    }
+    return detections;
+}
+
 void draw_detections(cv::Mat& img, const std::vector<Detection>& detections,
     const std::vector<std::string>& class_names, const cv::Scalar& default_color)
 {

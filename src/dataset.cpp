@@ -160,8 +160,59 @@ auto apply_hsv_jitter(cv::Mat& image, float saturation_factor, float exposure_fa
 }
 
 auto encode_targets(const std::string& label_path, bool is_train, float scale, float dx, float dy, int num_classes,
-    std::vector<float>& target) -> void
+    DetectionLabelLayout layout, std::vector<float>& target) -> void
 {
+    const int cell_count = GRID_SIZE * GRID_SIZE;
+    if (layout == DetectionLabelLayout::DarknetYolov1)
+    {
+        const int truth_attrs = 1 + 4 + num_classes;
+        target.assign(static_cast<std::size_t>(cell_count * truth_attrs), 0.0F);
+        auto at = [&](int grid_y, int grid_x, int offset) -> float&
+        {
+            return target[static_cast<std::size_t>(((grid_y * GRID_SIZE) + grid_x) * truth_attrs + offset)];
+        };
+
+        std::ifstream label_file(label_path);
+        int class_id {};
+        float x_center {};
+        float y_center {};
+        float box_width {};
+        float box_height {};
+        while (label_file >> class_id >> x_center >> y_center >> box_width >> box_height)
+        {
+            if (class_id < 0 || class_id >= num_classes)
+            {
+                continue;
+            }
+            if (is_train)
+            {
+                x_center = 0.5F * ((2.0F * x_center - 1.0F - dx) / scale + 1.0F);
+                y_center = 0.5F * ((2.0F * y_center - 1.0F - dy) / scale + 1.0F);
+                box_width = box_width / scale;
+                box_height = box_height / scale;
+            }
+            if (x_center < 0.0F || x_center > 1.0F || y_center < 0.0F || y_center > 1.0F)
+            {
+                continue;
+            }
+            box_width = std::clamp(box_width, 0.0F, 1.0F);
+            box_height = std::clamp(box_height, 0.0F, 1.0F);
+            int grid_x = std::clamp(static_cast<int>(x_center * static_cast<float>(GRID_SIZE)), 0, GRID_SIZE - 1);
+            int grid_y = std::clamp(static_cast<int>(y_center * static_cast<float>(GRID_SIZE)), 0, GRID_SIZE - 1);
+            if (at(grid_y, grid_x, 0) != 0.0F)
+            {
+                continue;
+            }
+            at(grid_y, grid_x, 0) = 1.0F;
+            at(grid_y, grid_x, 1 + class_id) = 1.0F;
+            at(grid_y, grid_x, 1 + num_classes + 0) = x_center * static_cast<float>(GRID_SIZE);
+            at(grid_y, grid_x, 1 + num_classes + 1) = y_center * static_cast<float>(GRID_SIZE);
+            at(grid_y, grid_x, 1 + num_classes + 2) = box_width;
+            at(grid_y, grid_x, 1 + num_classes + 3) = box_height;
+        }
+        return;
+    }
+
     const int attributes = BOXES_PER_CELL * BOX_PARAMS + num_classes;
     target.assign(static_cast<std::size_t>(GRID_SIZE * GRID_SIZE * attributes), 0.0F);
 
@@ -306,12 +357,13 @@ auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths
 }
 
 CustomDataLoader::CustomDataLoader(const DataPaths& paths, int batch_size, bool is_train,
-    const std::vector<std::string>& class_names)
+    const std::vector<std::string>& class_names, DetectionLabelLayout label_layout)
     : paths_(paths)
     , batch_size_(batch_size)
     , is_train_(is_train)
     , num_classes_(static_cast<int>(class_names.size()))
     , img_size_(IMAGE_SIZE)
+    , label_layout_(label_layout)
     , cursor_(0)
     , rng_(std::random_device {}())
 {
@@ -376,7 +428,7 @@ auto CustomDataLoader::load_sample(std::size_t sample_index, std::vector<float>&
     cv::Mat image = cv::imread(paths_.images[sample_index]);
     if (image.empty())
     {
-        encode_targets(paths_.labels[sample_index], false, 1.0F, 0.0F, 0.0F, num_classes_, target);
+        encode_targets(paths_.labels[sample_index], false, 1.0F, 0.0F, 0.0F, num_classes_, label_layout_, target);
         return;
     }
 
@@ -401,7 +453,7 @@ auto CustomDataLoader::load_sample(std::size_t sample_index, std::vector<float>&
         image = image.clone();
     }
     hwc_to_chw(image, image_chw.data());
-    encode_targets(paths_.labels[sample_index], is_train_, scale, dx, dy, num_classes_, target);
+    encode_targets(paths_.labels[sample_index], is_train_, scale, dx, dy, num_classes_, label_layout_, target);
 }
 
 auto CustomDataLoader::take_job() -> std::pair<std::vector<std::size_t>, std::vector<std::uint32_t>>
@@ -429,7 +481,9 @@ auto CustomDataLoader::decode_job(std::vector<std::size_t> sample_indices, std::
 {
     HostBatch host;
     host.n = static_cast<int>(sample_indices.size());
-    host.attributes = BOXES_PER_CELL * BOX_PARAMS + num_classes_;
+    host.attributes = (label_layout_ == DetectionLabelLayout::DarknetYolov1)
+        ? (1 + 4 + num_classes_)
+        : (BOXES_PER_CELL * BOX_PARAMS + num_classes_);
     if (host.n == 0)
     {
         return host;

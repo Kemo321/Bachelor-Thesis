@@ -350,6 +350,13 @@ public:
      */
     auto sgd_update_(const Tensor& grad, float lr, float decay, float clip = 0.0F) -> Tensor&;
     /**
+     * @brief Darknet/PyTorch SGD with momentum:
+     * `v = momentum * v + clip(grad + decay * this); this -= lr * v`.
+     * @param velocity Persistent velocity buffer, same shape as `*this`.
+     */
+    auto sgd_momentum_update_(const Tensor& grad, Tensor& velocity, float lr, float momentum, float decay,
+        float clip = 0.0F) -> Tensor&;
+    /**
      * @brief In-place: each row of `[B, C] +=` bias of shape `[1, C]` or `[C]`.
      * @note No allocation.
      */
