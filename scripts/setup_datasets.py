@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download and generate datasets for DeepLearnLib (VOC, BCCD, Synthetic3, CIFAR-10).
+"""Download and generate datasets for DeepLearnLib (VOC, BCCD, Synthetic3, CIFAR-10, MNIST, tabular, Darknet weights).
 
 Existing target directories with data are skipped. Requires the Python standard
 library plus Pillow or OpenCV to write JPEG images for Synthetic3.
@@ -7,10 +7,12 @@ library plus Pillow or OpenCV to write JPEG images for Synthetic3.
 
 from __future__ import annotations
 
+import gzip
 import argparse
 import random
 import shutil
 import ssl
+import struct
 import subprocess
 import sys
 import tarfile
@@ -34,6 +36,40 @@ CIFAR10_URL = "https://s3.amazonaws.com/fast-ai-imageclas/cifar10.tgz"
 CIFAR10_MIN_TRAIN_IMAGES = 50_000
 CIFAR10_MIN_TEST_IMAGES = 10_000
 CIFAR10_CLASS_COUNT = 10
+
+MNIST_MIRRORS = (
+    "https://ossci-datasets.s3.amazonaws.com/mnist/",
+    "http://yann.lecun.com/exdb/mnist/",
+)
+MNIST_TRAIN_COUNT = 60_000
+MNIST_TEST_COUNT = 10_000
+MNIST_ROWS = 28
+MNIST_COLS = 28
+DLIMG_MAGIC = b"DLIMG001"
+
+EXTRACTION_WEIGHTS_URLS = (
+    "https://pjreddie.com/media/files/extraction.conv.weights",
+)
+YOLOV1_WEIGHTS_URLS = (
+    "https://pjreddie.com/media/files/yolov1.weights",
+)
+
+IRIS_URLS = (
+    "https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data",
+    "https://raw.githubusercontent.com/uiuc-cse/data-fa14/gh-pages/data/iris.csv",
+)
+WDBC_URLS = (
+    "https://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/wdbc.data",
+    "https://raw.githubusercontent.com/selva86/datasets/master/BreastCancer.csv",
+)
+IRIS_LABELS = {
+    "iris-setosa": 0,
+    "setosa": 0,
+    "iris-versicolor": 1,
+    "versicolor": 1,
+    "iris-virginica": 2,
+    "virginica": 2,
+}
 
 SYNTH_CLASSES = ("square", "circle", "triangle")
 SYNTH_IMAGE_SIZE = 448
@@ -393,6 +429,15 @@ def setup_voc(data_root: Path) -> None:
     log(f"VOC 2012 ready at {data_root / 'VOCdevkit'}")
 
 
+def setup_darknet(data_root: Path, include_full: bool = False) -> None:
+    dest = data_root / "darknet"
+    dest.mkdir(parents=True, exist_ok=True)
+    download_file(EXTRACTION_WEIGHTS_URLS, dest / "extraction.conv.weights")
+    if include_full:
+        download_file(YOLOV1_WEIGHTS_URLS, dest / "yolov1.weights")
+    log(f"Darknet weights ready at {dest}")
+
+
 def setup_bccd(data_root: Path) -> None:
     jpeg = data_root / "BCCD_Dataset" / "BCCD" / "JPEGImages"
     if dir_has_files(jpeg, (".jpg", ".jpeg", ".png")):
@@ -500,10 +545,227 @@ def setup_cifar10(data_root: Path) -> None:
     )
 
 
+def _read_be_u32(buffer: bytes, offset: int) -> int:
+    return struct.unpack_from(">I", buffer, offset)[0]
+
+
+def _write_packed_images(path: Path, pixels: bytes, labels: bytes, channels: int, height: int, width: int,
+    num_classes: int) -> None:
+    count = len(labels)
+    expected = count * channels * height * width
+    if len(pixels) != expected:
+        raise RuntimeError(f"{path.name}: pixel bytes {len(pixels)} != {expected}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as handle:
+        handle.write(DLIMG_MAGIC)
+        handle.write(struct.pack("<IIIII", count, channels, height, width, num_classes))
+        handle.write(pixels)
+        handle.write(labels)
+
+
+def _parse_idx_images(payload: bytes) -> tuple[int, int, int, bytes]:
+    magic = _read_be_u32(payload, 0)
+    if magic != 0x00000803:
+        raise RuntimeError(f"IDX image magic mismatch: {magic:#x}")
+    count = _read_be_u32(payload, 4)
+    rows = _read_be_u32(payload, 8)
+    cols = _read_be_u32(payload, 12)
+    pixels = payload[16:]
+    if len(pixels) != count * rows * cols:
+        raise RuntimeError("IDX image payload has the wrong length")
+    return count, rows, cols, pixels
+
+
+def _parse_idx_labels(payload: bytes) -> bytes:
+    magic = _read_be_u32(payload, 0)
+    if magic != 0x00000801:
+        raise RuntimeError(f"IDX label magic mismatch: {magic:#x}")
+    count = _read_be_u32(payload, 4)
+    labels = payload[8:]
+    if len(labels) != count:
+        raise RuntimeError("IDX label payload has the wrong length")
+    return labels
+
+
+def _packed_complete(path: Path, expected_n: int) -> bool:
+    if not path.is_file():
+        return False
+    header = 8 + 20
+    body = expected_n * MNIST_ROWS * MNIST_COLS + expected_n
+    return path.stat().st_size == header + body
+
+
+def setup_mnist(data_root: Path) -> None:
+    dest = data_root / "mnist"
+    train_bin = dest / "train.bin"
+    test_bin = dest / "test.bin"
+    if _packed_complete(train_bin, MNIST_TRAIN_COUNT) and _packed_complete(test_bin, MNIST_TEST_COUNT):
+        log("MNIST packed files already present; skipping download")
+        return
+
+    download_dir = data_root / "_downloads" / "mnist"
+    download_dir.mkdir(parents=True, exist_ok=True)
+    names = ("train-images-idx3-ubyte.gz", "train-labels-idx1-ubyte.gz", "t10k-images-idx3-ubyte.gz",
+        "t10k-labels-idx1-ubyte.gz")
+    for name in names:
+        urls = tuple(mirror + name for mirror in MNIST_MIRRORS)
+        download_file(urls, download_dir / name)
+
+    def load_split(image_name: str, label_name: str) -> tuple[int, int, int, bytes, bytes]:
+        with gzip.open(download_dir / image_name, "rb") as handle:
+            images = handle.read()
+        with gzip.open(download_dir / label_name, "rb") as handle:
+            labels = handle.read()
+        count, rows, cols, pixels = _parse_idx_images(images)
+        label_bytes = _parse_idx_labels(labels)
+        if count != len(label_bytes):
+            raise RuntimeError(f"MNIST {image_name} count does not match labels")
+        return count, rows, cols, pixels, label_bytes
+
+    n_train, rows, cols, train_pixels, train_labels = load_split(names[0], names[1])
+    n_test, test_rows, test_cols, test_pixels, test_labels = load_split(names[2], names[3])
+    if rows != MNIST_ROWS or cols != MNIST_COLS or test_rows != rows or test_cols != cols:
+        raise RuntimeError("MNIST IDX spatial size is not 28x28")
+    if n_train != MNIST_TRAIN_COUNT or n_test != MNIST_TEST_COUNT:
+        log(f"MNIST counts train={n_train} test={n_test} (expected 60000/10000)")
+
+    dest.mkdir(parents=True, exist_ok=True)
+    _write_packed_images(train_bin, train_pixels, train_labels, 1, rows, cols, 10)
+    _write_packed_images(test_bin, test_pixels, test_labels, 1, test_rows, test_cols, 10)
+    log(f"MNIST ready at {dest} ({n_train} train / {n_test} test, packed DLIMG001)")
+
+
+def _zscore_rows(rows: list[list[float]]) -> list[list[float]]:
+    if not rows:
+        return rows
+    width = len(rows[0])
+    means = [0.0] * width
+    for row in rows:
+        for index, value in enumerate(row):
+            means[index] += value
+    count = float(len(rows))
+    means = [value / count for value in means]
+    variances = [0.0] * width
+    for row in rows:
+        for index, value in enumerate(row):
+            delta = value - means[index]
+            variances[index] += delta * delta
+    stds = [max((value / count) ** 0.5, 1e-6) for value in variances]
+    return [[(value - means[index]) / stds[index] for index, value in enumerate(row)] for row in rows]
+
+
+def _write_numeric_csv(path: Path, header: list[str], rows: list[list[float]], labels: list[int]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        handle.write(",".join(header) + "\n")
+        for row, label in zip(rows, labels):
+            handle.write(",".join(f"{value:.6g}" for value in row) + f",{label}\n")
+
+
+def setup_iris(data_root: Path) -> None:
+    dest = data_root / "tabular" / "iris.csv"
+    if dest.is_file() and dest.stat().st_size > 1024:
+        log("Iris CSV already present; skipping download")
+        return
+    raw_path = data_root / "_downloads" / "iris.raw"
+    download_file(IRIS_URLS, raw_path)
+    text = raw_path.read_text(encoding="utf-8", errors="replace").strip().splitlines()
+    rows: list[list[float]] = []
+    labels: list[int] = []
+    for line in text:
+        line = line.strip()
+        if not line or line.lower().startswith("sepal"):
+            continue
+        parts = [part.strip().strip('"') for part in line.replace(";", ",").split(",") if part.strip()]
+        if len(parts) < 5:
+            continue
+        try:
+            features = [float(part) for part in parts[:4]]
+        except ValueError:
+            continue
+        label_key = parts[-1].lower().replace(" ", "")
+        if label_key not in IRIS_LABELS:
+            continue
+        rows.append(features)
+        labels.append(IRIS_LABELS[label_key])
+    if len(rows) < 120:
+        raise RuntimeError(f"Iris parse produced only {len(rows)} rows")
+    rows = _zscore_rows(rows)
+    header = ["sepal_length", "sepal_width", "petal_length", "petal_width", "label"]
+    _write_numeric_csv(dest, header, rows, labels)
+    log(f"Iris ready at {dest} ({len(rows)} rows, z-scored features)")
+
+
+def setup_wisconsin(data_root: Path) -> None:
+    dest = data_root / "tabular" / "wisconsin.csv"
+    if dest.is_file() and dest.stat().st_size > 4096:
+        log("Wisconsin CSV already present; skipping download")
+        return
+    raw_path = data_root / "_downloads" / "wdbc.raw"
+    download_file(WDBC_URLS, raw_path)
+    text = raw_path.read_text(encoding="utf-8", errors="replace").strip().splitlines()
+    rows: list[list[float]] = []
+    labels: list[int] = []
+    for line in text:
+        line = line.strip()
+        if not line or line.lower().startswith("id") or line.lower().startswith("diagnosis"):
+            continue
+        parts = [part.strip().strip('"') for part in line.replace(";", ",").split(",") if part.strip()]
+        diagnosis_index = None
+        for index, part in enumerate(parts):
+            if part.upper() in {"M", "B"} or part.lower() in {"malignant", "benign"}:
+                diagnosis_index = index
+                break
+        if diagnosis_index is None or diagnosis_index + 1 >= len(parts):
+            continue
+        diagnosis = parts[diagnosis_index].upper()
+        feature_parts = parts[diagnosis_index + 1 :]
+        if len(feature_parts) < 30:
+            continue
+        try:
+            features = [float(part) for part in feature_parts[:30]]
+        except ValueError:
+            continue
+        label = 1 if diagnosis in {"M", "MALIGNANT"} else 0
+        rows.append(features)
+        labels.append(label)
+    if len(rows) < 400:
+        raise RuntimeError(f"Wisconsin parse produced only {len(rows)} rows")
+    rows = _zscore_rows(rows)
+    header = [f"f{index}" for index in range(30)] + ["label"]
+    _write_numeric_csv(dest, header, rows, labels)
+    log(f"Wisconsin WDBC ready at {dest} ({len(rows)} rows, z-scored features)")
+
+
+def setup_tabular_demo(data_root: Path) -> None:
+    dest = data_root / "tabular" / "demo.csv"
+    if dest.is_file() and dest.stat().st_size > 200:
+        log("Tabular demo CSV already present; skipping generation")
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    rng = random.Random(42)
+    with dest.open("w", encoding="utf-8", newline="") as handle:
+        handle.write("f0,f1,f2,f3,label\n")
+        for row in range(96):
+            label = row % 3
+            values = [(1.0 if feature == label else 0.0) + rng.gauss(0.0, 0.15) for feature in range(4)]
+            handle.write(",".join(f"{value:.6g}" for value in values) + f",{label}\n")
+    log(f"Tabular demo ready at {dest}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Download and generate DeepLearnLib datasets.")
     parser.add_argument("--data-root", type=Path, default=None, help="Dataset root (default: <repo>/data)")
-    parser.add_argument("--only", choices=("voc", "bccd", "synthetic", "cifar10"), action="append")
+    parser.add_argument(
+        "--only",
+        choices=("voc", "bccd", "synthetic", "cifar10", "mnist", "iris", "wisconsin", "tabular", "darknet"),
+        action="append",
+    )
+    parser.add_argument(
+        "--yolov1-weights",
+        action="store_true",
+        help="Also download full Darknet yolov1.weights (~800MB). Default is extraction.conv.weights only.",
+    )
     return parser.parse_args()
 
 
@@ -516,9 +778,16 @@ def main() -> int:
         ("bccd", setup_bccd),
         ("synthetic", setup_synthetic3),
         ("cifar10", setup_cifar10),
+        ("mnist", setup_mnist),
+        ("tabular", setup_tabular_demo),
+        ("iris", setup_iris),
+        ("wisconsin", setup_wisconsin),
     ]
     selected = set(args.only or [name for name, _ in jobs])
     try:
+        if "darknet" in selected:
+            setup_darknet(data_root, include_full=args.yolov1_weights)
+            selected.discard("darknet")
         for name, func in jobs:
             if name in selected:
                 func(data_root)

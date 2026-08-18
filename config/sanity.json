@@ -115,6 +115,32 @@
     "num_samples": 16,
     "skip_header": true
   },
+  "tabular_iris": {
+    "batch_size": 16,
+    "epochs": 2,
+    "learning_rate": 0.05,
+    "dataset_root": "data/tabular",
+    "csv_path": "data/tabular/iris.csv",
+    "results_dir": "results/tabular_iris",
+    "num_features": 4,
+    "hidden_size": 16,
+    "num_classes": 3,
+    "skip_header": true,
+    "class_names": ["setosa", "versicolor", "virginica"]
+  },
+  "tabular_wisconsin": {
+    "batch_size": 16,
+    "epochs": 2,
+    "learning_rate": 0.05,
+    "dataset_root": "data/tabular",
+    "csv_path": "data/tabular/wisconsin.csv",
+    "results_dir": "results/tabular_wisconsin",
+    "num_features": 30,
+    "hidden_size": 32,
+    "num_classes": 2,
+    "skip_header": true,
+    "class_names": ["benign", "malignant"]
+  },
   "overfit_voc_custom": {
     "batch_size": 8,
     "epochs": 2,
@@ -148,5 +174,39 @@
     "precision": "fp32",
     "loss_scale": 1024.0,
     "gradient_clip": 10.0
+  },
+  "mnist_classification": {
+    "batch_size": 32,
+    "epochs": 2,
+    "learning_rate": 0.01,
+    "dataset_root": "data/mnist",
+    "results_dir": "results/mnist",
+    "num_classes": 10,
+    "image_size": 28,
+    "in_channels": 1,
+    "mixed_precision": false,
+    "precision": "fp32",
+    "loss_scale": 1024.0,
+    "gradient_clip": 10.0
+  },
+  "voc_darknet_custom": {
+    "batch_size": 2,
+    "epochs": 1,
+    "learning_rate": 0.0001,
+    "momentum": 0.9,
+    "dataset_root": "data/VOCdevkit",
+    "results_dir": "results/voc_darknet",
+    "num_classes": 20,
+    "conf_threshold": 0.2,
+    "nms_threshold": 0.4,
+    "mixed_precision": false,
+    "precision": "fp32",
+    "gradient_clip": 10.0,
+    "darknet_weights": "data/darknet/extraction.conv.weights",
+    "darknet_cutoff_convs": 20,
+    "freeze_backbone": true,
+    "load_local": false,
+    "load_connected": false,
+    "require_weights": false
   }
 }
