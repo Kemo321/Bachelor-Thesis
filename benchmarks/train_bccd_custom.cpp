@@ -30,6 +30,8 @@ int main()
     const int batch_size = config.value("batch_size", 16);
     const int total_epochs = config.value("epochs", 800);
     const float learning_rate = config.value("learning_rate", 1.0e-4F);
+    const float momentum = config.value("momentum", 0.9F);
+    const float weight_decay = config.value("weight_decay", 0.0005F);
     const float gradient_clip = pipeline_gradient_clip(config);
     const int num_classes = config.value("num_classes", 3);
     const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/BCCD_Dataset/BCCD"));
@@ -38,8 +40,8 @@ int main()
     int gpu_count = 0;
     cudaGetDeviceCount(&gpu_count);
     LOG_INFO("[BCCD CUSTOM PIPELINE] Starting on device: {}", gpu_count > 0 ? "GPU" : "CPU");
-    LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} gradient_clip={} dataset_root={}", batch_size,
-        total_epochs, learning_rate, gradient_clip, data_root.string());
+    LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} momentum={} weight_decay={} gradient_clip={} dataset_root={}",
+        batch_size, total_epochs, learning_rate, momentum, weight_decay, gradient_clip, data_root.string());
 
     DataPaths train_paths, val_paths, test_paths;
     split_dataset(data_root.string(), train_paths, val_paths, test_paths, BCCD_CLASSES);
@@ -55,9 +57,6 @@ int main()
         layer->to(dl::Device::GPU);
     }
 
-    auto get_lr = [&config](int ep) -> float
-    { return scheduled_learning_rate(config, ep); };
-
     fs::create_directories(results_dir);
     std::ofstream csv_file((results_dir / "metrics_custom.csv").string());
     csv_file << "Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB\n";
@@ -65,11 +64,10 @@ int main()
     for (int epoch = 1; epoch <= total_epochs; ++epoch)
     {
         auto epoch_start_time = std::chrono::steady_clock::now();
-        float current_lr = get_lr(epoch);
-
+        const float current_lr = scheduled_learning_rate(config, epoch);
+        apply_sgd_hyperparameters(custom_model.get_all_layers(), current_lr, momentum, weight_decay);
         for (auto& layer : custom_model.get_all_layers())
         {
-            layer->learning_rate = current_lr;
             layer->train();
         }
 

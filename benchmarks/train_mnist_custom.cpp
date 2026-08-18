@@ -3,10 +3,10 @@
 #include "experiment_config.hpp"
 #include "run_metrics.hpp"
 
-#include "DeepLearnLib/ClassificationLoader.hpp"
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Losses.hpp"
 #include "DeepLearnLib/Network.hpp"
+#include "DeepLearnLib/PackedImageLoader.hpp"
 #include "DeepLearnLib/Profiler.hpp"
 #include "DeepLearnLib/Tensor.hpp"
 #include "SimpleCNN.hpp"
@@ -26,44 +26,38 @@ int main()
 {
     try
     {
-        const nlohmann::json config = load_pipeline_config("cifar10_classification");
+        const nlohmann::json config = load_pipeline_config("mnist_classification");
         apply_pipeline_precision(config);
-        const int batch_size = config.value("batch_size", 64);
-        const int total_epochs = config.value("epochs", 20);
-        const float learning_rate = config.value("learning_rate", 1.0e-3F);
+        const int batch_size = config.value("batch_size", 128);
+        const int total_epochs = config.value("epochs", 10);
+        const float learning_rate = config.value("learning_rate", 1.0e-2F);
         const float momentum = config.value("momentum", 0.9F);
         const float weight_decay = config.value("weight_decay", 0.0005F);
         const float gradient_clip = pipeline_gradient_clip(config);
-        const int image_size = config.value("image_size", 32);
-        const std::string train_split = config.value("train_split", "train");
-        const std::string test_split = config.value("test_split", "test");
-        const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/cifar10"));
-        const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/cifar10"));
+        const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/mnist"));
+        const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/mnist"));
+        const fs::path train_bin = data_root / "train.bin";
+        const fs::path test_bin = data_root / "test.bin";
 
         int gpu_count = 0;
         cudaGetDeviceCount(&gpu_count);
-        LOG_INFO("[CIFAR-10 CLASSIFICATION] Starting on device: {}", gpu_count > 0 ? "GPU" : "CPU");
-        LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} momentum={} weight_decay={} gradient_clip={} dataset_root={}",
-            batch_size, total_epochs, learning_rate, momentum, weight_decay, gradient_clip, data_root.string());
+        LOG_INFO("[MNIST CLASSIFICATION] Starting on device: {}", gpu_count > 0 ? "GPU" : "CPU");
+        LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} momentum={} weight_decay={} train_bin={}",
+            batch_size, total_epochs, learning_rate, momentum, weight_decay, train_bin.string());
 
-        ClassificationLoader train_loader(data_root.string(), train_split, batch_size, image_size, true);
-        const std::vector<std::string> class_names = train_loader.class_names();
-        ClassificationLoader test_loader(
-            data_root.string(), test_split, batch_size, image_size, false, class_names);
+        PackedImageLoader train_loader(train_bin.string(), batch_size, true);
+        PackedImageLoader test_loader(test_bin.string(), batch_size, false);
         const int num_classes = train_loader.num_classes();
-        if (test_loader.num_classes() != num_classes)
+        const int image_size = train_loader.height();
+        const int in_channels = train_loader.channels();
+        if (test_loader.num_classes() != num_classes || test_loader.channels() != in_channels)
         {
-            throw std::runtime_error("CIFAR train/test class counts differ: train=" + std::to_string(num_classes)
-                + " test=" + std::to_string(test_loader.num_classes()));
+            throw std::runtime_error("MNIST train/test packed files disagree on shape or class count");
         }
-        LOG_INFO("[CONFIG] classes={} train={} test={}", num_classes, train_loader.size(), test_loader.size());
-        if (train_loader.size() != 50000 || test_loader.size() != 10000)
-        {
-            LOG_WARN("CIFAR-10 expected 50000 train / 10000 test images; got {} / {}. Incomplete extract?",
-                train_loader.size(), test_loader.size());
-        }
+        LOG_INFO("[CONFIG] classes={} channels={} {}x{} train={} test={}", num_classes, in_channels, image_size,
+            train_loader.width(), train_loader.size(), test_loader.size());
 
-        SimpleCNN model(num_classes, image_size);
+        SimpleCNN model(num_classes, image_size, in_channels);
         Network trainer(model.get_all_layers(), learning_rate, gradient_clip);
         for (auto& layer : model.get_all_layers())
         {
@@ -71,12 +65,9 @@ int main()
             layer->train();
         }
         apply_sgd_hyperparameters(model.get_all_layers(), learning_rate, momentum, weight_decay);
-        LOG_INFO("Model on GPU ({} layers). Metrics: {}", model.get_all_layers().size(),
-            (results_dir / "metrics_custom.csv").string());
-        LOG_FLUSH();
 
         fs::create_directories(results_dir);
-        write_class_names(results_dir / "class_names.txt", class_names);
+        write_class_names(results_dir / "class_names.txt", train_loader.class_names());
         std::ofstream csv_file((results_dir / "metrics_custom.csv").string());
         csv_file << "Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;TrainAcc;TestAcc\n";
 
@@ -87,7 +78,6 @@ int main()
         {
             auto epoch_start = std::chrono::steady_clock::now();
             profiler.start();
-
             apply_sgd_hyperparameters(model.get_all_layers(), scheduled_learning_rate(config, epoch), momentum,
                 weight_decay);
             for (auto& layer : model.get_all_layers())
@@ -98,12 +88,11 @@ int main()
             float train_loss = 0.0F;
             float train_acc = 0.0F;
             const int train_batches = for_each_prefetched_batch(train_loader,
-                [&](Batch& batch, int index, cudaStream_t stream)
+                [&](Batch& batch, int, cudaStream_t stream)
                 {
                     dl::Tensor logits = model.forward_logits(batch.images, stream);
                     train_loss += CrossEntropyLoss::loss(batch.targets, logits).to_host(stream).front();
                     train_acc += batch_accuracy_one_hot(logits, batch.targets, stream);
-
                     dl::Tensor grad = trainer.clip_loss_gradient(CrossEntropyLoss::loss_derivative(batch.targets, logits));
                     auto layers = model.get_all_layers();
                     for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator)
@@ -115,18 +104,8 @@ int main()
                     {
                         layer->step(stream);
                     }
-                    if (index == 0 || (index + 1) % 50 == 0)
-                    {
-                        const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                            std::chrono::steady_clock::now() - epoch_start)
-                                                 .count();
-                        const int done = index + 1;
-                        LOG_DEBUG("CIFAR-10 train epoch {} batch {} last_loss={:.4f} elapsed={}s", epoch, done,
-                            train_loss / static_cast<float>(done), elapsed);
-                    }
                 });
 
-            LOG_DEBUG("CIFAR-10 epoch {} train done ({} batches). Starting eval ...", epoch, train_batches);
             for (auto& layer : model.get_all_layers())
             {
                 layer->eval();
@@ -159,10 +138,9 @@ int main()
             const float avg_test = test_loss / static_cast<float>(std::max(1, test_batches));
             const float avg_train_acc = train_acc / static_cast<float>(std::max(1, train_batches));
             const float avg_test_acc = test_acc / static_cast<float>(std::max(1, test_batches));
-
             const auto vram = current_vram_mib();
-            log_train_epoch("CIFAR-10 Custom", epoch, total_epochs, avg_train, avg_test, elapsed, vram);
-            LOG_INFO("CIFAR-10 Custom | Train Acc: {:.4f} | Test Acc: {:.4f} | GPU: {} ms", avg_train_acc, avg_test_acc,
+            log_train_epoch("MNIST Custom", epoch, total_epochs, avg_train, avg_test, elapsed, vram);
+            LOG_INFO("MNIST Custom | Train Acc: {:.4f} | Test Acc: {:.4f} | GPU: {} ms", avg_train_acc, avg_test_acc,
                 gpu_ms);
             LOG_FLUSH();
             csv_file << epoch << ";" << avg_train << ";" << avg_test << ";" << elapsed << ";" << vram << ";"
@@ -170,9 +148,9 @@ int main()
             csv_file.flush();
         }
 
-        write_confusion_csv(results_dir / "confusion_custom.csv", confusion, num_classes, class_names);
-        write_classification_samples(results_dir / "samples_custom", samples, class_names);
-        const std::string save_path = (results_dir / "simplecnn_cifar10_final.bin").string();
+        write_confusion_csv(results_dir / "confusion_custom.csv", confusion, num_classes, train_loader.class_names());
+        write_classification_samples(results_dir / "samples_custom", samples, train_loader.class_names());
+        const std::string save_path = (results_dir / "simplecnn_mnist_final.bin").string();
         trainer.save(save_path);
         LOG_INFO("Final model saved: {}", save_path);
         LOG_FLUSH();
@@ -180,7 +158,7 @@ int main()
     }
     catch (const std::exception& exception)
     {
-        LOG_ERROR("CIFAR-10 classification failed: {}", exception.what());
+        LOG_ERROR("MNIST classification failed: {}", exception.what());
         LOG_FLUSH();
         return 1;
     }

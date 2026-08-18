@@ -98,6 +98,7 @@ int main()
         const int total_epochs = config.value("epochs", 40);
         const float learning_rate = config.value("learning_rate", 5.0e-4F);
         const float momentum = config.value("momentum", 0.9F);
+        const float weight_decay = config.value("weight_decay", 0.0005F);
         const float gradient_clip = pipeline_gradient_clip(config);
         const int num_classes = config.value("num_classes", 20);
         const float conf_threshold = config.value("conf_threshold", 0.2F);
@@ -113,8 +114,8 @@ int main()
         int gpu_count = 0;
         cudaGetDeviceCount(&gpu_count);
         LOG_INFO("[VOC DARKNET PIPELINE] Starting on device: {}", gpu_count > 0 ? "GPU" : "CPU");
-        LOG_INFO("[CONFIG] batch_size={} epochs={} lr={} momentum={} freeze_backbone={} weights={}", batch_size,
-            total_epochs, learning_rate, momentum, freeze_backbone, weights_path.string());
+        LOG_INFO("[CONFIG] batch_size={} epochs={} lr={} momentum={} weight_decay={} freeze_backbone={} weights={}",
+            batch_size, total_epochs, learning_rate, momentum, weight_decay, freeze_backbone, weights_path.string());
 
         DataPaths train_paths, val_paths, test_paths;
         split_dataset((data_root / "VOC2012").string(), train_paths, val_paths, test_paths, VOC_CLASSES);
@@ -130,8 +131,8 @@ int main()
         for (auto& layer : custom_model.get_all_layers())
         {
             layer->to(dl::Device::GPU);
-            layer->momentum = momentum;
         }
+        apply_sgd_hyperparameters(custom_model.get_all_layers(), learning_rate, momentum, weight_decay);
 
         if (fs::exists(weights_path))
         {
@@ -182,11 +183,10 @@ int main()
         {
             auto epoch_start_time = std::chrono::steady_clock::now();
             const float current_lr = scheduled_learning_rate(config, epoch);
+            apply_sgd_hyperparameters(custom_model.get_all_layers(), current_lr, momentum, weight_decay);
 
             for (auto& layer : custom_model.get_all_layers())
             {
-                layer->learning_rate = current_lr;
-                layer->momentum = momentum;
                 if (layer->frozen())
                 {
                     layer->eval();
