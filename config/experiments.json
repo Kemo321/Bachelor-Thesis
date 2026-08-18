@@ -1,23 +1,31 @@
 {
   "voc_custom": {
     "batch_size": 16,
-    "epochs": 150,
+    "epochs": 130,
     "learning_rate": 0.0001,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
     "dataset_root": "data/VOCdevkit",
     "voc_subset": "VOC2012",
     "results_dir": "results/voc",
     "num_classes": 20,
     "conf_threshold": 0.25,
     "nms_threshold": 0.5,
-    "mixed_precision": false,
-    "precision": "fp32",
+    "mixed_precision": true,
+    "precision": "fp16",
     "loss_scale": 1024.0,
-    "gradient_clip": 10.0
+    "gradient_clip": 10.0,
+    "lr_schedule": [
+      { "until_epoch": 5, "learning_rate": 0.00001 },
+      { "until_epoch": 91, "learning_rate": 0.0001 },
+      { "until_epoch": 117, "learning_rate": 0.00001 },
+      { "until_epoch": 130, "learning_rate": 0.000001 }
+    ]
   },
   "voc_torch": {
     "batch_size": 16,
-    "epochs": 150,
-    "learning_rate": 0.00001,
+    "epochs": 130,
+    "learning_rate": 0.0001,
     "dataset_root": "data/VOCdevkit",
     "voc_subset": "VOC2012",
     "results_dir": "results/voc",
@@ -27,32 +35,34 @@
     "weight_decay": 0.0005,
     "lr_schedule": [
       { "until_epoch": 5, "learning_rate": 0.00001 },
-      { "until_epoch": 80, "learning_rate": 0.00001 },
-      { "until_epoch": 120, "learning_rate": 0.000001 },
-      { "until_epoch": 150, "learning_rate": 0.000001 }
+      { "until_epoch": 91, "learning_rate": 0.0001 },
+      { "until_epoch": 117, "learning_rate": 0.00001 },
+      { "until_epoch": 130, "learning_rate": 0.000001 }
     ]
   },
   "bccd_custom": {
     "batch_size": 16,
-    "epochs": 800,
+    "epochs": 450,
     "learning_rate": 0.0001,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
     "dataset_root": "data/BCCD_Dataset/BCCD",
     "results_dir": "results/bccd",
     "num_classes": 3,
-    "mixed_precision": false,
-    "precision": "fp32",
+    "mixed_precision": true,
+    "precision": "fp16",
     "loss_scale": 1024.0,
     "gradient_clip": 10.0,
     "lr_schedule": [
-      { "until_epoch": 30, "learning_rate": 0.00001 },
-      { "until_epoch": 300, "learning_rate": 0.00005 },
-      { "until_epoch": 400, "learning_rate": 0.00004 },
-      { "until_epoch": 800, "learning_rate": 0.00001 }
+      { "until_epoch": 15, "learning_rate": 0.00001 },
+      { "until_epoch": 315, "learning_rate": 0.0001 },
+      { "until_epoch": 405, "learning_rate": 0.00001 },
+      { "until_epoch": 450, "learning_rate": 0.000001 }
     ]
   },
   "bccd_torch": {
     "batch_size": 16,
-    "epochs": 800,
+    "epochs": 450,
     "learning_rate": 0.0001,
     "dataset_root": "data/BCCD_Dataset/BCCD",
     "results_dir": "results/bccd",
@@ -61,33 +71,35 @@
     "momentum": 0.9,
     "weight_decay": 0.0005,
     "lr_schedule": [
-      { "until_epoch": 30, "learning_rate": 0.00001 },
-      { "until_epoch": 300, "learning_rate": 0.00005 },
-      { "until_epoch": 400, "learning_rate": 0.00004 },
-      { "until_epoch": 800, "learning_rate": 0.00001 }
+      { "until_epoch": 15, "learning_rate": 0.00001 },
+      { "until_epoch": 315, "learning_rate": 0.0001 },
+      { "until_epoch": 405, "learning_rate": 0.00001 },
+      { "until_epoch": 450, "learning_rate": 0.000001 }
     ]
   },
   "synthetic_custom": {
     "batch_size": 16,
-    "epochs": 800,
+    "epochs": 350,
     "learning_rate": 0.0001,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
     "dataset_root": "data/Synthetic3/train",
     "results_dir": "results/synthetic",
     "num_classes": 3,
-    "mixed_precision": false,
-    "precision": "fp32",
+    "mixed_precision": true,
+    "precision": "fp16",
     "loss_scale": 1024.0,
     "gradient_clip": 10.0,
     "lr_schedule": [
-      { "until_epoch": 30, "learning_rate": 0.00001 },
-      { "until_epoch": 300, "learning_rate": 0.00005 },
-      { "until_epoch": 400, "learning_rate": 0.00004 },
-      { "until_epoch": 800, "learning_rate": 0.00001 }
+      { "until_epoch": 10, "learning_rate": 0.00001 },
+      { "until_epoch": 245, "learning_rate": 0.0001 },
+      { "until_epoch": 315, "learning_rate": 0.00001 },
+      { "until_epoch": 350, "learning_rate": 0.000001 }
     ]
   },
   "synthetic_torch": {
     "batch_size": 16,
-    "epochs": 800,
+    "epochs": 350,
     "learning_rate": 0.0001,
     "dataset_root": "data/Synthetic3/train",
     "results_dir": "results/synthetic",
@@ -96,16 +108,18 @@
     "momentum": 0.9,
     "weight_decay": 0.0005,
     "lr_schedule": [
-      { "until_epoch": 30, "learning_rate": 0.00001 },
-      { "until_epoch": 300, "learning_rate": 0.00005 },
-      { "until_epoch": 400, "learning_rate": 0.00004 },
-      { "until_epoch": 800, "learning_rate": 0.00001 }
+      { "until_epoch": 10, "learning_rate": 0.00001 },
+      { "until_epoch": 245, "learning_rate": 0.0001 },
+      { "until_epoch": 315, "learning_rate": 0.00001 },
+      { "until_epoch": 350, "learning_rate": 0.000001 }
     ]
   },
   "tabular_demo": {
     "batch_size": 32,
-    "epochs": 25,
+    "epochs": 40,
     "learning_rate": 0.05,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
     "dataset_root": "data/tabular",
     "csv_path": "data/tabular/demo.csv",
     "results_dir": "results/tabular",
@@ -117,8 +131,10 @@
   },
   "tabular_iris": {
     "batch_size": 16,
-    "epochs": 80,
+    "epochs": 100,
     "learning_rate": 0.05,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
     "dataset_root": "data/tabular",
     "csv_path": "data/tabular/iris.csv",
     "results_dir": "results/tabular_iris",
@@ -130,8 +146,10 @@
   },
   "tabular_wisconsin": {
     "batch_size": 32,
-    "epochs": 60,
+    "epochs": 80,
     "learning_rate": 0.05,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
     "dataset_root": "data/tabular",
     "csv_path": "data/tabular/wisconsin.csv",
     "results_dir": "results/tabular_wisconsin",
@@ -145,6 +163,8 @@
     "batch_size": 8,
     "epochs": 300,
     "learning_rate": 0.00002,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
     "dataset_root": "data/VOCdevkit",
     "results_dir": "results/overfit",
     "num_classes": 20,
@@ -156,14 +176,18 @@
     "batch_size": 8,
     "epochs": 300,
     "learning_rate": 0.00002,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
     "dataset_root": "data/VOCdevkit",
     "results_dir": "results/overfit",
     "num_classes": 20
   },
   "cifar10_classification": {
-    "batch_size": 64,
-    "epochs": 20,
-    "learning_rate": 0.001,
+    "batch_size": 128,
+    "epochs": 40,
+    "learning_rate": 0.01,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
     "dataset_root": "data/cifar10",
     "train_split": "train",
     "test_split": "test",
@@ -173,12 +197,19 @@
     "mixed_precision": false,
     "precision": "fp32",
     "loss_scale": 1024.0,
-    "gradient_clip": 10.0
+    "gradient_clip": 10.0,
+    "lr_schedule": [
+      { "until_epoch": 28, "learning_rate": 0.01 },
+      { "until_epoch": 36, "learning_rate": 0.001 },
+      { "until_epoch": 40, "learning_rate": 0.0001 }
+    ]
   },
   "mnist_classification": {
     "batch_size": 128,
-    "epochs": 10,
+    "epochs": 12,
     "learning_rate": 0.01,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
     "dataset_root": "data/mnist",
     "results_dir": "results/mnist",
     "num_classes": 10,
@@ -187,13 +218,19 @@
     "mixed_precision": false,
     "precision": "fp32",
     "loss_scale": 1024.0,
-    "gradient_clip": 10.0
+    "gradient_clip": 10.0,
+    "lr_schedule": [
+      { "until_epoch": 8, "learning_rate": 0.01 },
+      { "until_epoch": 11, "learning_rate": 0.001 },
+      { "until_epoch": 12, "learning_rate": 0.0001 }
+    ]
   },
   "voc_darknet_custom": {
-    "batch_size": 8,
-    "epochs": 40,
+    "batch_size": 16,
+    "epochs": 90,
     "learning_rate": 0.0005,
     "momentum": 0.9,
+    "weight_decay": 0.0005,
     "dataset_root": "data/VOCdevkit",
     "voc_subset": "VOC2012",
     "results_dir": "results/voc_darknet",
@@ -211,9 +248,10 @@
     "load_connected": false,
     "require_weights": true,
     "lr_schedule": [
-      { "until_epoch": 5, "learning_rate": 0.0001 },
-      { "until_epoch": 30, "learning_rate": 0.0005 },
-      { "until_epoch": 40, "learning_rate": 0.00005 }
+      { "until_epoch": 3, "learning_rate": 0.0001 },
+      { "until_epoch": 63, "learning_rate": 0.0005 },
+      { "until_epoch": 81, "learning_rate": 0.00005 },
+      { "until_epoch": 90, "learning_rate": 0.000005 }
     ]
   }
 }
