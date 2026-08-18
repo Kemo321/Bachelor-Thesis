@@ -18,7 +18,9 @@ add_executable(
   test_network.cpp
   test_generic.cpp
   test_profiler_map.cpp
-  test_simplecnn.cpp)
+  test_simplecnn.cpp
+  test_packed_image_loader.cpp
+  test_darknet.cpp)
 
 if(OpenCV_FOUND)
   target_sources(dllib_tests PRIVATE test_classification_loader.cpp)
