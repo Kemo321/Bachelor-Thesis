@@ -47,11 +47,28 @@ MNIST_ROWS = 28
 MNIST_COLS = 28
 DLIMG_MAGIC = b"DLIMG001"
 
+# pjreddie.com now 404s for these files. Prefer IPFS pins of the official weights,
+# then Wayback, then the original host in case it comes back.
+_EXTRACTION_IPFS = "QmXsXmQKXsvj8zHkV2xF62sTCSpFkXMTe1f8i9mjAHGbT5"
+_YOLOV1_IPFS = "QmZX6Gy4BXqW3CQax3Lw5z1nW5W88bAArrrVbHScks5nvt"
+EXTRACTION_MIN_BYTES = 50_000_000  # official file is ~54 MiB
+YOLOV1_MIN_BYTES = 700_000_000  # official file is ~741 MiB
 EXTRACTION_WEIGHTS_URLS = (
+    f"https://ipfs.io/ipfs/{_EXTRACTION_IPFS}",
+    f"https://dweb.link/ipfs/{_EXTRACTION_IPFS}",
+    f"https://cloudflare-ipfs.com/ipfs/{_EXTRACTION_IPFS}",
+    f"https://w3s.link/ipfs/{_EXTRACTION_IPFS}",
+    "https://web.archive.org/web/20180815000000id_/http://pjreddie.com/media/files/extraction.conv.weights",
     "https://pjreddie.com/media/files/extraction.conv.weights",
+    "http://pjreddie.com/media/files/extraction.conv.weights",
 )
 YOLOV1_WEIGHTS_URLS = (
+    "https://web.archive.org/web/20170124044651id_/http://pjreddie.com/media/files/yolov1.weights",
+    f"https://ipfs.io/ipfs/{_YOLOV1_IPFS}",
+    f"https://dweb.link/ipfs/{_YOLOV1_IPFS}",
+    f"https://cloudflare-ipfs.com/ipfs/{_YOLOV1_IPFS}",
     "https://pjreddie.com/media/files/yolov1.weights",
+    "http://pjreddie.com/media/files/yolov1.weights",
 )
 
 IRIS_URLS = (
@@ -162,17 +179,19 @@ def _ssl_context() -> ssl.SSLContext:
         return ssl._create_unverified_context()
 
 
-def download_file(urls: Iterable[str], destination: Path) -> None:
+def download_file(urls: Iterable[str], destination: Path, min_bytes: int = 1024) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.is_file() and destination.stat().st_size > 1024:
+    if destination.is_file() and destination.stat().st_size >= min_bytes:
         log(f"Already downloaded {destination.name} ({_format_bytes(destination.stat().st_size)})")
         return
+    if destination.is_file():
+        destination.unlink()
     last_error: Exception | None = None
     for url in urls:
         log(f"Downloading {url}")
         try:
             request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(request, context=_ssl_context(), timeout=120) as response:
+            with urllib.request.urlopen(request, context=_ssl_context(), timeout=180) as response:
                 total = int(response.headers.get("Content-Length") or 0)
                 downloaded = 0
                 bar = ProgressBar(total, kind="bytes")
@@ -185,6 +204,8 @@ def download_file(urls: Iterable[str], destination: Path) -> None:
                         downloaded += len(chunk)
                         bar.update(downloaded)
                 bar.finish(downloaded)
+            if downloaded < min_bytes:
+                raise OSError(f"download too small ({downloaded} bytes, need >={min_bytes})")
             return
         except (urllib.error.URLError, OSError, TimeoutError) as exc:
             last_error = exc
@@ -432,9 +453,9 @@ def setup_voc(data_root: Path) -> None:
 def setup_darknet(data_root: Path, include_full: bool = False) -> None:
     dest = data_root / "darknet"
     dest.mkdir(parents=True, exist_ok=True)
-    download_file(EXTRACTION_WEIGHTS_URLS, dest / "extraction.conv.weights")
+    download_file(EXTRACTION_WEIGHTS_URLS, dest / "extraction.conv.weights", min_bytes=EXTRACTION_MIN_BYTES)
     if include_full:
-        download_file(YOLOV1_WEIGHTS_URLS, dest / "yolov1.weights")
+        download_file(YOLOV1_WEIGHTS_URLS, dest / "yolov1.weights", min_bytes=YOLOV1_MIN_BYTES)
     log(f"Darknet weights ready at {dest}")
 
 

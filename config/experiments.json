@@ -11,8 +11,8 @@
     "num_classes": 20,
     "conf_threshold": 0.25,
     "nms_threshold": 0.5,
-    "mixed_precision": true,
-    "precision": "fp16",
+    "mixed_precision": false,
+    "precision": "fp32",
     "loss_scale": 1024.0,
     "gradient_clip": 10.0,
     "lr_schedule": [
@@ -49,8 +49,8 @@
     "dataset_root": "data/BCCD_Dataset/BCCD",
     "results_dir": "results/bccd",
     "num_classes": 3,
-    "mixed_precision": true,
-    "precision": "fp16",
+    "mixed_precision": false,
+    "precision": "fp32",
     "loss_scale": 1024.0,
     "gradient_clip": 10.0,
     "lr_schedule": [
@@ -86,8 +86,8 @@
     "dataset_root": "data/Synthetic3/train",
     "results_dir": "results/synthetic",
     "num_classes": 3,
-    "mixed_precision": true,
-    "precision": "fp16",
+    "mixed_precision": false,
+    "precision": "fp32",
     "loss_scale": 1024.0,
     "gradient_clip": 10.0,
     "lr_schedule": [
