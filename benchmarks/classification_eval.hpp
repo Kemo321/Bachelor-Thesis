@@ -93,13 +93,13 @@ inline auto write_confusion_csv(const std::filesystem::path& path, const std::ve
     for (int row = 0; row < num_classes; ++row)
     {
         const std::string name = (row < static_cast<int>(class_names.size())) ? class_names[static_cast<std::size_t>(row)]
-                                                                             : std::to_string(row);
+                                                                              : std::to_string(row);
         stream << name;
         for (int col = 0; col < num_classes; ++col)
         {
             stream << ";"
                    << matrix[(static_cast<std::size_t>(row) * static_cast<std::size_t>(num_classes))
-                       + static_cast<std::size_t>(col)];
+                          + static_cast<std::size_t>(col)];
         }
         stream << "\n";
     }
@@ -168,7 +168,7 @@ inline auto append_samples_from_ids(const dl::Tensor& images, const std::vector<
         sample.truth = (row < static_cast<int>(truths.size())) ? truths[static_cast<std::size_t>(row)] : 0;
         sample.pred = (row < static_cast<int>(preds.size())) ? preds[static_cast<std::size_t>(row)] : 0;
         sample.confidence = (row < static_cast<int>(confidences.size())) ? confidences[static_cast<std::size_t>(row)]
-                                                                        : 0.0F;
+                                                                         : 0.0F;
         sample.channels = channels;
         sample.height = height;
         sample.width = width;

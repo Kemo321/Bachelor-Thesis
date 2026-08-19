@@ -229,7 +229,7 @@ auto PackedImageLoader::decode_indices(const std::vector<std::size_t>& indices) 
 auto PackedImageLoader::upload_host_batch(HostBatch host, cudaStream_t stream) const -> Batch
 {
     return Batch { dl::Tensor::from_host({ host.n, static_cast<int>(channels_), static_cast<int>(height_),
-                       static_cast<int>(width_) },
+                                             static_cast<int>(width_) },
                        host.images, dl::Device::GPU, stream, dl::compute_dtype()),
         dl::Tensor::from_host(
             { host.n, num_classes() }, host.targets, dl::Device::GPU, stream, dl::compute_dtype()) };
