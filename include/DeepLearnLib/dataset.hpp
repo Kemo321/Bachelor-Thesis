@@ -32,15 +32,6 @@ inline void splitDataset(const std::string& voc_root, DataPaths& train, DataPath
     split_dataset(voc_root, train, val, test, class_names, train_ratio, val_ratio);
 }
 
-/** Target tensor layout written by CustomDataLoader. */
-enum class DetectionLabelLayout
-{
-    /** Paper YOLOv1: `[S, S, B*5 + C]` with B=2. */
-    PaperYolov1,
-    /** Darknet detection truth: `[S, S, 1 + 4 + C]` (`is_obj`, classes, x, y, w, h). */
-    DarknetYolov1
-};
-
 /**
  * One GPU-resident training/evaluation batch.
  *
@@ -65,8 +56,7 @@ class CustomDataLoader
 {
 public:
     CustomDataLoader(const DataPaths& paths, int batch_size, bool is_train,
-        const std::vector<std::string>& class_names = VOC_CLASSES_DEFAULT,
-        DetectionLabelLayout label_layout = DetectionLabelLayout::PaperYolov1);
+        const std::vector<std::string>& class_names = VOC_CLASSES_DEFAULT);
     ~CustomDataLoader();
 
     CustomDataLoader(const CustomDataLoader&) = delete;
@@ -94,7 +84,6 @@ private:
     bool is_train_;
     int num_classes_;
     int img_size_;
-    DetectionLabelLayout label_layout_;
     std::size_t cursor_;
     std::vector<std::size_t> order_;
     std::mt19937 rng_;

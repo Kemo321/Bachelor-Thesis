@@ -289,7 +289,6 @@ add_subdirectory(src)
 # the core library.
 add_library(DeepLearnModels STATIC
   benchmarks/models/YOLO.cpp
-  benchmarks/models/YOLODarknet.cpp
   benchmarks/models/SimpleCNN.cpp)
 target_include_directories(DeepLearnModels PUBLIC "${CMAKE_SOURCE_DIR}/benchmarks/models")
 target_link_libraries(DeepLearnModels PUBLIC DeepLearnLib)

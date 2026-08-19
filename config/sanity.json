@@ -188,25 +188,5 @@
     "precision": "fp32",
     "loss_scale": 1024.0,
     "gradient_clip": 10.0
-  },
-  "voc_darknet_custom": {
-    "batch_size": 2,
-    "epochs": 1,
-    "learning_rate": 0.0001,
-    "momentum": 0.9,
-    "dataset_root": "data/VOCdevkit",
-    "results_dir": "results/voc_darknet",
-    "num_classes": 20,
-    "conf_threshold": 0.2,
-    "nms_threshold": 0.4,
-    "mixed_precision": false,
-    "precision": "fp32",
-    "gradient_clip": 10.0,
-    "darknet_weights": "data/darknet/extraction.conv.weights",
-    "darknet_cutoff_convs": 20,
-    "freeze_backbone": true,
-    "load_local": false,
-    "load_connected": false,
-    "require_weights": false
   }
 }

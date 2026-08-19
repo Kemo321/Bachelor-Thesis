@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download and generate datasets for DeepLearnLib (VOC, BCCD, Synthetic3, CIFAR-10, MNIST, tabular, Darknet weights).
+"""Download and generate datasets for DeepLearnLib (VOC, BCCD, Synthetic3, CIFAR-10, MNIST, tabular).
 
 Existing target directories with data are skipped. Requires the Python standard
 library plus Pillow or OpenCV to write JPEG images for Synthetic3.
@@ -46,30 +46,6 @@ MNIST_TEST_COUNT = 10_000
 MNIST_ROWS = 28
 MNIST_COLS = 28
 DLIMG_MAGIC = b"DLIMG001"
-
-# pjreddie.com now 404s for these files. Prefer IPFS pins of the official weights,
-# then Wayback, then the original host in case it comes back.
-_EXTRACTION_IPFS = "QmXsXmQKXsvj8zHkV2xF62sTCSpFkXMTe1f8i9mjAHGbT5"
-_YOLOV1_IPFS = "QmZX6Gy4BXqW3CQax3Lw5z1nW5W88bAArrrVbHScks5nvt"
-EXTRACTION_MIN_BYTES = 50_000_000  # official file is ~54 MiB
-YOLOV1_MIN_BYTES = 700_000_000  # official file is ~741 MiB
-EXTRACTION_WEIGHTS_URLS = (
-    f"https://ipfs.io/ipfs/{_EXTRACTION_IPFS}",
-    f"https://dweb.link/ipfs/{_EXTRACTION_IPFS}",
-    f"https://cloudflare-ipfs.com/ipfs/{_EXTRACTION_IPFS}",
-    f"https://w3s.link/ipfs/{_EXTRACTION_IPFS}",
-    "https://web.archive.org/web/20180815000000id_/http://pjreddie.com/media/files/extraction.conv.weights",
-    "https://pjreddie.com/media/files/extraction.conv.weights",
-    "http://pjreddie.com/media/files/extraction.conv.weights",
-)
-YOLOV1_WEIGHTS_URLS = (
-    "https://web.archive.org/web/20170124044651id_/http://pjreddie.com/media/files/yolov1.weights",
-    f"https://ipfs.io/ipfs/{_YOLOV1_IPFS}",
-    f"https://dweb.link/ipfs/{_YOLOV1_IPFS}",
-    f"https://cloudflare-ipfs.com/ipfs/{_YOLOV1_IPFS}",
-    "https://pjreddie.com/media/files/yolov1.weights",
-    "http://pjreddie.com/media/files/yolov1.weights",
-)
 
 IRIS_URLS = (
     "https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data",
@@ -450,15 +426,6 @@ def setup_voc(data_root: Path) -> None:
     log(f"VOC 2012 ready at {data_root / 'VOCdevkit'}")
 
 
-def setup_darknet(data_root: Path, include_full: bool = False) -> None:
-    dest = data_root / "darknet"
-    dest.mkdir(parents=True, exist_ok=True)
-    download_file(EXTRACTION_WEIGHTS_URLS, dest / "extraction.conv.weights", min_bytes=EXTRACTION_MIN_BYTES)
-    if include_full:
-        download_file(YOLOV1_WEIGHTS_URLS, dest / "yolov1.weights", min_bytes=YOLOV1_MIN_BYTES)
-    log(f"Darknet weights ready at {dest}")
-
-
 def setup_bccd(data_root: Path) -> None:
     jpeg = data_root / "BCCD_Dataset" / "BCCD" / "JPEGImages"
     if dir_has_files(jpeg, (".jpg", ".jpeg", ".png")):
@@ -779,13 +746,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-root", type=Path, default=None, help="Dataset root (default: <repo>/data)")
     parser.add_argument(
         "--only",
-        choices=("voc", "bccd", "synthetic", "cifar10", "mnist", "iris", "wisconsin", "tabular", "darknet"),
+        choices=("voc", "bccd", "synthetic", "cifar10", "mnist", "iris", "wisconsin", "tabular"),
         action="append",
-    )
-    parser.add_argument(
-        "--yolov1-weights",
-        action="store_true",
-        help="Also download full Darknet yolov1.weights (~800MB). Default is extraction.conv.weights only.",
     )
     return parser.parse_args()
 
@@ -806,9 +768,6 @@ def main() -> int:
     ]
     selected = set(args.only or [name for name, _ in jobs])
     try:
-        if "darknet" in selected:
-            setup_darknet(data_root, include_full=args.yolov1_weights)
-            selected.discard("darknet")
         for name, func in jobs:
             if name in selected:
                 func(data_root)

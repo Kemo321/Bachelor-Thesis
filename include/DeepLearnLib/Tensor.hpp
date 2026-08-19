@@ -350,7 +350,7 @@ public:
      */
     auto sgd_update_(const Tensor& grad, float lr, float decay, float clip = 0.0F) -> Tensor&;
     /**
-     * @brief Darknet/PyTorch SGD with momentum:
+     * @brief SGD with momentum:
      * `v = momentum * v + clip(grad + decay * this); this -= lr * v`.
      * @param velocity Persistent velocity buffer, same shape as `*this`.
      */

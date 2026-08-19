@@ -2,7 +2,7 @@
   "voc_custom": {
     "batch_size": 16,
     "epochs": 130,
-    "learning_rate": 0.0001,
+    "learning_rate": 0.00002,
     "momentum": 0.9,
     "weight_decay": 0.0005,
     "dataset_root": "data/VOCdevkit",
@@ -16,16 +16,15 @@
     "loss_scale": 1024.0,
     "gradient_clip": 10.0,
     "lr_schedule": [
-      { "until_epoch": 5, "learning_rate": 0.00001 },
-      { "until_epoch": 91, "learning_rate": 0.0001 },
-      { "until_epoch": 117, "learning_rate": 0.00001 },
-      { "until_epoch": 130, "learning_rate": 0.000001 }
+      { "until_epoch": 91, "learning_rate": 0.00001 },
+      { "until_epoch": 117, "learning_rate": 0.000001 },
+      { "until_epoch": 150, "learning_rate": 0.0000001 }
     ]
   },
   "voc_torch": {
     "batch_size": 16,
     "epochs": 130,
-    "learning_rate": 0.0001,
+    "learning_rate": 0.00002,
     "dataset_root": "data/VOCdevkit",
     "voc_subset": "VOC2012",
     "results_dir": "results/voc",
@@ -34,10 +33,9 @@
     "momentum": 0.9,
     "weight_decay": 0.0005,
     "lr_schedule": [
-      { "until_epoch": 5, "learning_rate": 0.00001 },
-      { "until_epoch": 91, "learning_rate": 0.0001 },
-      { "until_epoch": 117, "learning_rate": 0.00001 },
-      { "until_epoch": 130, "learning_rate": 0.000001 }
+      { "until_epoch": 91, "learning_rate": 0.00001 },
+      { "until_epoch": 117, "learning_rate": 0.000001 },
+      { "until_epoch": 150, "learning_rate": 0.0000001 }
     ]
   },
   "bccd_custom": {
@@ -223,35 +221,6 @@
       { "until_epoch": 8, "learning_rate": 0.01 },
       { "until_epoch": 11, "learning_rate": 0.001 },
       { "until_epoch": 12, "learning_rate": 0.0001 }
-    ]
-  },
-  "voc_darknet_custom": {
-    "batch_size": 16,
-    "epochs": 90,
-    "learning_rate": 0.0005,
-    "momentum": 0.9,
-    "weight_decay": 0.0005,
-    "dataset_root": "data/VOCdevkit",
-    "voc_subset": "VOC2012",
-    "results_dir": "results/voc_darknet",
-    "num_classes": 20,
-    "conf_threshold": 0.2,
-    "nms_threshold": 0.4,
-    "mixed_precision": false,
-    "precision": "fp32",
-    "loss_scale": 1024.0,
-    "gradient_clip": 10.0,
-    "darknet_weights": "data/darknet/extraction.conv.weights",
-    "darknet_cutoff_convs": 20,
-    "freeze_backbone": true,
-    "load_local": false,
-    "load_connected": false,
-    "require_weights": true,
-    "lr_schedule": [
-      { "until_epoch": 3, "learning_rate": 0.0001 },
-      { "until_epoch": 63, "learning_rate": 0.0005 },
-      { "until_epoch": 81, "learning_rate": 0.00005 },
-      { "until_epoch": 90, "learning_rate": 0.000005 }
     ]
   }
 }

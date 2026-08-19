@@ -27,7 +27,7 @@ public:
     /** Absolute per-parameter clip bound. `0` disables clipping. */
     float gradient_clip = 0.0F;
     /**
-     * Darknet-style SGD momentum. `0` keeps vanilla SGD (`w -= lr * (g + wd w)`).
+     * SGD momentum. `0` keeps vanilla SGD (`w -= lr * (g + wd w)`).
      * Non-zero uses a velocity buffer: `v = mu * v + (g + wd w); w -= lr * v`.
      */
     float momentum = 0.0F;

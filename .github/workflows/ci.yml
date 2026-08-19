@@ -190,7 +190,7 @@ jobs:
             --target train_tabular_custom \
             --target train_cifar_custom \
             --target train_mnist_custom \
-            --target train_voc_darknet_custom
+            --target train_voc_custom
 
       - name: Verify benchmark binaries
         run: |
@@ -202,7 +202,7 @@ jobs:
           test -x build_release/benchmarks/train_tabular_custom
           test -x build_release/benchmarks/train_cifar_custom
           test -x build_release/benchmarks/train_mnist_custom
-          test -x build_release/benchmarks/train_voc_darknet_custom
+          test -x build_release/benchmarks/train_voc_custom
           ls -l build_release/benchmarks/
           echo "::notice::Benchmark binaries compiled. Not executed: GitHub-hosted runners have no NVIDIA GPU."
           {

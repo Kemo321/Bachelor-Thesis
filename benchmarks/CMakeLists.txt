@@ -27,7 +27,6 @@ endfunction()
 # They are not compiled into DeepLearnLib.
 set(CUSTOM_BENCH_TARGETS
     train_voc_custom
-    train_voc_darknet_custom
     train_bccd_custom
     train_synthetic_custom
     train_cifar_custom
@@ -41,7 +40,6 @@ set(CUSTOM_BENCH_TARGETS
     bench_voc_custom)
 
 add_executable(train_voc_custom train_voc_custom.cpp)
-add_executable(train_voc_darknet_custom train_voc_darknet_custom.cpp)
 add_executable(train_bccd_custom train_bccd_custom.cpp)
 add_executable(train_synthetic_custom train_synthetic_custom.cpp)
 add_executable(train_cifar_custom train_cifar_custom.cpp)
