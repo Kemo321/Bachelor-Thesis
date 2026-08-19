@@ -6,8 +6,75 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-${ROOT}/build}"
 DEFAULT_EXPERIMENTS_JSON="${ROOT}/config/experiments.json"
 export EXPERIMENTS_JSON="${EXPERIMENTS_JSON:-${DEFAULT_EXPERIMENTS_JSON}}"
+# Full-run resume (options 33 / 34 / 37 / 38). Empty means do not record or skip steps.
+MENU_RESUME_RUN=""
+MENU_RESUME_HAD_FAILURE=0
 # shellcheck source=cuda_env.sh
 source "${ROOT}/scripts/cuda_env.sh"
+
+resume_state_file() {
+  printf '%s\n' "${ROOT}/results/.menu_${MENU_RESUME_RUN}.resume"
+}
+
+resume_step_id() {
+  local IFS=' '
+  printf '%s' "$*"
+}
+
+resume_file_has_id() {
+  local id="$1"
+  local file="$2"
+  [[ -f "${file}" ]] || return 1
+  # Strip CR so a Windows-checked-out resume file still matches on Linux.
+  tr -d '\r' < "${file}" | grep -Fxq -- "${id}"
+}
+
+resume_is_done() {
+  local id="$1"
+  local file
+  [[ -n "${MENU_RESUME_RUN}" ]] || return 1
+  file="$(resume_state_file)"
+  resume_file_has_id "${id}" "${file}"
+}
+
+resume_mark_done() {
+  local id="$1"
+  local file
+  [[ -n "${MENU_RESUME_RUN}" ]] || return 0
+  mkdir -p "${ROOT}/results"
+  file="$(resume_state_file)"
+  if resume_file_has_id "${id}" "${file}"; then
+    return 0
+  fi
+  printf '%s\n' "${id}" >> "${file}"
+}
+
+begin_full_run() {
+  MENU_RESUME_RUN="$1"
+  MENU_RESUME_HAD_FAILURE=0
+  mkdir -p "${ROOT}/results"
+  local file
+  file="$(resume_state_file)"
+  if [[ -f "${file}" ]]; then
+    echo "[menu] Resuming ${MENU_RESUME_RUN} from ${file}"
+    echo "[menu] Already completed:"
+    sed 's/^/[menu]   /' "${file}"
+  else
+    echo "[menu] Starting ${MENU_RESUME_RUN} (progress: ${file})"
+  fi
+}
+
+finish_full_run() {
+  local file
+  file="$(resume_state_file)"
+  if [[ "${MENU_RESUME_HAD_FAILURE}" -eq 0 ]]; then
+    rm -f "${file}"
+    echo "[menu] ${MENU_RESUME_RUN} completed; resume state cleared."
+  else
+    echo "[menu] ${MENU_RESUME_RUN} finished with failures; keeping ${file}"
+  fi
+  MENU_RESUME_RUN=""
+}
 
 cached_cuda_arch() {
   local cache="${BUILD_DIR}/CMakeCache.txt"
@@ -90,6 +157,12 @@ is_torch_target() {
 run_optional() {
   local name="$1"
   shift || true
+  local id
+  id="$(resume_step_id "${name}" "$@")"
+  if resume_is_done "${id}"; then
+    echo "[menu] Resume: skipping already completed '${id}'"
+    return 0
+  fi
   if ! ensure_built "${name}"; then
     if is_torch_target "${name}"; then
       echo "[menu] Skipping '${name}' (not in this build — Torch baselines need LibTorch)."
@@ -106,7 +179,23 @@ run_optional() {
   echo "[menu] Running ${bin} $*"
   if ! (cd "$(dirname "${bin}")" && "${bin}" "$@"); then
     echo "[menu] WARNING: '${name}' failed; continuing."
+    MENU_RESUME_HAD_FAILURE=1
     return 0
+  fi
+  resume_mark_done "${id}"
+}
+
+run_plots_optional() {
+  local id="plot_metrics"
+  if resume_is_done "${id}"; then
+    echo "[menu] Resume: skipping already completed '${id}'"
+    return 0
+  fi
+  if run_plots; then
+    resume_mark_done "${id}"
+  else
+    echo "[menu] WARNING: plotting failed; continuing."
+    MENU_RESUME_HAD_FAILURE=1
   fi
 }
 
@@ -142,12 +231,99 @@ run_plots() {
   "${py}" "${ROOT}/scripts/plot_metrics.py" --results-root "${ROOT}/results"
 }
 
+run_all_voc() {
+  echo
+  echo "[menu] === Run all VOC pipelines & generate plots ==="
+  echo "[menu] Custom + Torch: overfit, short, full train, inference, and benches."
+  echo "[menu] Interrupted runs resume from the last completed pipeline."
+  echo
+  begin_full_run run_all_voc
+
+  echo "[menu] -- Overfit (tiny VOC) --"
+  run_optional overfit_voc_custom
+  run_optional overfit_voc_torch
+
+  echo "[menu] -- Short VOC (3 epochs) --"
+  run_optional short_voc_custom
+  run_optional short_voc_torch
+
+  echo "[menu] -- Training (VOC) --"
+  run_optional train_voc_custom
+  run_optional train_voc_torch
+
+  echo "[menu] -- Inference (VOC) --"
+  run_optional inference_voc_custom
+  run_optional inference_voc_torch
+
+  echo "[menu] -- Benchmarks (VOC) --"
+  run_optional bench_voc_custom --benchmark_min_time=0.1s
+  run_optional bench_voc_torch --benchmark_min_time=0.1s
+
+  echo "[menu] -- Metrics plots --"
+  run_plots_optional
+
+  echo
+  echo "[menu] VOC pipelines finished."
+  finish_full_run
+}
+
+run_all_rest() {
+  echo
+  echo "[menu] === Run all remaining pipelines & generate plots ==="
+  echo "[menu] Tabular, MNIST, CIFAR-10, BCCD, Synthetic, plus non-VOC inference and micro-benchmarks."
+  echo "[menu] Interrupted runs resume from the last completed pipeline."
+  echo
+  begin_full_run run_all_rest
+
+  echo "[menu] -- Training (Tabular) --"
+  run_optional train_tabular_custom tabular_demo
+  run_optional train_tabular_torch tabular_demo
+  run_optional train_tabular_custom tabular_iris
+  run_optional train_tabular_torch tabular_iris
+  run_optional train_tabular_custom tabular_wisconsin
+  run_optional train_tabular_torch tabular_wisconsin
+
+  echo "[menu] -- Training (MNIST) --"
+  run_optional train_mnist_custom
+  run_optional train_mnist_torch
+
+  echo "[menu] -- Training (CIFAR-10) --"
+  run_optional train_cifar_custom
+  run_optional train_cifar_torch
+
+  echo "[menu] -- Training (BCCD) --"
+  run_optional train_bccd_custom
+  run_optional train_bccd_torch
+
+  echo "[menu] -- Training (Synthetic) --"
+  run_optional train_synthetic_custom
+  run_optional train_synthetic_torch
+
+  echo "[menu] -- Inference --"
+  run_optional inference_bccd_custom
+  run_optional inference_bccd_torch
+  run_optional inference_synthetic_custom
+  run_optional inference_synthetic_torch
+
+  echo "[menu] -- Benchmarks --"
+  run_optional bench_micro_ops --benchmark_min_time=0.5s --benchmark_counters_tabular=true
+
+  echo "[menu] -- Metrics plots --"
+  run_plots_optional
+
+  echo
+  echo "[menu] Remaining pipelines finished."
+  finish_full_run
+}
+
 run_all_training() {
   echo
   echo "[menu] === Run all full training pipelines ==="
-  echo "[menu] Custom + Torch on VOC, Darknet YOLOv1, BCCD, Synthetic, CIFAR-10, MNIST, and tabular sets."
+  echo "[menu] Custom + Torch on VOC, BCCD, Synthetic, CIFAR-10, MNIST, and tabular sets."
   echo "[menu] Inference, unit tests, and micro-benchmarks are skipped. Failures do not abort."
+  echo "[menu] Interrupted runs resume from the last completed pipeline."
   echo
+  begin_full_run run_all_training
 
   echo "[menu] -- Training (Tabular) --"
   run_optional train_tabular_custom tabular_demo
@@ -168,7 +344,6 @@ run_all_training() {
   echo "[menu] -- Training (VOC) --"
   run_optional train_voc_custom
   run_optional train_voc_torch
-  run_optional train_voc_darknet_custom
 
   echo "[menu] -- Training (BCCD) --"
   run_optional train_bccd_custom
@@ -179,18 +354,26 @@ run_all_training() {
   run_optional train_synthetic_torch
 
   echo "[menu] -- Metrics plots --"
-  run_plots || echo "[menu] WARNING: plotting failed; continuing."
+  run_plots_optional
 
   echo
   echo "[menu] Full training pipelines finished."
+  finish_full_run
 }
 
 run_all() {
+  local enable_resume="${1:-1}"
   echo
   echo "[menu] === Run All Pipelines & Generate Plots ==="
   echo "[menu] Each target is compiled on demand (dev.sh only builds dllib_tests)."
   echo "[menu] Torch binaries are skipped if LibTorch was not configured. Failures do not abort the sequence."
+  if [[ "${enable_resume}" == "1" ]]; then
+    echo "[menu] Interrupted runs resume from the last completed pipeline."
+  fi
   echo
+  if [[ "${enable_resume}" == "1" ]]; then
+    begin_full_run run_all
+  fi
 
   echo "[menu] -- Training (Tabular) --"
   run_optional train_tabular_custom tabular_demo
@@ -211,7 +394,6 @@ run_all() {
   echo "[menu] -- Training (VOC) --"
   run_optional train_voc_custom
   run_optional train_voc_torch
-  run_optional train_voc_darknet_custom
 
   echo "[menu] -- Training (BCCD) --"
   run_optional train_bccd_custom
@@ -235,10 +417,13 @@ run_all() {
   run_optional bench_micro_ops --benchmark_min_time=0.5s --benchmark_counters_tabular=true
 
   echo "[menu] -- Metrics plots --"
-  run_plots || echo "[menu] WARNING: plotting failed; continuing."
+  run_plots_optional
 
   echo
   echo "[menu] Run All finished."
+  if [[ "${enable_resume}" == "1" ]]; then
+    finish_full_run
+  fi
 }
 
 run_sanity_check() {
@@ -263,7 +448,7 @@ run_sanity_check() {
   export EXPERIMENTS_JSON="${sanity}"
   run_optional train_tabular_custom tabular_demo
   run_optional overfit_voc_custom
-  run_all
+  run_all 0
 }
 
 print_menu() {
@@ -277,7 +462,6 @@ DeepLearnLib
   --- Training (VOC) ---
   2)  Train custom YOLO on VOC
   3)  Train Torch YOLO on VOC
-  4)  Train Darknet-faithful YOLOv1 on VOC
   5)  Short VOC custom (3 epochs)
   6)  Short VOC Torch (3 epochs)
   7)  Overfit custom (tiny VOC)
@@ -322,9 +506,11 @@ DeepLearnLib
 
   --- Reports ---
   32) Plot metrics (CSV → PNG)
-  33) Run all pipelines & generate plots
-  34) Run all full training pipelines
+  33) Run all pipelines & generate plots (resumes if interrupted)
+  34) Run all full training pipelines (resumes if interrupted)
   35) Sanity Check (fast end-to-end via sanity.json)
+  37) Run all VOC pipelines & plots (resumes if interrupted)
+  38) Run all remaining pipelines & plots (resumes if interrupted)
   36) Exit
 
 EOF
@@ -332,13 +518,12 @@ EOF
 
 while true; do
   print_menu
-  read -r -p "Select [0-36]: " choice
+  read -r -p "Select [0-38]: " choice
   case "${choice}" in
     0) run_setup_datasets || true ;;
     1) run_bin dllib_tests || true ;;
     2) run_bin train_voc_custom || true ;;
     3) run_bin train_voc_torch || true ;;
-    4) run_bin train_voc_darknet_custom || true ;;
     5) run_bin short_voc_custom || true ;;
     6) run_bin short_voc_torch || true ;;
     7) run_bin overfit_voc_custom || true ;;
@@ -374,6 +559,8 @@ while true; do
       echo "[menu] Bye."
       exit 0
       ;;
+    37) run_all_voc ;;
+    38) run_all_rest ;;
     *)
       echo "[menu] Unknown option: ${choice}"
       ;;
