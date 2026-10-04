@@ -16,13 +16,9 @@ These types sit next to layers. They are not a training program. How application
 
 `set_gradient_clip` updates the bound and pushes it to the layers.
 
-## Precision
+## Storage
 
-`dl::set_mixed_precision(enabled, loss_scale)` and `dl::configure_precision` select the process compute dtype. The default is FP32. FP16 uses the loss scale (default `1024`) so small gradients survive the half exponent. Call this before constructing layers. Weights are allocated in the compute dtype.
-
-`dl::MixedPrecisionGuard` restores the previous policy when it leaves scope.
-
-`dl::scaled_gradient_clip` multiplies a clip bound by the current scale. `Layer::scaled_learning_rate` divides the learning rate by that scale.
+Device tensors are FP32. `Layer::step_learning_rate` returns `learning_rate`. `parameter_clip_bound` returns `gradient_clip` when that field is positive, and `0` otherwise.
 
 ## `Profiler`
 

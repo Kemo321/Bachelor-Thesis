@@ -4,11 +4,9 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <cuda_fp16.h>
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <type_traits>
 
 namespace
 {
@@ -17,6 +15,7 @@ constexpr int kMomentThreads = 256;
 constexpr int kElementwiseThreads = 256;
 constexpr int kFillThreads = 256;
 
+// Writes a constant into a GPU buffer. cudaMemset can only write zero, and gamma and the variance start at 1.
 __global__ void fill_constant_kernel(float* out, int count, float value)
 {
     const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
@@ -26,6 +25,8 @@ __global__ void fill_constant_kernel(float* out, int count, float value)
     }
 }
 
+// Zeros the buffer with cudaMemsetAsync, and writes any other constant with the kernel.
+// Batch-norm parameter initialisation cannot go through memset alone.
 auto fill_constant(dl::Tensor& tensor, float value) -> void
 {
     if (tensor.get_size() == 0)
@@ -44,6 +45,8 @@ auto fill_constant(dl::Tensor& tensor, float value) -> void
     CHECK_CUDA(cudaGetLastError());
 }
 
+// Creates or resizes the velocity buffer and zeros it when the shape changes.
+// SGD momentum on gamma and beta needs a velocity; a fresh allocation left unzeroed would be garbage.
 auto ensure_zero_like(std::optional<dl::Tensor>& slot, const dl::Tensor& like) -> dl::Tensor&
 {
     if (!slot.has_value() || slot->get_shape() != like.get_shape() || slot->get_dtype() != like.get_dtype())
@@ -54,6 +57,8 @@ auto ensure_zero_like(std::optional<dl::Tensor>& slot, const dl::Tensor& like) -
     return *slot;
 }
 
+// Copies a parameter device-to-device, converting on the current stream when the
+// dtype differs. Storing weights must not change the channel count.
 auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) -> void
 {
     if (src.get_device() != dl::Device::GPU || dst.get_device() != dl::Device::GPU)
@@ -77,6 +82,7 @@ auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) ->
     dl::memcpy_d2d_on_current(dst.data(), converted.data(), dst.nbytes());
 }
 
+// Rejects a tensor that is off the GPU or not rank 4. Convolution and batch-norm read NCHW layout.
 auto require_gpu_nchw(const dl::Tensor& tensor, const char* name) -> void
 {
     if (tensor.get_device() != dl::Device::GPU)
@@ -93,32 +99,23 @@ auto require_gpu_nchw(const dl::Tensor& tensor, const char* name) -> void
     }
 }
 
+// Loads an activation element as float. The moments and the BN+LeakyReLU fusion
+// compute in float regardless of the storage type.
 template <typename Act>
 __device__ auto load_act(const Act* pointer, int index) -> float
 {
-    if constexpr (std::is_same_v<Act, __half>)
-    {
-        return __half2float(pointer[index]);
-    }
-    else
-    {
-        return pointer[index];
-    }
+    return pointer[index];
 }
 
+// Stores a float result into the activation buffer. One store serves both the fusion and the LeakyReLU derivative.
 template <typename Act>
 __device__ auto store_act(Act* pointer, int index, float value) -> void
 {
-    if constexpr (std::is_same_v<Act, __half>)
-    {
-        pointer[index] = __float2half(value);
-    }
-    else
-    {
-        pointer[index] = value;
-    }
+    pointer[index] = value;
 }
 
+// One block per channel sums the values and the squares over the batch and the pixels,
+// then reduces in shared memory. The batch mean and variance feed normalisation without global atomics.
 template <typename Act>
 __global__ void spatial_moments_kernel(const Act* input, float* mean, float* variance, int batch, int channels,
     int spatial)
@@ -168,6 +165,8 @@ __global__ void spatial_moments_kernel(const Act* input, float* mean, float* var
     }
 }
 
+// In train, computes the inverse standard deviation and folds the batch into running
+// mean/var; in eval, substitutes the running statistics. A separate kernel, because the fusion and the cuDNN backward both read inv_std.
 __global__ void finalize_bn_stats_kernel(float* mean, float* variance, float* inv_std, float* running_mean,
     float* running_var, int channels, float epsilon, float momentum, bool training)
 {
@@ -179,6 +178,8 @@ __global__ void finalize_bn_stats_kernel(float* mean, float* variance, float* in
 
     if (training)
     {
+        // Batch-norm momentum, not SGD momentum: the new batch is mixed in with this weight.
+        // The inverse std feeds the fusion and is kept for save_inv_var.
         const float batch_mean = mean[channel];
         const float batch_var = variance[channel];
         inv_std[channel] = rsqrtf(fmaxf(batch_var + epsilon, dl::kSafeEps));
@@ -187,11 +188,14 @@ __global__ void finalize_bn_stats_kernel(float* mean, float* variance, float* in
     }
     else
     {
+        // Eval freezes running_*: they are substituted as this iteration's mean and scale.
         mean[channel] = running_mean[channel];
         inv_std[channel] = rsqrtf(fmaxf(running_var[channel] + epsilon, dl::kSafeEps));
     }
 }
 
+// In one pass, applies affine batch-norm and LeakyReLU. A separate kernel for the
+// activation alone would read the whole tensor from global memory again.
 template <typename Act>
 __global__ void fused_bn_leaky_kernel(const Act* input, Act* output, const float* mean, const float* inv_std,
     const float* gamma, const float* beta, float slope, int total, int channels, int spatial)
@@ -204,9 +208,12 @@ __global__ void fused_bn_leaky_kernel(const Act* input, Act* output, const float
     const int channel = (index / spatial) % channels;
     const float normalized = (load_act(input, index) - mean[channel]) * inv_std[channel];
     const float bn = (gamma[channel] * normalized) + beta[channel];
+    // LeakyReLU is fused onto the batch-norm output. Backward has to undo it before the BN backward.
     store_act(output, index, bn > 0.0F ? bn : bn * slope);
 }
 
+// Multiplies the gradient by 1 or by the slope according to the sign of the fused
+// output. The pre-activation is not stored separately, so the LeakyReLU branch is recovered from the saved y.
 template <typename Act>
 __global__ void leaky_backward_from_output_kernel(const Act* fused_output, const Act* grad_output, Act* grad_bn,
     float slope, int total)
@@ -218,14 +225,19 @@ __global__ void leaky_backward_from_output_kernel(const Act* fused_output, const
     }
     const float activated = load_act(fused_output, index);
     const float incoming = load_act(grad_output, index);
+    // Positive fused output has derivative 1; a non-positive one has derivative slope.
     store_act(grad_bn, index, incoming * (activated > 0.0F ? 1.0F : slope));
 }
 
+// Computes the block grid of the elementwise kernel. Rounding up by the element
+// count and kElementwiseThreads covers the last, partial block.
 auto elementwise_grid(int count) -> dim3
 {
     return dim3(static_cast<unsigned int>((count + kElementwiseThreads - 1) / kElementwiseThreads));
 }
 
+// Returns the batch-norm parameter shape [1, C, 1, 1]. That layout matches spatial
+// batch-norm and the gamma, beta, and per-channel statistic buffers.
 auto channel_shape(int channels) -> std::vector<int>
 {
     return { 1, channels, 1, 1 };
@@ -233,6 +245,8 @@ auto channel_shape(int channels) -> std::vector<int>
 
 } // namespace
 
+// Builds the convolution together with the batch-norm buffers. Gamma starts at 1
+// and the running variance starts at 1, so the first evaluation has a finite normalisation.
 FusedCBR2d::FusedCBR2d(int in_channels, int out_channels, int kernel_size, int stride_val, int padding_val,
     float leaky_slope, float bn_eps, float bn_momentum)
     : conv_(in_channels, out_channels, kernel_size, stride_val, padding_val)
@@ -271,18 +285,24 @@ FusedCBR2d::FusedCBR2d(int in_channels, int out_channels, int kernel_size, int s
     fill_constant(save_inv_var_, 1.0F);
 }
 
+// Turns training on for this layer and for the inner convolution. Otherwise Conv2d
+// would stay in eval and would not keep the cache backward needs.
 void FusedCBR2d::train()
 {
     Layer::train();
     conv_.train();
 }
 
+// Switches the layer and the convolution to inference. Batch-norm then reads the
+// running stats, and the convolution itself uses the same math as in train.
 void FusedCBR2d::eval()
 {
     Layer::eval();
     conv_.eval();
 }
 
+// Rebuilds the NCHW and spatial BN descriptors only when the convolution output
+// shape changes. Derive keeps the gamma layout consistent with CUDNN_BATCHNORM_SPATIAL.
 auto FusedCBR2d::configure_bn_descriptors(const dl::Tensor& conv_output) -> void
 {
     const auto& shape = conv_output.get_shape();
@@ -291,11 +311,14 @@ auto FusedCBR2d::configure_bn_descriptors(const dl::Tensor& conv_output) -> void
         return;
     }
     x_desc_.set_nchw(shape[0], shape[1], shape[2], shape[3], cudnn_data_type(conv_output.get_dtype()));
+    // Derived from the convolution output so gamma matches CUDNN_BATCHNORM_SPATIAL.
     CHECK_CUDNN(cudnnDeriveBNTensorDescriptor(bn_desc_.get(), x_desc_.get(), CUDNN_BATCHNORM_SPATIAL));
     bn_shape_cache_ = shape;
     bn_descriptors_configured_ = true;
 }
 
+// In train, computes the batch moments, then in both modes finishes the statistics
+// and launches the BN+LeakyReLU fusion. An empty tensor or a zero spatial plane returns early, because the reduction would divide by zero.
 auto FusedCBR2d::apply_bn_leaky_into(const dl::Tensor& conv_output, dl::Tensor& output, cudaStream_t stream) -> void
 {
     const int batch = conv_output.get_shape()[0];
@@ -312,21 +335,14 @@ auto FusedCBR2d::apply_bn_leaky_into(const dl::Tensor& conv_output, dl::Tensor& 
 
     if (total == 0 || spatial == 0)
     {
+        // Empty tensor or a zero spatial plane: the reduction would divide by zero.
         return;
     }
 
     if (is_training_)
     {
-        if (conv_output.get_dtype() == dl::Dtype::Float16)
-        {
-            spatial_moments_kernel<__half><<<static_cast<unsigned int>(channels), kMomentThreads, 0, stream>>>(
-                conv_output.half_data(), save_mean_.data(), batch_var_.data(), batch, channels, spatial);
-        }
-        else
-        {
-            spatial_moments_kernel<float><<<static_cast<unsigned int>(channels), kMomentThreads, 0, stream>>>(
-                conv_output.data(), save_mean_.data(), batch_var_.data(), batch, channels, spatial);
-        }
+        spatial_moments_kernel<float><<<static_cast<unsigned int>(channels), kMomentThreads, 0, stream>>>(
+            conv_output.data(), save_mean_.data(), batch_var_.data(), batch, channels, spatial);
         CHECK_CUDA(cudaGetLastError());
     }
 
@@ -335,21 +351,14 @@ auto FusedCBR2d::apply_bn_leaky_into(const dl::Tensor& conv_output, dl::Tensor& 
         bn_momentum_, is_training_);
     CHECK_CUDA(cudaGetLastError());
 
-    if (conv_output.get_dtype() == dl::Dtype::Float16)
-    {
-        fused_bn_leaky_kernel<__half><<<elementwise_grid(total), kElementwiseThreads, 0, stream>>>(
-            conv_output.half_data(), output.half_data(), save_mean_.data(), save_inv_var_.data(), gamma_.data(),
-            beta_.data(), leaky_slope_, total, channels, spatial);
-    }
-    else
-    {
-        fused_bn_leaky_kernel<float><<<elementwise_grid(total), kElementwiseThreads, 0, stream>>>(conv_output.data(),
-            output.data(), save_mean_.data(), save_inv_var_.data(), gamma_.data(), beta_.data(), leaky_slope_, total,
-            channels, spatial);
-    }
+    fused_bn_leaky_kernel<float><<<elementwise_grid(total), kElementwiseThreads, 0, stream>>>(conv_output.data(),
+        output.data(), save_mean_.data(), save_inv_var_.data(), gamma_.data(), beta_.data(), leaky_slope_, total,
+        channels, spatial);
     CHECK_CUDA(cudaGetLastError());
 }
 
+// Runs convolution-with-bias, then the BN and LeakyReLU fusion into the cache. In
+// train it keeps the convolution output, because the batch-norm backward needs x from before normalisation.
 auto FusedCBR2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("FusedCBR2d_Forward");
@@ -362,6 +371,7 @@ auto FusedCBR2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) ->
 
     if (is_training_)
     {
+        // Pre-normalisation activation. The batch-norm backward reads it as x.
         bn_input_cache_ = conv_output.as_view();
     }
 
@@ -372,6 +382,8 @@ auto FusedCBR2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) ->
     return fused.as_view();
 }
 
+// LeakyReLU derivative first, then cudnnBatchNormalizationBackward, then the convolution
+// backward. The gradient that reaches the convolution is already past the activation and batch-norm, so Conv2d does not see the raw loss.
 auto FusedCBR2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("FusedCBR2d_Backward");
@@ -400,16 +412,9 @@ auto FusedCBR2d::backward(const dl::Tensor& output_error_derivative, cudaStream_
         fused_output_cache_->get_dtype());
     if (total > 0)
     {
-        if (fused_output_cache_->get_dtype() == dl::Dtype::Float16)
-        {
-            leaky_backward_from_output_kernel<__half><<<elementwise_grid(total), kElementwiseThreads, 0, stream>>>(
-                fused_output_cache_->half_data(), grad_output->half_data(), grad_bn.half_data(), leaky_slope_, total);
-        }
-        else
-        {
-            leaky_backward_from_output_kernel<float><<<elementwise_grid(total), kElementwiseThreads, 0, stream>>>(
-                fused_output_cache_->data(), grad_output->data(), grad_bn.data(), leaky_slope_, total);
-        }
+        // Forward fused conv, then batch-norm, then LeakyReLU. Undo LeakyReLU before the batch-norm backward.
+        leaky_backward_from_output_kernel<float><<<elementwise_grid(total), kElementwiseThreads, 0, stream>>>(
+            fused_output_cache_->data(), grad_output->data(), grad_bn.data(), leaky_slope_, total);
         CHECK_CUDA(cudaGetLastError());
     }
 
@@ -427,6 +432,8 @@ auto FusedCBR2d::backward(const dl::Tensor& output_error_derivative, cudaStream_
     return conv_.backward(grad_conv, stream);
 }
 
+// Copies the optimiser hyperparameters onto the inner convolution and takes an SGD
+// step on gamma and beta. Without the learning_rate copy, the convolution step would keep the inner layer's previous step.
 void FusedCBR2d::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("FusedCBR2d_Step");
@@ -434,13 +441,14 @@ void FusedCBR2d::step(cudaStream_t stream)
     {
         return;
     }
+    // The convolution keeps its own optimiser fields. Its step uses the same values as batch-norm.
     conv_.learning_rate = learning_rate;
     conv_.gradient_clip = gradient_clip;
     conv_.momentum = momentum;
     conv_.weight_decay = weight_decay;
     conv_.step(stream);
     const float clip = parameter_clip_bound();
-    const float lr = scaled_learning_rate();
+    const float lr = step_learning_rate();
     if (momentum > 0.0F)
     {
         dl::Tensor& gamma_velocity = ensure_zero_like(gamma_velocity_, gamma_);
@@ -453,6 +461,8 @@ void FusedCBR2d::step(cudaStream_t stream)
     beta_.sgd_update_(beta_grad_, lr, weight_decay, clip);
 }
 
+// Clips the convolution gradients and gamma and beta. A bound <= 0 is a no-op,
+// as in the base clip_gradients.
 void FusedCBR2d::clip_gradients(float abs_bound, cudaStream_t stream)
 {
     if (abs_bound <= 0.0F)
@@ -464,6 +474,8 @@ void FusedCBR2d::clip_gradients(float abs_bound, cudaStream_t stream)
     beta_grad_.clamp_(-abs_bound, abs_bound);
 }
 
+// Appends gamma, beta, and the running stats to the convolution parameter map. One
+// network save covers both the convolution weights and the normalisation.
 auto FusedCBR2d::get_parameters() -> std::map<std::string, dl::Tensor>
 {
     std::map<std::string, dl::Tensor> params = conv_.get_parameters();
@@ -474,6 +486,8 @@ auto FusedCBR2d::get_parameters() -> std::map<std::string, dl::Tensor>
     return params;
 }
 
+// Loads the convolution parameters and the four batch-norm tensors. The copy checks
+// the size so a weight file cannot change the channel count.
 void FusedCBR2d::set_parameters(const std::map<std::string, dl::Tensor>& params)
 {
     conv_.set_parameters(params);
@@ -483,6 +497,7 @@ void FusedCBR2d::set_parameters(const std::map<std::string, dl::Tensor>& params)
     copy_same_size(running_var_, params.at("running_var"), "FusedCBR2d::set_parameters running_var");
 }
 
+// Forwards the device to the convolution and stays on the GPU. The batch-norm buffers have no host copy.
 auto FusedCBR2d::to(dl::Device device) -> void
 {
     conv_.to(device);

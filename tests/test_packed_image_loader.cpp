@@ -84,6 +84,7 @@ protected:
     }
 };
 
+// uint8 pixels are divided by 255, so 0 and 255 become 0 and 1, and labels 0 and 1 become one-hot; the second image starts at index 4 because a sample is 1×2×2.
 TEST_F(PackedImageLoaderTest, YieldsNchwFloatAndOneHotLabels)
 {
     PackedImageLoader loader(path_.string(), 2, false);
@@ -106,6 +107,7 @@ TEST_F(PackedImageLoaderTest, YieldsNchwFloatAndOneHotLabels)
     EXPECT_NEAR(targets[3], 1.0F, 1.0e-5F);
 }
 
+// The header must be exactly "DLIMG001"; any other magic is rejected before pixels are read.
 TEST_F(PackedImageLoaderTest, RejectsBadMagic)
 {
     const auto bad = std::filesystem::temp_directory_path() / "dllib_bad_magic.bin";

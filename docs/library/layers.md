@@ -9,7 +9,7 @@
 - `freeze()` makes `step()` a no-op for that layer.
 - `get_parameters()` / `set_parameters()` expose named tensors for `Network::save` and `Network::load`.
 
-Optimiser fields live on the layer: `learning_rate`, `momentum`, `weight_decay`, `gradient_clip`. `scaled_learning_rate()` divides the learning rate by the mixed-precision loss scale. `parameter_clip_bound()` scales the clip the same way, so an FP16 backward and the update stay in one numeric regime.
+Optimiser fields live on the layer: `learning_rate`, `momentum`, `weight_decay`, `gradient_clip`. `step_learning_rate()` returns `learning_rate`. `parameter_clip_bound()` returns `gradient_clip` when clipping is on.
 
 Weight decay is applied inside `sgd_update_` / `sgd_momentum_update_`, not inside `backward`. `backward` is only the derivative.
 

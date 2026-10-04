@@ -8,7 +8,7 @@ It does not build a computation graph. Each operation is a class with `forward` 
 
 | Area | Headers | Role |
 | --- | --- | --- |
-| Storage | `Tensor.hpp`, `Precision.hpp`, `SafeMath.hpp` | Dense arrays, FP32/FP16 policy, numeric guards |
+| Storage | `Tensor.hpp`, `Precision.hpp`, `SafeMath.hpp` | Dense FP32 arrays, numeric guards |
 | Layers | `Layer.hpp`, `Conv2d.hpp`, `BatchNorm2d.hpp`, `FusedCBR2d.hpp`, `MaxPool2d.hpp`, `FullyConnected.hpp`, `LeakyReLU.hpp`, `Dropout.hpp`, `Flatten.hpp`, `Softmax.hpp` | Trainable and activation blocks |
 | Losses | `YOLOLoss.hpp`, `Losses.hpp` | Scalar loss and `dL/dpred` on the device |
 | Loaders | `dataset.hpp`, `ClassificationLoader.hpp`, `PackedImageLoader.hpp`, `CSVLoader.hpp` | Host samples to a GPU `Batch` |

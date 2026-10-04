@@ -12,7 +12,6 @@ add_executable(
   test_flatten.cpp
   test_fused_cbr2d.cpp
   test_loss.cpp
-  test_precision.cpp
   test_numerics.cpp
   test_yolo.cpp
   test_network.cpp

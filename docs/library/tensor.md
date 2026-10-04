@@ -1,6 +1,6 @@
 # Tensor
 
-`dl::Tensor` is a dense row-major array. Training storage is on the GPU. Host buffers are IEEE-754 `float`. Device storage is `dl::Dtype::Float32` or `Float16` (`__half`).
+`dl::Tensor` is a dense row-major array. Training storage is on the GPU. Host buffers and device storage are IEEE-754 `float` (`dl::Dtype::Float32`).
 
 ## Ownership
 
@@ -41,7 +41,7 @@ Images are NCHW. A fully-connected activation is rank 2, `[N, F]`. `Flatten` is 
 C = op(A) * op(B) + beta * C
 ```
 
-`beta = 0` overwrites `C`. The cuBLAS handle uses `cublasGemmEx` and a persistent workspace. FP16 storage can use Tensor Cores. The host-facing values stay `float` until a tensor is converted with `to_dtype`.
+`beta = 0` overwrites `C`. The cuBLAS handle uses `cublasGemmEx` with `CUDA_R_32F` and `CUBLAS_COMPUTE_32F_FAST_TF32`.
 
 ## In-place arithmetic
 

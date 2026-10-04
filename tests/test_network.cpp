@@ -115,6 +115,7 @@ TEST_F(NetworkTest, FitNegativeEpochsThrows)
     EXPECT_THROW(network.fit(x, y, -1, 0), std::runtime_error);
 }
 
+// 7*7*30 is the flattened YOLOv1 grid for 20 classes: two boxes × 5 plus 20.
 TEST_F(NetworkTest, FitOneEpochOnYoloShapedOutput)
 {
     // Given: A dense head that emits a flattened YOLOv1 grid

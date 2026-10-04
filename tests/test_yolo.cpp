@@ -15,6 +15,7 @@ class YoloTest : public GpuTest
 {
 };
 
+// 24 FusedCBR2d blocks and 4 MaxPool2d pools make 28 backbone layers in the YOLO constructor.
 TEST_F(YoloTest, ConstructsNonEmptyBackboneAndHead)
 {
     // Given: A default 20-class YOLOv1 model
@@ -52,6 +53,7 @@ TEST_F(YoloTest, ConstructsNonEmptyBackboneAndHead)
     EXPECT_EQ(model.backbone_layers.size(), 28U);
 }
 
+// Width 7*7*(10+C): the YOLOv1 grid stays 7×7, and 10 is two boxes of five values each.
 TEST_F(YoloTest, CustomClassCountChangesOutputWidth)
 {
     // Given: A 2-class YOLOv1 model and a 448x448 image

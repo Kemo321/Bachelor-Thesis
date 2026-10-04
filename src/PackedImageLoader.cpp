@@ -18,12 +18,14 @@ namespace
 
 constexpr std::array<char, 8> kMagic { 'D', 'L', 'I', 'M', 'G', '0', '0', '1' };
 
+// Assembles a little-endian uint32 from four bytes of the DLIMG001 header.
 auto read_u32_le(const std::uint8_t* bytes) -> std::uint32_t
 {
     return static_cast<std::uint32_t>(bytes[0]) | (static_cast<std::uint32_t>(bytes[1]) << 8)
         | (static_cast<std::uint32_t>(bytes[2]) << 16) | (static_cast<std::uint32_t>(bytes[3]) << 24);
 }
 
+// Builds names "0"…"C-1", because the file stores only numeric labels, with no class names.
 auto default_class_names(int num_classes) -> std::vector<std::string>
 {
     std::vector<std::string> names;
@@ -37,6 +39,8 @@ auto default_class_names(int num_classes) -> std::vector<std::string>
 
 } // namespace
 
+// Loads the whole DLIMG001 file into RAM (uint8 pixels and labels) and starts the first prefetch.
+// The hot path then turns bytes into float, instead of decoding a JPEG on every batch.
 PackedImageLoader::PackedImageLoader(std::string bin_path, int batch_size, bool shuffle)
     : batch_size_(batch_size)
     , shuffle_(shuffle)
@@ -94,11 +98,13 @@ PackedImageLoader::PackedImageLoader(std::string bin_path, int batch_size, bool 
     reset();
 }
 
+// Finishes the conversion prefetch before the pixel buffer used by the background thread disappears.
 PackedImageLoader::~PackedImageLoader()
 {
     join_prefetch();
 }
 
+// Sets the epoch order, shuffles it when shuffle is set, and starts converting the first batch in the background.
 auto PackedImageLoader::reset() -> void
 {
     join_prefetch();
@@ -112,46 +118,56 @@ auto PackedImageLoader::reset() -> void
     launch_prefetch();
 }
 
+// A batch remains in prefetch, or unread indices remain.
+// The cursor is already advanced for the background conversion, so it alone does not see the last batch.
 auto PackedImageLoader::has_next() const -> bool
 {
     return cursor_ < order_.size() || prefetch_.valid();
 }
 
+// Returns the sample count stored in the file header.
 auto PackedImageLoader::size() const -> std::size_t
 {
     return static_cast<std::size_t>(sample_count_);
 }
 
+// Returns the requested batch size. The last batch of an epoch can be shorter.
 auto PackedImageLoader::batch_size() const -> int
 {
     return batch_size_;
 }
 
+// Returns the class count from the header, which is the width of the one-hot vector.
 auto PackedImageLoader::num_classes() const -> int
 {
     return static_cast<int>(num_classes_);
 }
 
+// Returns the image channel count from the file header.
 auto PackedImageLoader::channels() const -> int
 {
     return static_cast<int>(channels_);
 }
 
+// Returns the image height from the file header.
 auto PackedImageLoader::height() const -> int
 {
     return static_cast<int>(height_);
 }
 
+// Returns the image width from the file header.
 auto PackedImageLoader::width() const -> int
 {
     return static_cast<int>(width_);
 }
 
+// Returns the names "0"…"C-1" set when the file was loaded.
 auto PackedImageLoader::class_names() const -> const std::vector<std::string>&
 {
     return class_names_;
 }
 
+// Returns the raw sample label as an int, without turning it into a one-hot.
 auto PackedImageLoader::label_at(std::size_t index) const -> int
 {
     if (index >= labels_.size())
@@ -161,22 +177,25 @@ auto PackedImageLoader::label_at(std::size_t index) const -> int
     return static_cast<int>(labels_[index]);
 }
 
+// Copies one sample to float NCHW in [0, 1]. The divisor 255 matches the batch from get_batch.
 auto PackedImageLoader::copy_sample_float(std::size_t index, std::vector<float>& nchw) const -> void
 {
-    const std::size_t elems = static_cast<std::size_t>(channels_) * static_cast<std::size_t>(height_)
+    const std::size_t pixels_per_sample = static_cast<std::size_t>(channels_) * static_cast<std::size_t>(height_)
         * static_cast<std::size_t>(width_);
     if (index >= static_cast<std::size_t>(sample_count_))
     {
         throw std::runtime_error("PackedImageLoader::copy_sample_float index out of range");
     }
-    nchw.resize(elems);
-    const std::size_t offset = index * elems;
-    for (std::size_t i = 0; i < elems; ++i)
+    nchw.resize(pixels_per_sample);
+    const std::size_t offset = index * pixels_per_sample;
+    for (std::size_t pixel_index = 0; pixel_index < pixels_per_sample; ++pixel_index)
     {
-        nchw[i] = static_cast<float>(pixels_[offset + i]) / 255.0F;
+        // Pixels are divided by 255.
+        nchw[pixel_index] = static_cast<float>(pixels_[offset + pixel_index]) / 255.0F;
     }
 }
 
+// Takes the next index range from order_ and advances the cursor by that batch.
 auto PackedImageLoader::take_indices() -> std::vector<std::size_t>
 {
     std::vector<std::size_t> indices;
@@ -194,6 +213,7 @@ auto PackedImageLoader::take_indices() -> std::vector<std::size_t>
     return indices;
 }
 
+// Converts the selected samples from uint8 to float [0, 1] and sets the class one-hot. This runs in parallel, off the GPU.
 auto PackedImageLoader::decode_indices(const std::vector<std::size_t>& indices) const -> HostBatch
 {
     HostBatch host;
@@ -202,23 +222,26 @@ auto PackedImageLoader::decode_indices(const std::vector<std::size_t>& indices) 
     {
         return host;
     }
-    const std::size_t elems = static_cast<std::size_t>(channels_) * static_cast<std::size_t>(height_)
+    const std::size_t pixels_per_sample = static_cast<std::size_t>(channels_) * static_cast<std::size_t>(height_)
         * static_cast<std::size_t>(width_);
     const int classes = num_classes();
-    host.images.assign(static_cast<std::size_t>(host.n) * elems, 0.0F);
+    host.images.assign(static_cast<std::size_t>(host.n) * pixels_per_sample, 0.0F);
     host.targets.assign(static_cast<std::size_t>(host.n) * static_cast<std::size_t>(classes), 0.0F);
 
     dl::parallel_for(host.n,
-        [this, &indices, &host, elems, classes](int batch_idx)
+        [this, &indices, &host, pixels_per_sample, classes](int batch_idx)
         {
             const std::size_t sample_index = indices[static_cast<std::size_t>(batch_idx)];
-            const std::size_t src = sample_index * elems;
-            const std::size_t dst = static_cast<std::size_t>(batch_idx) * elems;
-            for (std::size_t i = 0; i < elems; ++i)
+            const std::size_t source_offset = sample_index * pixels_per_sample;
+            const std::size_t destination_offset = static_cast<std::size_t>(batch_idx) * pixels_per_sample;
+            for (std::size_t pixel_index = 0; pixel_index < pixels_per_sample; ++pixel_index)
             {
-                host.images[dst + i] = static_cast<float>(pixels_[src + i]) / 255.0F;
+                // Pixels are divided by 255.
+                host.images[destination_offset + pixel_index]
+                    = static_cast<float>(pixels_[source_offset + pixel_index]) / 255.0F;
             }
             const int label = std::clamp(static_cast<int>(labels_[sample_index]), 0, classes - 1);
+            // A label outside 0…C-1 does not write past the one-hot row.
             host.targets[(static_cast<std::size_t>(batch_idx) * static_cast<std::size_t>(classes))
                 + static_cast<std::size_t>(label)]
                 = 1.0F;
@@ -226,15 +249,17 @@ auto PackedImageLoader::decode_indices(const std::vector<std::size_t>& indices) 
     return host;
 }
 
+// Uploads NCHW images and the one-hot to the GPU through from_host, on the caller's stream.
 auto PackedImageLoader::upload_host_batch(HostBatch host, cudaStream_t stream) const -> Batch
 {
     return Batch { dl::Tensor::from_host({ host.n, static_cast<int>(channels_), static_cast<int>(height_),
                                              static_cast<int>(width_) },
-                       host.images, dl::Device::GPU, stream, dl::compute_dtype()),
+                       host.images, dl::Device::GPU, stream, dl::Dtype::Float32),
         dl::Tensor::from_host(
-            { host.n, num_classes() }, host.targets, dl::Device::GPU, stream, dl::compute_dtype()) };
+            { host.n, num_classes() }, host.targets, dl::Device::GPU, stream, dl::Dtype::Float32) };
 }
 
+// Starts the uint8-to-float conversion of the next batch in the background so the GPU does not wait on that preparation.
 auto PackedImageLoader::launch_prefetch() -> void
 {
     auto indices = take_indices();
@@ -242,10 +267,12 @@ auto PackedImageLoader::launch_prefetch() -> void
     {
         return;
     }
+    // Prefetch prepares the next batch so the GPU does not wait on the uint8-to-float conversion.
     prefetch_ = std::async(std::launch::async, [this, indices = std::move(indices)]()
         { return decode_indices(indices); });
 }
 
+// Waits for prefetch and drops the result before reset or destruction of the loader.
 auto PackedImageLoader::join_prefetch() -> void
 {
     if (!prefetch_.valid())
@@ -262,6 +289,8 @@ auto PackedImageLoader::join_prefetch() -> void
     prefetch_ = {};
 }
 
+// Returns the ready batch and immediately starts converting the next one, before from_host returns.
+// CPU prefetch overlaps the current step on the GPU.
 auto PackedImageLoader::get_batch(cudaStream_t stream) -> Batch
 {
     const dl::NvtxRange nvtx_range("PackedImageLoader_GetBatch");

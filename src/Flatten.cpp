@@ -7,6 +7,8 @@
 namespace
 {
 
+// Rejects a host tensor or a null device pointer. The flatten is only a view
+// and does not copy data on the GPU.
 auto require_gpu(const dl::Tensor& tensor, const char* name) -> void
 {
     if (tensor.get_device() != dl::Device::GPU)
@@ -21,6 +23,8 @@ auto require_gpu(const dl::Tensor& tensor, const char* name) -> void
 
 } // namespace
 
+// Changes the view to [batch, rest] without copying data. The input shape stays
+// in the cache because backward has to restore it.
 auto Flatten::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("Flatten_Forward");
@@ -31,6 +35,7 @@ auto Flatten::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl
         throw std::runtime_error("Flatten::forward requires a tensor with a batch dimension");
     }
 
+    // Saved so backward can restore this rank. The returned tensor is a view, not a copy.
     input_shape_cache_ = input_tensor.get_shape();
     const int batch_size = input_shape_cache_.front();
     if (batch_size <= 0)
@@ -42,6 +47,8 @@ auto Flatten::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl
     return input_tensor.view({ batch_size, flattened_size });
 }
 
+// Restores the gradient to the shape from before the flatten. This is only a view:
+// the layer has no weights and does not change the values.
 auto Flatten::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("Flatten_Backward");
@@ -51,5 +58,6 @@ auto Flatten::backward(const dl::Tensor& output_error_derivative, cudaStream_t s
     {
         throw std::runtime_error("Flatten::backward requires a preceding forward pass");
     }
+    // View only. The values are the incoming gradient, reshaped to the cached input.
     return output_error_derivative.view(input_shape_cache_);
 }

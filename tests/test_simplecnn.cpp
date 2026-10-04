@@ -40,6 +40,7 @@ TEST_F(SimpleCnnTest, ForwardLogitsMatchClassCount)
     expect_all_finite(probabilities.to_host());
 }
 
+// The constructor without a channel count uses the default in_channels = 3.
 TEST_F(SimpleCnnTest, TrainableStackHasExpectedDepth)
 {
     // Given: A 4-class SimpleCNN
@@ -59,6 +60,7 @@ TEST_F(SimpleCnnTest, TrainableStackHasExpectedDepth)
     }
 }
 
+// The constructor with in_channels = 1 and side 28 accepts NCHW [N, 1, 28, 28] and returns logits [N, 10].
 TEST_F(SimpleCnnTest, AcceptsSingleChannelMnistInput)
 {
     constexpr int batch = 2;

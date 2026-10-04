@@ -30,7 +30,7 @@ auto MyLayer::forward(const dl::Tensor& input, cudaStream_t stream) -> dl::Tenso
 Update weights in place:
 
 ```cpp
-weights_.sgd_update_(weights_gradient_, scaled_learning_rate(), weight_decay, parameter_clip_bound());
+weights_.sgd_update_(weights_gradient_, step_learning_rate(), weight_decay, parameter_clip_bound());
 ```
 
 When `Layer::momentum != 0`, call `sgd_momentum_update_` and keep the velocity in a member `optional<Tensor>`.

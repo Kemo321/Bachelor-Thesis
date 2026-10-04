@@ -146,9 +146,9 @@ private:
 
 } // namespace dl
 
-[[nodiscard]] inline auto cudnn_data_type(dl::Dtype dtype) -> cudnnDataType_t
+[[nodiscard]] inline auto cudnn_data_type(dl::Dtype) -> cudnnDataType_t
 {
-    return dtype == dl::Dtype::Float16 ? CUDNN_DATA_HALF : CUDNN_DATA_FLOAT;
+    return CUDNN_DATA_FLOAT;
 }
 
 /**

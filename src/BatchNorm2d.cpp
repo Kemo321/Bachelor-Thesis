@@ -11,6 +11,7 @@ namespace
 
 constexpr int kFillThreads = 256;
 
+// Writes a constant into a GPU buffer. A separate kernel, because cudaMemset can only write zero.
 __global__ void fill_constant_kernel(float* out, int count, float value)
 {
     const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
@@ -20,6 +21,8 @@ __global__ void fill_constant_kernel(float* out, int count, float value)
     }
 }
 
+// Zeros the buffer with cudaMemsetAsync, and writes any other constant with the kernel.
+// Gamma and the running variance start at 1, so memset alone is not enough.
 auto fill_constant(dl::Tensor& tensor, float value) -> void
 {
     if (tensor.get_size() == 0)
@@ -38,6 +41,8 @@ auto fill_constant(dl::Tensor& tensor, float value) -> void
     CHECK_CUDA(cudaGetLastError());
 }
 
+// Rejects a tensor that is off the GPU or not rank 4. Spatial cuDNN batch-norm
+// reads NCHW layout from the descriptor.
 auto require_gpu_nchw(const dl::Tensor& tensor, const char* name) -> void
 {
     if (tensor.get_device() != dl::Device::GPU)
@@ -54,6 +59,8 @@ auto require_gpu_nchw(const dl::Tensor& tensor, const char* name) -> void
     }
 }
 
+// Copies a parameter device-to-device when the sizes match. Loading weights must
+// not change the shape of the layer buffers.
 auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) -> void
 {
     if (src.get_device() != dl::Device::GPU || dst.get_device() != dl::Device::GPU)
@@ -71,6 +78,8 @@ auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) ->
     dl::memcpy_d2d_on_current(dst.data(), src.data(), src.nbytes());
 }
 
+// Returns the shape [1, C, 1, 1] and checks the channel count and eps. That layout
+// matches the cuDNN spatial batch-norm descriptor.
 auto batchnorm_channel_shape(int num_features, float eps) -> std::vector<int>
 {
     if (num_features <= 0)
@@ -86,6 +95,8 @@ auto batchnorm_channel_shape(int num_features, float eps) -> std::vector<int>
 
 } // namespace
 
+// Allocates gamma, beta, the running statistics, and the save buffers on the GPU.
+// Gamma starts at 1 and the running variance starts at 1, so the first inference does not divide by zero.
 BatchNorm2d::BatchNorm2d(int num_features, float eps, float momentum)
     : num_features_(num_features)
     , eps_(eps)
@@ -108,6 +119,8 @@ BatchNorm2d::BatchNorm2d(int num_features, float eps, float momentum)
     fill_constant(running_var_, 1.0F);
 }
 
+// Sets the NCHW descriptor and derives the spatial BN descriptor from it. Derive,
+// rather than a hand-written shape, keeps the gamma scale consistent with CUDNN_BATCHNORM_SPATIAL.
 auto BatchNorm2d::configure_descriptors(int batch, int channels, int height, int width, dl::Dtype dtype) -> void
 {
     const std::vector<int> shape { batch, channels, height, width };
@@ -117,11 +130,14 @@ auto BatchNorm2d::configure_descriptors(int batch, int channels, int height, int
     }
 
     x_desc_.set_nchw(batch, channels, height, width, cudnn_data_type(dtype));
+    // Derived from x, so the per-channel scale matches CUDNN_BATCHNORM_SPATIAL.
     CHECK_CUDNN(cudnnDeriveBNTensorDescriptor(bn_desc_.get(), x_desc_.get(), CUDNN_BATCHNORM_SPATIAL));
     input_shape_cache_ = shape;
     descriptors_configured_ = true;
 }
 
+// In train, computes batch statistics and updates running mean/var; in eval, normalises
+// with the saved statistics. The input is cached only in train, because backward reads x and save_*.
 auto BatchNorm2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("BatchNorm2d_Forward");
@@ -140,6 +156,7 @@ auto BatchNorm2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -
     const float alpha { 1.0F };
     const float beta_zero { 0.0F };
     const auto handle = dl::get_cudnn_handle();
+    // cuDNN rejects an epsilon below its minimum.
     const double epsilon = std::max(static_cast<double>(eps_), static_cast<double>(CUDNN_BN_MIN_EPSILON));
 
     if (is_training_)
@@ -147,6 +164,9 @@ auto BatchNorm2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -
         input_cache_ = input_tensor.as_view();
         input_cache_ready_ = true;
 
+        // Train folds this batch into running_mean and running_var.
+        // momentum_bn_ is the weight of the new batch in that cuDNN average. It is not SGD momentum,
+        // and it is not the factor that keeps the previous running value.
         const double average_factor = static_cast<double>(momentum_bn_);
         CHECK_CUDNN(cudnnBatchNormalizationForwardTraining(
             handle, CUDNN_BATCHNORM_SPATIAL, &alpha, &beta_zero, x_desc_.get(), input_tensor.data(), x_desc_.get(),
@@ -155,6 +175,7 @@ auto BatchNorm2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -
     }
     else
     {
+        // Eval freezes running_mean and running_var and normalises with them. No batch stats, no backward cache.
         input_cache_ready_ = false;
         CHECK_CUDNN(cudnnBatchNormalizationForwardInference(
             handle, CUDNN_BATCHNORM_SPATIAL, &alpha, &beta_zero, x_desc_.get(), input_tensor.data(), x_desc_.get(),
@@ -165,6 +186,8 @@ auto BatchNorm2d::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -
     return output.as_view();
 }
 
+// Computes dx, dgamma, and dbeta from the statistics saved by the training forward.
+// In eval, backward has neither the input nor save_mean / save_inv_var.
 auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("BatchNorm2d_Backward");
@@ -196,14 +219,18 @@ auto BatchNorm2d::backward(const dl::Tensor& output_error_derivative, cudaStream
     return grad_input.as_view();
 }
 
+// Takes an SGD step on gamma and beta. Running mean and variance are not touched
+// here: cuDNN already writes them in the training forward.
 void BatchNorm2d::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("BatchNorm2d_Step");
     const dl::StreamGuard stream_guard(stream);
-    gamma_.sgd_update_(gamma_grad_, scaled_learning_rate(), weight_decay, parameter_clip_bound());
-    beta_.sgd_update_(beta_grad_, scaled_learning_rate(), weight_decay, parameter_clip_bound());
+    gamma_.sgd_update_(gamma_grad_, step_learning_rate(), weight_decay, parameter_clip_bound());
+    beta_.sgd_update_(beta_grad_, step_learning_rate(), weight_decay, parameter_clip_bound());
 }
 
+// Clips the gamma and beta gradients to a symmetric range. A bound <= 0 turns
+// clipping off, as parameter_clip_bound does.
 void BatchNorm2d::clip_gradients(float abs_bound, cudaStream_t stream)
 {
     const dl::StreamGuard stream_guard(stream);
@@ -215,6 +242,8 @@ void BatchNorm2d::clip_gradients(float abs_bound, cudaStream_t stream)
     beta_grad_.clamp_(-abs_bound, abs_bound);
 }
 
+// Returns views of gamma, beta, and the running statistics for saving the network.
+// Gradients and the save buffers are not written to the weight file.
 auto BatchNorm2d::get_parameters() -> std::map<std::string, dl::Tensor>
 {
     std::map<std::string, dl::Tensor> params;
@@ -225,6 +254,8 @@ auto BatchNorm2d::get_parameters() -> std::map<std::string, dl::Tensor>
     return params;
 }
 
+// Loads the saved tensors into the layer buffers with a device-to-device copy.
+// The shape stays as it was at construction; only the contents are copied.
 void BatchNorm2d::set_parameters(const std::map<std::string, dl::Tensor>& params)
 {
     copy_same_size(gamma_, params.at("gamma"), "BatchNorm2d::set_parameters gamma");
@@ -233,6 +264,7 @@ void BatchNorm2d::set_parameters(const std::map<std::string, dl::Tensor>& params
     copy_same_size(running_var_, params.at("running_var"), "BatchNorm2d::set_parameters running_var");
 }
 
+// Leaves the parameters on the GPU. The layer has no host path for the cuDNN calls.
 auto BatchNorm2d::to(dl::Device device) -> void
 {
     if (device != dl::Device::GPU)

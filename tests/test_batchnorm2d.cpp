@@ -15,6 +15,7 @@ class BatchNorm2dTest : public GpuTest
 {
 };
 
+// The mean of {1, 3, 5, 7} is 4, so an EMA with momentum 0.1 moves running_mean away from zero.
 TEST_F(BatchNorm2dTest, TrainingNormalizesAndUpdatesRunningStats)
 {
     // Given: A training BatchNorm2d layer and a four-element single-channel batch

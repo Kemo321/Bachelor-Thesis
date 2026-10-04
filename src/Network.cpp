@@ -13,6 +13,7 @@
 namespace
 {
 
+// Writes a POD value. The path is used only in the message when the stream reports an error.
 template <typename T>
 auto write_pod(std::ostream& stream, const T& value, const std::string& path) -> void
 {
@@ -23,6 +24,7 @@ auto write_pod(std::ostream& stream, const T& value, const std::string& path) ->
     }
 }
 
+// Reads a POD value. A short read is treated as a truncated weight file.
 template <typename T>
 auto read_pod(std::istream& stream, T& value, const std::string& path) -> void
 {
@@ -33,10 +35,12 @@ auto read_pod(std::istream& stream, T& value, const std::string& path) -> void
     }
 }
 
+// Writes a raw buffer. An empty payload is skipped so write is not called with length zero.
 auto write_bytes(std::ostream& stream, const void* data, std::size_t bytes, const std::string& path) -> void
 {
     if (bytes == 0)
     {
+        // Skip a zero-length write; the stream is not touched.
         return;
     }
     stream.write(static_cast<const char*>(data), static_cast<std::streamsize>(bytes));
@@ -46,10 +50,12 @@ auto write_bytes(std::ostream& stream, const void* data, std::size_t bytes, cons
     }
 }
 
+// Reads a raw buffer. An empty payload is skipped.
 auto read_bytes(std::istream& stream, void* data, std::size_t bytes, const std::string& path) -> void
 {
     if (bytes == 0)
     {
+        // Skip a zero-length read.
         return;
     }
     stream.read(static_cast<char*>(data), static_cast<std::streamsize>(bytes));
@@ -61,6 +67,7 @@ auto read_bytes(std::istream& stream, void* data, std::size_t bytes, const std::
 
 } // namespace
 
+// Takes ownership of the layers and writes them a shared learning rate and gradient-clip threshold.
 Network::Network(std::vector<std::shared_ptr<Layer>> layers_vector, float learning_rate_val, float gradient_clip)
     : layers_(std::move(layers_vector))
     , gradient_clip_(gradient_clip)
@@ -76,12 +83,14 @@ Network::Network(std::vector<std::shared_ptr<Layer>> layers_vector, float learni
     }
 }
 
+// Changes the clip threshold and copies it into the layers immediately.
 void Network::set_gradient_clip(float abs_bound)
 {
     gradient_clip_ = abs_bound;
     sync_layer_optimizer_state();
 }
 
+// Copies gradient_clip_ into the gradient_clip field of every layer.
 auto Network::sync_layer_optimizer_state() -> void
 {
     for (auto& layer : layers_)
@@ -90,18 +99,22 @@ auto Network::sync_layer_optimizer_state() -> void
     }
 }
 
+// The network's current gradient-clip threshold.
 auto Network::gradient_clip() const -> float
 {
     return gradient_clip_;
 }
 
+// Clips the loss gradient to +/- scaled_gradient_clip. A threshold <= 0 returns a view and does not copy.
 auto Network::clip_loss_gradient(const dl::Tensor& gradient) const -> dl::Tensor
 {
     if (gradient_clip_ <= 0.0F)
     {
+        // A non-positive threshold leaves the gradient as a view, with no copy and no clamp.
         return gradient.as_view();
     }
     const float clip = dl::scaled_gradient_clip(gradient_clip_);
+    // ensure reuses this slot, so an unchanged shape does not cudaMalloc every step.
     dl::Tensor& clipped = dl::Tensor::ensure(loss_grad_clip_cache_, gradient.get_shape(), dl::Device::GPU,
         gradient.get_dtype());
     if (gradient.get_size() > 0)
@@ -112,6 +125,7 @@ auto Network::clip_loss_gradient(const dl::Tensor& gradient) const -> dl::Tensor
     return clipped.as_view();
 }
 
+// Calls clip_gradients on every layer. A threshold <= 0 does nothing.
 void Network::clip_parameter_gradients(cudaStream_t stream)
 {
     if (gradient_clip_ <= 0.0F)
@@ -125,12 +139,16 @@ void Network::clip_parameter_gradients(cudaStream_t stream)
     }
 }
 
+// Runs the input through the layers in order on the given stream.
+// view after each layer keeps the shape without copying the data.
 auto Network::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
+    // The guard binds this stream on the thread and on cuBLAS for the whole forward.
     const dl::StreamGuard stream_guard(stream);
     dl::Tensor current = input_tensor.view(input_tensor.get_shape());
     for (std::size_t index = 0; index < layers_.size(); ++index)
     {
+        // view keeps this activation's shape on the same buffer; it does not copy the data.
         current = layers_[index]->forward(current, stream);
         current = current.view(current.get_shape());
 #ifdef DEBUG_NUMERICS
@@ -144,6 +162,8 @@ auto Network::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl
     return current;
 }
 
+// Epoch loop: forward, YOLOLoss, backward from the end, then a weight step.
+// The loss is copied to the host only when this epoch is logged.
 auto Network::fit(const dl::Tensor& x_train, const dl::Tensor& y_train, int epochs, int verbose) -> void
 {
     if (epochs < 0)
@@ -156,10 +176,12 @@ auto Network::fit(const dl::Tensor& x_train, const dl::Tensor& y_train, int epoc
         dl::Tensor prediction = forward(x_train);
 
         constexpr int log_interval = 10;
+        // Log when verbose is set, on every 10th epoch and on the last epoch.
         const bool should_log = verbose != 0 && (epoch_idx % log_interval == 0 || epoch_idx == epochs - 1);
         float loss_value = 0.0F;
         if (should_log)
         {
+            // to_host synchronizes because the log needs a host float; other epochs leave the loss on the GPU.
             const std::vector<float> loss_host = YOLOLoss::loss(y_train, prediction).to_host();
             if (loss_host.empty())
             {
@@ -197,6 +219,7 @@ auto Network::fit(const dl::Tensor& x_train, const dl::Tensor& y_train, int epoc
     }
 }
 
+// Writes the layer count and, for every parameter, the name, the shape, and the fp32 weights.
 auto Network::save(const std::string& path) -> void
 {
     std::ofstream stream(path, std::ios::binary);
@@ -228,6 +251,7 @@ auto Network::save(const std::string& path) -> void
                 write_pod(stream, static_cast<std::int32_t>(dimension), path);
             }
 
+            // to_host synchronizes so these fp32 weights are a host buffer before they are written.
             const std::vector<float> host = parameter.second.to_host();
             write_bytes(stream, host.data(), host.size() * sizeof(float), path);
         }
@@ -241,6 +265,7 @@ auto Network::save(const std::string& path) -> void
     dl::log_info_message("Model saved to: " + path);
 }
 
+// Reads that same layout and calls set_parameters. The layer count must match the network.
 auto Network::load(const std::string& path) -> void
 {
     std::ifstream stream(path, std::ios::binary);
@@ -292,6 +317,7 @@ auto Network::load(const std::string& path) -> void
             }
             if (rank == 0)
             {
+                // A scalar has an empty shape, so the product loop never ran; the count is 1.
                 numel = 1;
             }
 

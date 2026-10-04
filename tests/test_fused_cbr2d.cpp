@@ -108,6 +108,7 @@ TEST_F(FusedCBR2dTest, AffineEvalScaleAndLeakySlope)
     expect_near_vector(output.to_host(), { left * 0.1F, right }, kLooseEpsilon);
 }
 
+// Channels and the kernel must be positive, epsilon non-negative, and BatchNorm momentum in [0, 1].
 TEST_F(FusedCBR2dTest, InvalidConstructorArgumentsThrow)
 {
     // Given: Illegal convolution or BatchNorm hyperparameters
@@ -136,6 +137,7 @@ TEST_F(FusedCBR2dTest, BackwardWithoutTrainingForwardThrows)
     EXPECT_THROW(idle.backward(grad), std::runtime_error);
 }
 
+// leaky_slope() with no argument returns the default 0.1 from the FusedCBR2d constructor.
 TEST_F(FusedCBR2dTest, ParameterRoundTrip)
 {
     // Given: Custom convolution and BatchNorm parameters

@@ -15,6 +15,7 @@ class Conv2dTest : public GpuTest
 {
 };
 
+// Padding 1 with a kernel of 3 and stride 1 keeps the side at 16, and 8 is the filter count.
 TEST_F(Conv2dTest, ForwardOutputShape)
 {
     // Given: A padded 3x3 convolution mapping 3 input channels to 8 output channels

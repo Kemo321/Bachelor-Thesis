@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <vector>
 
+// Intersection area over union area. guarded_div divides by max(denominator, eps).
 float calculate_iou(const cv::Rect& box_a, const cv::Rect& box_b)
 {
     cv::Rect intersection = box_a & box_b;
@@ -15,6 +16,8 @@ float calculate_iou(const cv::Rect& box_a, const cv::Rect& box_b)
     return dl::guarded_div(intersection_area, union_area);
 }
 
+// Keeps detections in descending score order and suppresses same-class boxes whose IoU is above the threshold.
+// The IoU matrix is filled in parallel; suppression is sequential because it depends on score order.
 std::vector<Detection> apply_nms(std::vector<Detection>& detections, float nms_threshold)
 {
     std::sort(std::execution::par_unseq, detections.begin(), detections.end(),
@@ -34,6 +37,7 @@ std::vector<Detection> apply_nms(std::vector<Detection>& detections, float nms_t
         {
             for (std::size_t j = i + 1; j < count; ++j)
             {
+                // NMS compares boxes of the same class only.
                 if (detections[i].class_id != detections[j].class_id)
                 {
                     continue;
@@ -47,6 +51,7 @@ std::vector<Detection> apply_nms(std::vector<Detection>& detections, float nms_t
         });
 
     std::vector<Detection> result;
+    // Suppression stays sequential: a kept box drops later boxes of the same class above the IoU threshold.
     result.reserve(count);
     for (std::size_t i = 0; i < count; ++i)
     {
@@ -68,6 +73,8 @@ std::vector<Detection> apply_nms(std::vector<Detection>& detections, float nms_t
     return result;
 }
 
+// Builds pixel boxes from a flat YOLO output [1, 7, 7, 10 + classes].
+// tx and ty are offsets inside the cell; objectness at or below the threshold drops the box.
 std::vector<Detection> decode_yolo_tensor(const std::vector<float>& output_data, float conf_threshold,
     int img_width, int img_height, int num_classes)
 {
@@ -84,6 +91,7 @@ std::vector<Detection> decode_yolo_tensor(const std::vector<float>& output_data,
         throw std::runtime_error("decode_yolo_tensor expected a flat [1, 7, 7, 10+num_classes] buffer");
     }
 
+    // Flat index (row, column, attribute offset) in a [7, 7, attributes] layout.
     auto at = [&](int grid_i, int grid_j, int offset) -> float
     {
         return output_data[static_cast<size_t>((grid_i * GRID_SIZE * attributes) + (grid_j * attributes) + offset)];
@@ -117,6 +125,7 @@ std::vector<Detection> decode_yolo_tensor(const std::vector<float>& output_data,
             {
                 const int coordinate_offset = box_idx * COORDINATES_PER_BOX;
                 const float objectness_score = at(grid_i, grid_j, coordinate_offset + 4);
+                // Objectness at or below the threshold drops this box.
                 if (objectness_score <= conf_threshold)
                 {
                     continue;
@@ -124,6 +133,7 @@ std::vector<Detection> decode_yolo_tensor(const std::vector<float>& output_data,
 
                 const float normalized_tx = at(grid_i, grid_j, coordinate_offset + 0);
                 const float normalized_ty = at(grid_i, grid_j, coordinate_offset + 1);
+                // tx and ty are offsets inside the cell; add the column and row, then scale to pixels.
                 const float normalized_center_x = (normalized_tx + static_cast<float>(grid_j)) / GRID_SIZE_FLOAT;
                 const float normalized_center_y = (normalized_ty + static_cast<float>(grid_i)) / GRID_SIZE_FLOAT;
                 const float center_x = normalized_center_x * static_cast<float>(img_width);
@@ -142,6 +152,7 @@ std::vector<Detection> decode_yolo_tensor(const std::vector<float>& output_data,
             }
         });
 
+    // Cells were decoded in parallel into fixed slots; compact the valid ones afterwards.
     std::vector<Detection> all_detections;
     all_detections.reserve(slot_count);
     for (std::size_t slot = 0; slot < slot_count; ++slot)
@@ -155,6 +166,7 @@ std::vector<Detection> decode_yolo_tensor(const std::vector<float>& output_data,
     return all_detections;
 }
 
+// Draws a rectangle and a shortened score. With three names whose first is "square", the color depends on class_id.
 void draw_detections(cv::Mat& img, const std::vector<Detection>& detections,
     const std::vector<std::string>& class_names, const cv::Scalar& default_color)
 {
@@ -170,6 +182,7 @@ void draw_detections(cv::Mat& img, const std::vector<Detection>& detections,
 
         if (class_names.size() == 3 && class_names[0] == "square")
         {
+            // Synthetic three-class set: class 0 white, class 1 green, anything else blue (BGR).
             if (detection.class_id == 0)
             {
                 box_color = cv::Scalar(255, 255, 255);

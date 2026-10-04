@@ -6,7 +6,7 @@ The tree follows one style in the code that is exercised every day. A handful of
 
 | Kind | Spelling | Examples |
 | --- | --- | --- |
-| Types | `PascalCase` | `Conv2d`, `FusedCBR2d`, `CrossEntropyLoss`, `MixedPrecisionGuard` |
+| Types | `PascalCase` | `Conv2d`, `FusedCBR2d`, `CrossEntropyLoss`, `Tensor` |
 | Functions and methods | `snake_case` | `split_dataset`, `get_shape`, `matmul_into`, `mean_average_precision` |
 | In-place tensor methods | `snake_case` plus a trailing underscore | `add_`, `clamp_`, `sgd_update_` |
 | Private data members | trailing underscore | `weights_`, `is_training_`, `output_cache_` |
@@ -16,7 +16,7 @@ The tree follows one style in the code that is exercised every day. A handful of
 | Macros | `SCREAMING_SNAKE` | `CHECK_CUDA`, `LOG_INFO` |
 | Layer headers | file name equals the type | `FullyConnected.hpp` |
 | Training binaries | `{role}_{dataset}_{stack}` | `train_voc_custom`, `inference_bccd_torch` |
-| JSON keys | `snake_case` | `learning_rate`, `mixed_precision`, `voc_custom` |
+| JSON keys | `snake_case` | `learning_rate`, `batch_size`, `voc_custom` |
 | Return type | trailing `auto name() -> T` | almost every method in `include/DeepLearnLib/` |
 
 Constructor parameters that would shadow a member take a `_val` suffix (`inertia_val`, `stride_val`, `slope_val`). The member itself has no suffix beyond the private underscore.

@@ -15,11 +15,15 @@ namespace
 
 constexpr int kVocPoints = 11;
 
+// Box area. A negative width or height yields zero, so the IoU cannot come out negative.
 auto box_area(const Detection& detection) -> float
 {
+    // A negative side contributes nothing, so the area used by IoU is never negative.
     return std::max(0.0F, detection.width) * std::max(0.0F, detection.height);
 }
 
+// Average precision of one class, VOC 11-point. Predictions run from the highest score; ground truth is matched greedily by IoU.
+// No ground truth for this class returns 0.
 auto average_precision_for_class(const std::vector<Detection>& predicted, const std::vector<Detection>& ground_truth,
     int class_id, float iou_threshold) -> float
 {
@@ -59,6 +63,7 @@ auto average_precision_for_class(const std::vector<Detection>& predicted, const 
         int best_gt = -1;
         for (std::size_t gt_index = 0; gt_index < class_gt.size(); ++gt_index)
         {
+            // Skip ground truth that was already matched, so each box is used at most once.
             if (matched[gt_index] != 0)
             {
                 continue;
@@ -71,6 +76,7 @@ auto average_precision_for_class(const std::vector<Detection>& predicted, const 
             }
         }
 
+        // A true positive needs the caller-supplied IoU; that ground-truth box is then taken.
         if (best_gt >= 0 && best_iou >= iou_threshold)
         {
             matched[static_cast<std::size_t>(best_gt)] = 1;
@@ -95,6 +101,7 @@ auto average_precision_for_class(const std::vector<Detection>& predicted, const 
         recall[index] = dl::guarded_div(running_tp, gt_count);
     }
 
+    // VOC 11-point AP: max precision at recall 0, 0.1, ..., 1, then the mean of those 11 values.
     std::vector<int> voc_points(kVocPoints);
     std::iota(voc_points.begin(), voc_points.end(), 0);
     const float average_precision = std::transform_reduce(std::execution::par_unseq, voc_points.begin(), voc_points.end(),
@@ -102,6 +109,7 @@ auto average_precision_for_class(const std::vector<Detection>& predicted, const 
         [&](int point) -> float
         {
             const float recall_threshold = static_cast<float>(point) / static_cast<float>(kVocPoints - 1);
+            // No predictions: the recall-0 sample of the 11-point AP is 0.
             if (class_pred.empty() && recall_threshold == 0.0F)
             {
                 return 0.0F;
@@ -115,6 +123,7 @@ auto average_precision_for_class(const std::vector<Detection>& predicted, const 
 
 } // namespace
 
+// IoU of two detections (x, y, width, height). The union goes through guarded_div, so the denominator is at least eps.
 auto detection_iou(const Detection& predicted, const Detection& ground_truth) -> float
 {
     const float left = std::max(predicted.x, ground_truth.x);
@@ -125,9 +134,11 @@ auto detection_iou(const Detection& predicted, const Detection& ground_truth) ->
     const float intersection_h = std::max(0.0F, bottom - top);
     const float intersection = intersection_w * intersection_h;
     const float union_area = box_area(predicted) + box_area(ground_truth) - intersection;
+    // guarded_div divides by max(union, eps), so a zero union does not divide by zero.
     return dl::guarded_div(intersection, union_area);
 }
 
+// Mean of the per-class AP over classes that have ground truth. A threshold outside [0, 1] is an error; empty ground truth returns 0.
 auto mean_average_precision(const std::vector<Detection>& predicted, const std::vector<Detection>& ground_truth,
     float iou_threshold) -> float
 {
@@ -176,6 +187,7 @@ auto mean_average_precision(const std::vector<Detection>& predicted, const std::
                 {
                     return detection.class_id == class_id;
                 });
+            // A class that appears only in predictions is left out of the mean.
             if (!has_gt)
             {
                 return 0.0F;

@@ -18,6 +18,8 @@ struct UniformFill
     float high;
     unsigned long long seed;
 
+    // Maps an index onto a value in [low, high) by hashing. Initialisation does not
+    // call a host generator and does not synchronise the device.
     __host__ __device__ auto operator()(int index) const -> float
     {
         unsigned long long hash = seed + (static_cast<unsigned long long>(index) + 1ULL) * 0x9E3779B97F4A7C15ULL;
@@ -31,6 +33,8 @@ struct UniformFill
     }
 };
 
+// Applies UniformFill across the tensor elements. The range and seed travel in the
+// functor, so the kernel does not read extra buffers.
 __global__ void uniform_fill_kernel(float* out, int count, UniformFill fill)
 {
     const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
@@ -40,6 +44,7 @@ __global__ void uniform_fill_kernel(float* out, int count, UniformFill fill)
     }
 }
 
+// Writes a constant other than zero. cudaMemset can zero a buffer, not set another value.
 __global__ void fill_constant_kernel(float* out, int count, float value)
 {
     const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
@@ -49,6 +54,8 @@ __global__ void fill_constant_kernel(float* out, int count, float value)
     }
 }
 
+// Launches the uniform-initialisation kernel. An empty tensor is skipped so the
+// launch does not use a grid of zero blocks.
 auto fill_uniform(dl::Tensor& tensor, float low, float high, unsigned long long seed) -> void
 {
     if (tensor.get_size() == 0)
@@ -62,6 +69,8 @@ auto fill_uniform(dl::Tensor& tensor, float low, float high, unsigned long long 
     CHECK_CUDA(cudaGetLastError());
 }
 
+// Zeros the buffer with cudaMemsetAsync, and writes any other constant with the kernel.
+// Gradients start at zero and do not need the kernel.
 auto fill_constant(dl::Tensor& tensor, float value) -> void
 {
     if (tensor.get_size() == 0)
@@ -80,6 +89,9 @@ auto fill_constant(dl::Tensor& tensor, float value) -> void
     CHECK_CUDA(cudaGetLastError());
 }
 
+// Creates or resizes the velocity buffer and zeros it when the shape changes.
+// SGD momentum needs a velocity with the weight's shape; a fresh allocation left
+// unzeroed would be garbage.
 auto ensure_zero_like(std::optional<dl::Tensor>& slot, const dl::Tensor& like) -> dl::Tensor&
 {
     if (!slot.has_value() || slot->get_shape() != like.get_shape() || slot->get_dtype() != like.get_dtype())
@@ -90,6 +102,8 @@ auto ensure_zero_like(std::optional<dl::Tensor>& slot, const dl::Tensor& like) -
     return *slot;
 }
 
+// Rejects a host tensor or a null device pointer. The matrix product stays on the
+// GPU and there is no host-to-device copy here.
 auto require_gpu(const dl::Tensor& tensor, const char* name) -> void
 {
     if (tensor.get_device() != dl::Device::GPU)
@@ -102,6 +116,8 @@ auto require_gpu(const dl::Tensor& tensor, const char* name) -> void
     }
 }
 
+// Copies weights device-to-device, converting on the current stream when the dtype
+// differs. A loader may supply a type other than the layer buffer's.
 auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) -> void
 {
     if (src.get_device() != dl::Device::GPU || dst.get_device() != dl::Device::GPU)
@@ -125,6 +141,8 @@ auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) ->
     dl::memcpy_d2d_on_current(dst.data(), converted.data(), dst.nbytes());
 }
 
+// Requires a [batch, features] matrix with the given column count. The feature
+// dimension is the contract of the product with the weight [input, output].
 auto require_rank2(const dl::Tensor& tensor, int expected_cols, const char* name) -> void
 {
     require_gpu(tensor, name);
@@ -140,6 +158,8 @@ auto require_rank2(const dl::Tensor& tensor, int expected_cols, const char* name
     }
 }
 
+// Checks that the dimensions are positive and returns the weight shape [input, output].
+// The error must fire before the constructor allocates the tensor.
 auto fullyconnected_weight_shape(int input_size, int output_size) -> std::vector<int>
 {
     if (input_size <= 0 || output_size <= 0)
@@ -151,6 +171,8 @@ auto fullyconnected_weight_shape(int input_size, int output_size) -> std::vector
 
 } // namespace
 
+// Draws weights and bias from 1/sqrt(fan_in) and zeros the gradients. inertia_ is
+// stored because backward uses it as the beta that accumulates dW, not as SGD momentum.
 FullyConnected::FullyConnected(int input_size, int output_size, float inertia_val)
     : weights_(fullyconnected_weight_shape(input_size, output_size), dl::Device::GPU)
     , biases_({ 1, output_size }, dl::Device::GPU)
@@ -166,22 +188,17 @@ FullyConnected::FullyConnected(int input_size, int output_size, float inertia_va
     fill_uniform(biases_, -bound, bound, 0xBEEFULL);
     fill_constant(weights_gradient_, 0.0F);
     fill_constant(biases_gradient_, 0.0F);
-
-    if (dl::compute_dtype() == dl::Dtype::Float16)
-    {
-        weights_ = weights_.to_dtype(dl::Dtype::Float16);
-        biases_ = biases_.to_dtype(dl::Dtype::Float16);
-        weights_gradient_ = weights_gradient_.to_dtype(dl::Dtype::Float16);
-        biases_gradient_ = biases_gradient_.to_dtype(dl::Dtype::Float16);
-    }
 }
 
+// Computes Y = X W + b and caches the input after a dtype conversion when needed.
+// The output view comes from ensure, so the next forward overwrites the same buffer.
 auto FullyConnected::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("FullyConnected_Forward");
     const dl::StreamGuard stream_guard(stream);
     require_rank2(input_tensor, input_size_, "FullyConnected::forward input");
 
+    // matmul_into needs one dtype. A different input type is converted to the weight dtype.
     if (input_tensor.get_dtype() != weights_.get_dtype())
     {
         input_cache_ = input_tensor.to_dtype(weights_.get_dtype(), stream);
@@ -199,6 +216,8 @@ auto FullyConnected::forward(const dl::Tensor& input_tensor, cudaStream_t stream
     return output.as_view();
 }
 
+// Accumulates dW and db and computes dX = dY W^T. inertia_ accumulates the parameter
+// gradients; dX is overwritten because the input-gradient cache is not summed across calls.
 auto FullyConnected::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("FullyConnected_Backward");
@@ -221,16 +240,20 @@ auto FullyConnected::backward(const dl::Tensor& output_error_derivative, cudaStr
         grad_output = &converted_grad;
     }
 
+    // inertia_ is the beta of matmul_into, so dW accumulates into the gradient buffer. It is not SGD momentum.
     input_cache_->matmul_into(*grad_output, weights_gradient_, true, false, inertia_);
     biases_gradient_.add_sum_rows_(*grad_output, inertia_);
 
     dl::Tensor& grad_input = dl::Tensor::ensure(grad_input_cache_, input_cache_->get_shape(), dl::Device::GPU,
         weights_.get_dtype());
+    // beta 0 overwrites dX. The input-gradient cache is not summed across calls.
     grad_output->matmul_into(weights_, grad_input, false, true, 0.0F);
     input_cache_ready_ = false;
     return grad_input.as_view();
 }
 
+// Updates the weights with SGD, and when momentum > 0 keeps velocity in an optional
+// buffer. A frozen layer returns immediately and does not touch the weights.
 void FullyConnected::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("FullyConnected_Step");
@@ -240,7 +263,7 @@ void FullyConnected::step(cudaStream_t stream)
         return;
     }
     const float clip = parameter_clip_bound();
-    const float lr = scaled_learning_rate();
+    const float lr = step_learning_rate();
     if (momentum > 0.0F)
     {
         dl::Tensor& weight_velocity = ensure_zero_like(weights_velocity_, weights_);
@@ -253,6 +276,7 @@ void FullyConnected::step(cudaStream_t stream)
     biases_.sgd_update_(biases_gradient_, lr, weight_decay, clip);
 }
 
+// Clips the weight and bias gradients to a symmetric range. A bound <= 0 turns clipping off.
 void FullyConnected::clip_gradients(float abs_bound, cudaStream_t stream)
 {
     const dl::StreamGuard stream_guard(stream);
@@ -264,6 +288,8 @@ void FullyConnected::clip_gradients(float abs_bound, cudaStream_t stream)
     biases_gradient_.clamp_(-abs_bound, abs_bound);
 }
 
+// Returns views of the weights and bias for saving the network. Gradients and
+// momentum velocity are not written to the file.
 auto FullyConnected::get_parameters() -> std::map<std::string, dl::Tensor>
 {
     std::map<std::string, dl::Tensor> params;
@@ -272,12 +298,14 @@ auto FullyConnected::get_parameters() -> std::map<std::string, dl::Tensor>
     return params;
 }
 
+// Loads the weights and bias with a device-to-device copy. The buffer shapes stay as they were at construction.
 void FullyConnected::set_parameters(const std::map<std::string, dl::Tensor>& params)
 {
     copy_same_size(weights_, params.at("weights"), "FullyConnected::set_parameters weights");
     copy_same_size(biases_, params.at("bias"), "FullyConnected::set_parameters bias");
 }
 
+// Leaves the parameters on the GPU. The matrix product has no host path.
 auto FullyConnected::to(dl::Device device) -> void
 {
     if (device != dl::Device::GPU)

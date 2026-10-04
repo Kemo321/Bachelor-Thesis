@@ -12,7 +12,6 @@
 #include <vector>
 
 #include "DeepLearnLib/Layer.hpp"
-#include "DeepLearnLib/Precision.hpp"
 
 /**
  * @brief Loads config/experiments.json for reproducible pipeline hyperparameters.
@@ -87,23 +86,9 @@ inline auto resolve_from_source(const std::string& maybe_relative) -> std::files
 #endif
 }
 
-inline auto apply_pipeline_precision(const nlohmann::json& config) -> void
-{
-    const bool mixed = config.value("mixed_precision", false);
-    const std::string precision = config.value("precision", mixed ? std::string("fp16") : std::string("fp32"));
-    const float scale = config.value("loss_scale", 1024.0F);
-    dl::configure_precision(mixed, precision, scale);
-}
-
 inline auto pipeline_gradient_clip(const nlohmann::json& config) -> float
 {
     return config.value("gradient_clip", 0.0F);
-}
-
-inline auto pipeline_precision_name(const nlohmann::json& config) -> std::string
-{
-    const bool mixed = config.value("mixed_precision", false);
-    return config.value("precision", mixed ? std::string("fp16") : std::string("fp32"));
 }
 
 /**

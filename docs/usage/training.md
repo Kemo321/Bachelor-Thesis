@@ -27,9 +27,7 @@ At the start of an epoch the binary calls `scheduled_learning_rate` and then `ap
 
 `lr_schedule` entries `{ "until_epoch": N, "learning_rate": r }` apply while `epoch <= N`. If the key is absent, the base `learning_rate` holds until 70% of `epochs`, then drops by 10× until 90%, then by another 10×.
 
-`gradient_clip` from JSON is stored on the layers. `0` leaves clipping off. `Network::clip_loss_gradient` clamps `dL/dpred` before the reverse walk. `clip_parameter_gradients` runs after `backward` and before `step`.
-
-`configure_precision` / `apply_pipeline_precision` runs before the model is constructed. Weights allocate in that dtype.
+`gradient_clip` from JSON is stored on the layers. `0` leaves clipping off. `Network::clip_loss_gradient` clamps `dL/dpred` before the reverse walk. `clip_parameter_gradients` runs after `backward` and before `step`. Weights allocate as FP32.
 
 ## Where the host waits
 

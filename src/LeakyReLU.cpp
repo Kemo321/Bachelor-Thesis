@@ -2,42 +2,32 @@
 #include "DeepLearnLib/Nvtx.hpp"
 
 #include <cstddef>
-#include <cuda_fp16.h>
 #include <stdexcept>
 #include <string>
-#include <type_traits>
 
 namespace
 {
 
 constexpr int kThreads = 256;
 
+// Loads an activation element as float. The template keeps one kernel per storage
+// type, while the arithmetic still runs in float.
 template <typename Act>
 __device__ auto load_act(const Act* pointer, int index) -> float
 {
-    if constexpr (std::is_same_v<Act, __half>)
-    {
-        return __half2float(pointer[index]);
-    }
-    else
-    {
-        return pointer[index];
-    }
+    return pointer[index];
 }
 
+// Stores a float result into the activation buffer. A separate function so forward
+// and backward do not repeat the cast on the store.
 template <typename Act>
 __device__ auto store_act(Act* pointer, int index, float value) -> void
 {
-    if constexpr (std::is_same_v<Act, __half>)
-    {
-        pointer[index] = __float2half(value);
-    }
-    else
-    {
-        pointer[index] = value;
-    }
+    pointer[index] = value;
 }
 
+// Computes LeakyReLU element by element. Positive values pass through unchanged
+// and negative values are multiplied by the slope, with no second pass over memory.
 template <typename Act>
 __global__ void leaky_forward_kernel(const Act* input, Act* output, float slope, int total)
 {
@@ -47,9 +37,12 @@ __global__ void leaky_forward_kernel(const Act* input, Act* output, float slope,
         return;
     }
     const float value = load_act(input, index);
+    // Positive side is the identity. The negative side is scaled by slope in the same store.
     store_act(output, index, value > 0.0F ? value : value * slope);
 }
 
+// Multiplies the output gradient by 1 or by the slope, according to the sign of
+// the input. The derivative is constant on each half-axis, so the input saved by forward is enough.
 template <typename Act>
 __global__ void leaky_backward_kernel(const Act* grad_output, const Act* input, Act* grad_input, float slope, int total)
 {
@@ -60,14 +53,19 @@ __global__ void leaky_backward_kernel(const Act* grad_output, const Act* input, 
     }
     const float incoming = load_act(grad_output, index);
     const float value = load_act(input, index);
+    // Derivative is 1 where the cached input is positive, and slope elsewhere.
     store_act(grad_input, index, incoming * (value > 0.0F ? 1.0F : slope));
 }
 
+// Computes the block grid of the elementwise kernel. Rounding up by the element
+// count and kThreads covers the last, partial block.
 auto elementwise_grid(int count) -> dim3
 {
     return dim3(static_cast<unsigned int>((count + kThreads - 1) / kThreads));
 }
 
+// Rejects a host tensor or a null device pointer. The layer does not copy data
+// onto the GPU inside forward.
 auto require_gpu(const dl::Tensor& tensor, const char* name) -> void
 {
     if (tensor.get_device() != dl::Device::GPU)
@@ -82,18 +80,23 @@ auto require_gpu(const dl::Tensor& tensor, const char* name) -> void
 
 } // namespace
 
+// Stores the slope of the negative half-axis and sets the device to GPU. The slope
+// is fixed; it is not a trained parameter.
 LeakyReLU::LeakyReLU(float slope_val)
     : slope_(slope_val)
 {
     device_ = dl::Device::GPU;
 }
 
+// Launches the LeakyReLU kernel and returns a view of the output cache. The input
+// stays in the cache because backward needs its sign, and ensure does not allocate when the shape is unchanged.
 auto LeakyReLU::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("LeakyReLU_Forward");
     const dl::StreamGuard stream_guard(stream);
     require_gpu(input_tensor, "LeakyReLU::forward input");
 
+    // Backward reads the sign from this view. The view does not copy the input.
     input_cache_ = input_tensor.as_view();
     input_cache_ready_ = true;
 
@@ -105,20 +108,14 @@ auto LeakyReLU::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> 
         return output.as_view();
     }
 
-    if (input_tensor.get_dtype() == dl::Dtype::Float16)
-    {
-        leaky_forward_kernel<<<elementwise_grid(total), kThreads, 0, stream>>>(input_tensor.half_data(),
-            output.half_data(), slope_, total);
-    }
-    else
-    {
-        leaky_forward_kernel<<<elementwise_grid(total), kThreads, 0, stream>>>(input_tensor.data(), output.data(),
-            slope_, total);
-    }
+    leaky_forward_kernel<<<elementwise_grid(total), kThreads, 0, stream>>>(input_tensor.data(), output.data(), slope_,
+        total);
     CHECK_CUDA(cudaGetLastError());
     return output.as_view();
 }
 
+// Passes the gradient through the LeakyReLU derivative using the cached input.
+// The cache flag is cleared so a later backward without a forward cannot reuse a stale sign.
 auto LeakyReLU::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("LeakyReLU_Backward");
@@ -142,21 +139,15 @@ auto LeakyReLU::backward(const dl::Tensor& output_error_derivative, cudaStream_t
     const int total = static_cast<int>(output_error_derivative.get_size());
     if (total == 0)
     {
+        // Drop the cache even when there is nothing to differentiate.
         input_cache_ready_ = false;
         return grad_input.as_view();
     }
 
-    if (input_cache_->get_dtype() == dl::Dtype::Float16)
-    {
-        leaky_backward_kernel<<<elementwise_grid(total), kThreads, 0, stream>>>(output_error_derivative.half_data(),
-            input_cache_->half_data(), grad_input.half_data(), slope_, total);
-    }
-    else
-    {
-        leaky_backward_kernel<<<elementwise_grid(total), kThreads, 0, stream>>>(output_error_derivative.data(),
-            input_cache_->data(), grad_input.data(), slope_, total);
-    }
+    leaky_backward_kernel<<<elementwise_grid(total), kThreads, 0, stream>>>(output_error_derivative.data(),
+        input_cache_->data(), grad_input.data(), slope_, total);
     CHECK_CUDA(cudaGetLastError());
+    // A later backward without a new forward must not reuse this sign.
     input_cache_ready_ = false;
     return grad_input.as_view();
 }

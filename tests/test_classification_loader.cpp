@@ -71,6 +71,7 @@ protected:
     }
 };
 
+// Shape [2, 3, 8, 8] is the constructor batch, three PNG channels, and side 8 from the images in SetUp.
 TEST_F(ClassificationLoaderTest, DiscoversClassesAndYieldsNchwOneHotBatches)
 {
     // Given: Five PNG images in two class folders
@@ -135,6 +136,7 @@ TEST_F(ClassificationLoaderTest, ResetRestartsEpochAndAllowsReuse)
     EXPECT_EQ(batch.images.get_shape()[0], 4);
 }
 
+// The dog folder is the second class in the train vocabulary (cat, dog), so the one-hot is [0, 1].
 TEST_F(ClassificationLoaderTest, LockedClassNamesKeepOneHotWidthWhenAFolderIsMissing)
 {
     // Given: Train has cat+dog, but the test split is missing the cat folder
@@ -167,6 +169,7 @@ TEST_F(ClassificationLoaderTest, RejectsInvalidConstructorArguments)
     EXPECT_THROW(ClassificationLoader((root_ / "does-not-exist").string(), "train", 2, 8, false), std::runtime_error);
 }
 
+// parallel_worker_count returns 1 for a single index and caps the pool at min(hardware_concurrency, 16).
 TEST(ParallelForCpuTest, ExecutesEveryIndexExactlyOnce)
 {
     // Given: A shared histogram protected by a mutex

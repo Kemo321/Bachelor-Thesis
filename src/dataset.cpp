@@ -27,12 +27,15 @@ namespace
 constexpr int GRID_SIZE = 7;
 constexpr int BOXES_PER_CELL = 2;
 constexpr int BOX_PARAMS = 5;
+// Two slots of five values (x, y, w, h, objectness); the class one-hot starts at index 10.
 constexpr int CLASS_OFFSET = 10;
 constexpr float NORMALIZATION_FACTOR = 255.0F;
 constexpr float CENTER_DIVISOR = 2.0F;
 constexpr int IMAGE_CHANNELS = 3;
 constexpr int IMAGE_SIZE = 448;
 
+// Converts VOC XML boxes into normalized YOLO labels (class, center, width, height).
+// The loader then reads one .txt file per image, without parsing XML again.
 auto convert_voc_to_yolo(const std::string& annot_dir, const std::string& label_dir, const std::string& jpeg_dir,
     const std::vector<std::string>& class_names) -> void
 {
@@ -87,10 +90,10 @@ auto convert_voc_to_yolo(const std::string& annot_dir, const std::string& label_
             }
 
             int class_id = -1;
-            auto it = class_map.find(class_name);
-            if (it != class_map.end())
+            auto class_entry = class_map.find(class_name);
+            if (class_entry != class_map.end())
             {
-                class_id = it->second;
+                class_id = class_entry->second;
             }
 
             if (class_id >= 0)
@@ -117,6 +120,7 @@ auto convert_voc_to_yolo(const std::string& annot_dir, const std::string& label_
     }
 }
 
+// Rewrites an OpenCV image (height, width, channel) into CHW, because the network tensor is NCHW.
 auto hwc_to_chw(const cv::Mat& hwc, float* chw) -> void
 {
     const int height = hwc.rows;
@@ -134,15 +138,20 @@ auto hwc_to_chw(const cv::Mat& hwc, float* chw) -> void
     }
 }
 
+// Scales and shifts the image around its center; pixels outside the frame stay black.
+// The caller passes the same scale, dx, and dy into the labels so the box stays on the object.
 auto apply_affine(cv::Mat& image, float scale, float dx, float dy) -> void
 {
-    const float half = static_cast<float>(image.cols) * 0.5F;
-    const float tx = (0.5F * scale) + ((1.0F - scale + dx) * half) - 0.5F;
-    const float ty = (0.5F * scale) + ((1.0F - scale + dy) * half) - 0.5F;
-    cv::Mat affine = (cv::Mat_<float>(2, 3) << scale, 0.0F, tx, 0.0F, scale, ty);
+    const float half_width = static_cast<float>(image.cols) * 0.5F;
+    // Both dx and dy use half the width, not the height, because the training image is square 448.
+    const float translate_x = (0.5F * scale) + ((1.0F - scale + dx) * half_width) - 0.5F;
+    const float translate_y = (0.5F * scale) + ((1.0F - scale + dy) * half_width) - 0.5F;
+    cv::Mat affine = (cv::Mat_<float>(2, 3) << scale, 0.0F, translate_x, 0.0F, scale, translate_y);
     cv::warpAffine(image, image, affine, image.size(), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0.0, 0.0, 0.0));
 }
 
+// Multiplies saturation and value in HSV and clamps them to [0, 1].
+// Only the train path calls this, so evaluation does not change colors.
 auto apply_hsv_jitter(cv::Mat& image, float saturation_factor, float exposure_factor) -> void
 {
     cv::Mat hsv;
@@ -159,6 +168,8 @@ auto apply_hsv_jitter(cv::Mat& image, float saturation_factor, float exposure_fa
     cv::cvtColor(hsv, image, cv::COLOR_HSV2RGB);
 }
 
+// Writes YOLO-file boxes into the 7×7 grid: offset inside the cell, size, objectness, and the class one-hot from index 10.
+// In train mode it undoes the image scale and shift; a third box in the same cell has no free slot left.
 auto encode_targets(const std::string& label_path, bool is_train, float scale, float dx, float dy, int num_classes,
     std::vector<float>& target) -> void
 {
@@ -186,6 +197,7 @@ auto encode_targets(const std::string& label_path, bool is_train, float scale, f
 
         if (is_train)
         {
+            // Applies the inverse of the image affine at the box center, using the same scale, dx, and dy as warpAffine, so the box stays on the object.
             x_center = 0.5F * ((2.0F * x_center - 1.0F - dx) / scale + 1.0F);
             y_center = 0.5F * ((2.0F * y_center - 1.0F - dy) / scale + 1.0F);
             box_width = box_width / scale;
@@ -194,6 +206,7 @@ auto encode_targets(const std::string& label_path, bool is_train, float scale, f
 
         if (x_center < 0.0F || x_center > 1.0F || y_center < 0.0F || y_center > 1.0F)
         {
+            // A center outside [0, 1] does not enter the grid.
             continue;
         }
 
@@ -205,14 +218,16 @@ auto encode_targets(const std::string& label_path, bool is_train, float scale, f
 
         for (int box_idx = 0; box_idx < BOXES_PER_CELL; ++box_idx)
         {
-            int offset_val = box_idx * BOX_PARAMS;
-            if (at(grid_y, grid_x, offset_val + 4) == 0.0F)
+            int box_offset = box_idx * BOX_PARAMS;
+            if (at(grid_y, grid_x, box_offset + 4) == 0.0F)
             {
-                at(grid_y, grid_x, offset_val + 0) = x_center * static_cast<float>(GRID_SIZE) - static_cast<float>(grid_x);
-                at(grid_y, grid_x, offset_val + 1) = y_center * static_cast<float>(GRID_SIZE) - static_cast<float>(grid_y);
-                at(grid_y, grid_x, offset_val + 2) = box_width;
-                at(grid_y, grid_x, offset_val + 3) = box_height;
-                at(grid_y, grid_x, offset_val + 4) = 1.0F;
+                // x and y stored in the cell are offsets inside the cell, not coordinates of the whole image.
+                at(grid_y, grid_x, box_offset + 0) = x_center * static_cast<float>(GRID_SIZE) - static_cast<float>(grid_x);
+                at(grid_y, grid_x, box_offset + 1) = y_center * static_cast<float>(GRID_SIZE) - static_cast<float>(grid_y);
+                at(grid_y, grid_x, box_offset + 2) = box_width;
+                at(grid_y, grid_x, box_offset + 3) = box_height;
+                // Objectness is slot 4. The class one-hot starts at index 10.
+                at(grid_y, grid_x, box_offset + 4) = 1.0F;
                 at(grid_y, grid_x, CLASS_OFFSET + class_id) = 1.0F;
                 break;
             }
@@ -221,6 +236,8 @@ auto encode_targets(const std::string& label_path, bool is_train, float scale, f
 }
 } // namespace
 
+// Splits JPEG–label pairs into train, val, and test after a shuffle (default 0.7 / 0.15, the rest is test).
+// Missing .txt files are created from VOC XML before the paths reach CustomDataLoader.
 auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths& val_data, DataPaths& test_data,
     const std::vector<std::string>& class_names, float train_ratio, float val_ratio) -> void
 {
@@ -273,11 +290,13 @@ auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths
         return;
     }
 
+    // random_device seeds the shuffle so two runs do not share a file list.
     std::random_device random_device;
     std::mt19937 generator(random_device());
     std::shuffle(all_pairs.begin(), all_pairs.end(), generator);
 
     size_t total_elements = all_pairs.size();
+    // The size_t cast truncates. Default ratios make train end floor(0.7 N) and val end that plus floor(0.15 N). The rest is test.
     auto train_end = static_cast<size_t>(static_cast<float>(total_elements) * train_ratio);
     auto val_end = train_end + static_cast<size_t>(static_cast<float>(total_elements) * val_ratio);
 
@@ -305,6 +324,7 @@ auto split_dataset(const std::string& voc_root, DataPaths& train_data, DataPaths
         test_data.images.size());
 }
 
+// Checks the batch, the class list, and that the path counts match. reset sets the epoch order and the first prefetch.
 CustomDataLoader::CustomDataLoader(const DataPaths& paths, int batch_size, bool is_train,
     const std::vector<std::string>& class_names)
     : paths_(paths)
@@ -330,11 +350,13 @@ CustomDataLoader::CustomDataLoader(const DataPaths& paths, int batch_size, bool 
     reset();
 }
 
+// Finishes a pending prefetch before the paths and the generator used by the decode thread disappear.
 CustomDataLoader::~CustomDataLoader()
 {
     join_prefetch();
 }
 
+// Zeros the cursor and, in train mode, shuffles the indices. Prefetch of the first batch starts at once so the GPU does not wait on JPEG.
 auto CustomDataLoader::reset() -> void
 {
     join_prefetch();
@@ -348,21 +370,27 @@ auto CustomDataLoader::reset() -> void
     launch_prefetch();
 }
 
+// Work remains when prefetch is already decoding a batch, or the cursor has not reached the end.
+// The cursor alone is not enough: take_job advances it when prefetch starts.
 auto CustomDataLoader::has_next() const -> bool
 {
     return prefetch_.valid() || cursor_ < order_.size();
 }
 
+// Returns the number of paired images held by this loader.
 auto CustomDataLoader::size() const -> std::size_t
 {
     return paths_.images.size();
 }
 
+// Returns the requested batch size. The last batch of an epoch can be shorter; take_job computes that length.
 auto CustomDataLoader::batch_size() const -> int
 {
     return batch_size_;
 }
 
+// Loads a JPEG, resizes it to 448, and lays out CHW in [0, 1].
+// Augmentation (scale, shift, HSV) runs only when is_train, so evaluation sees the image without distortion.
 auto CustomDataLoader::load_sample(std::size_t sample_index, std::vector<float>& image_chw, std::vector<float>& target,
     std::mt19937& rng) const -> void
 {
@@ -376,12 +404,14 @@ auto CustomDataLoader::load_sample(std::size_t sample_index, std::vector<float>&
     cv::Mat image = cv::imread(paths_.images[sample_index]);
     if (image.empty())
     {
+        // A failed read leaves a zero CHW buffer and an unscaled label so the batch keeps a fixed shape.
         encode_targets(paths_.labels[sample_index], false, 1.0F, 0.0F, 0.0F, num_classes_, target);
         return;
     }
 
     cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
     cv::resize(image, image, cv::Size(img_size_, img_size_));
+    // Pixels are divided by 255.
     image.convertTo(image, CV_32FC3, 1.0F / NORMALIZATION_FACTOR);
 
     if (is_train_)
@@ -393,6 +423,7 @@ auto CustomDataLoader::load_sample(std::size_t sample_index, std::vector<float>&
         dx = shift_dist(rng);
         dy = shift_dist(rng);
         apply_affine(image, scale, dx, dy);
+        // HSV jitter only when is_train.
         apply_hsv_jitter(image, jitter_dist(rng), jitter_dist(rng));
     }
 
@@ -404,6 +435,7 @@ auto CustomDataLoader::load_sample(std::size_t sample_index, std::vector<float>&
     encode_targets(paths_.labels[sample_index], is_train_, scale, dx, dy, num_classes_, target);
 }
 
+// Takes the next index range and draws one RNG seed per sample, so decode threads do not share one generator.
 auto CustomDataLoader::take_job() -> std::pair<std::vector<std::size_t>, std::vector<std::uint32_t>>
 {
     std::vector<std::size_t> sample_indices;
@@ -424,6 +456,8 @@ auto CustomDataLoader::take_job() -> std::pair<std::vector<std::size_t>, std::ve
     return { std::move(sample_indices), std::move(rng_seeds) };
 }
 
+// Decodes the batch samples in parallel into host buffers (CHW image and YOLO grid).
+// Parallel JPEG reads shorten the time the GPU would otherwise spend waiting on data.
 auto CustomDataLoader::decode_job(std::vector<std::size_t> sample_indices, std::vector<std::uint32_t> rng_seeds) const
     -> HostBatch
 {
@@ -462,14 +496,16 @@ auto CustomDataLoader::decode_job(std::vector<std::size_t> sample_indices, std::
     return host;
 }
 
+// Uploads images and the grid to the GPU through from_host, on the stream given by the caller.
 auto CustomDataLoader::upload_host_batch(HostBatch host, cudaStream_t stream) const -> Batch
 {
     return Batch { dl::Tensor::from_host({ host.n, IMAGE_CHANNELS, img_size_, img_size_ }, host.images, dl::Device::GPU,
-                       stream, dl::compute_dtype()),
+                       stream, dl::Dtype::Float32),
         dl::Tensor::from_host({ host.n, GRID_SIZE, GRID_SIZE, host.attributes }, host.targets, dl::Device::GPU, stream,
-            dl::compute_dtype()) };
+            dl::Dtype::Float32) };
 }
 
+// Starts decoding the next batch through std::async, so it does not wait for the current GPU step to finish.
 auto CustomDataLoader::launch_prefetch() -> void
 {
     auto job = take_job();
@@ -477,11 +513,13 @@ auto CustomDataLoader::launch_prefetch() -> void
     {
         return;
     }
+    // Prefetch decodes the next batch so the GPU does not wait on JPEG.
     prefetch_ = std::async(std::launch::async,
         [this, indices = std::move(job.first), seeds = std::move(job.second)]()
         { return decode_job(std::move(indices), std::move(seeds)); });
 }
 
+// Waits for the prefetch thread and drops the result, so reset and the destructor do not leave a decode running.
 auto CustomDataLoader::join_prefetch() -> void
 {
     if (!prefetch_.valid())
@@ -498,6 +536,8 @@ auto CustomDataLoader::join_prefetch() -> void
     prefetch_ = {};
 }
 
+// Returns the ready batch and immediately starts decoding the next one, before from_host returns.
+// CPU prefetch means the GPU does not wait on JPEG while it computes the current step.
 auto CustomDataLoader::get_batch(cudaStream_t stream) -> Batch
 {
     const dl::NvtxRange nvtx_range("DataLoader_GetBatch");

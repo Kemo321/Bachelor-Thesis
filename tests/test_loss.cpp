@@ -27,6 +27,7 @@ auto zeros_grid(int batch) -> std::vector<float>
 }
 } // namespace
 
+// A 7×7 grid and 30 attributes are YOLOv1: two boxes of 5 values each plus 20 classes; offset 4 is confidence, and classes start at 10.
 class GpuLossTest : public GpuTest
 {
 };
@@ -47,7 +48,7 @@ TEST_F(GpuLossTest, LossOnEmptyGridIsNearZeroScalar)
     const std::vector<float> host = loss.to_host();
     ASSERT_EQ(host.size(), 1U);
     EXPECT_TRUE(std::isfinite(host[0]));
-    EXPECT_NEAR(host[0], 0.0F, 1e-4F);
+    EXPECT_NEAR(host[0], 0.0F, 1e-4F); // empty-grid loss stays within 1e-4 of zero
 }
 
 TEST_F(GpuLossTest, LossIsPositiveWhenPredictionMissesAnObject)
@@ -232,7 +233,7 @@ TEST_F(GpuLossTest, SingleClassGridIsAccepted)
     synchronize_device();
 
     // Then: Loss is a near-zero scalar and the gradient matches the grid
-    EXPECT_NEAR(loss.to_host().front(), 0.0F, 1e-4F);
+    EXPECT_NEAR(loss.to_host().front(), 0.0F, 1e-4F); // one-class empty grid stays within 1e-4 of zero
     EXPECT_EQ(grad.get_shape(), prediction.get_shape());
 }
 

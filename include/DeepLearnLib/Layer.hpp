@@ -1,6 +1,5 @@
 #pragma once
 
-#include "DeepLearnLib/Precision.hpp"
 #include "DeepLearnLib/SafeMath.hpp"
 #include "DeepLearnLib/Tensor.hpp"
 
@@ -116,22 +115,19 @@ public:
         (void)stream;
     }
 
-    /**
-     * @brief Learning rate divided by the current mixed-precision loss scale.
-     * @return Effective SGD step size.
-     */
-    [[nodiscard]] auto scaled_learning_rate() const -> float
+    // SGD step written into the weight-update kernel. The old name
+    // scaled_learning_rate was misleading after FP16 loss scaling was removed.
+    [[nodiscard]] auto step_learning_rate() const -> float
     {
-        const float scale = dl::loss_scale();
-        return learning_rate / fmaxf(scale, dl::kSafeEps);
+        return learning_rate;
     }
 
     /**
-     * @brief Gradient clip bound scaled for mixed precision, or `0` if disabled.
+     * @brief Absolute clip bound, or `0` when clipping is off.
      */
     [[nodiscard]] auto parameter_clip_bound() const -> float
     {
-        return gradient_clip > 0.0F ? dl::scaled_gradient_clip(gradient_clip) : 0.0F;
+        return gradient_clip > 0.0F ? gradient_clip : 0.0F;
     }
 
     /**

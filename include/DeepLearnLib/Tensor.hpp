@@ -8,7 +8,6 @@
 #include <cstddef>
 #if DEEPLEARNLIB_ENABLE_CUDA
 #include <cublas_v2.h>
-#include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #endif
 #include <memory>
@@ -200,8 +199,7 @@ inline auto memcpy_d2d_on_current(void* dst, const void* src, size_t bytes) -> v
 /**
  * @brief Dense tensor with CUDA-managed storage (`cudaMalloc` via `CudaDeleter`).
  *
- * Default dtype is FP32. Mixed-precision training can allocate FP16 (`__half`)
- * storage so Conv2d/FullyConnected can run on Tensor Cores.
+ * Storage is FP32.
  *
  * Elementwise ops and GEMM stay on the device. Host copies happen only through
  * `to_host` / `from_host` (IEEE-754 float on the host). Layers cache activations
@@ -217,7 +215,7 @@ public:
      * @brief Allocate a dense tensor.
      * @param shape Dimension sizes (row-major).
      * @param device CPU or GPU. Training tensors should be GPU.
-     * @param dtype Storage type (`Float32` or `Float16`).
+     * @param dtype Storage type (`Float32`).
      */
     explicit Tensor(std::vector<int> shape, Device device = Device::CPU, Dtype dtype = Dtype::Float32);
 
@@ -256,18 +254,16 @@ public:
     auto nbytes() const -> std::size_t;
     auto get_data() const -> const float*;
     /**
-     * @brief Mutable device/host pointer (FP32 view).
+     * @brief Mutable device/host pointer.
      * @note In-place kernels write through this pointer to avoid new allocations.
      */
     auto data() -> float*;
     auto data() const -> const float*;
 #if DEEPLEARNLIB_ENABLE_CUDA
-    auto half_data() -> __half*;
-    auto half_data() const -> const __half*;
     /**
-     * @brief Convert storage dtype, allocating a new tensor.
-     * @param dtype Destination type.
-     * @param stream CUDA stream.
+     * @brief Return a view when @p dtype matches this tensor.
+     * @param dtype Destination type. Must equal `get_dtype()`.
+     * @param stream Unused. Kept so callers can pass the current stream.
      */
     auto to_dtype(Dtype dtype, cudaStream_t stream = 0) const -> Tensor;
 #endif
@@ -410,7 +406,7 @@ public:
      * @param host_data Contiguous row-major values.
      * @param device Destination.
      * @param stream CUDA stream for H2D.
-     * @param dtype Device storage type (may convert to FP16).
+     * @param dtype Device storage type (`Float32`).
      */
     static auto from_host(const std::vector<int>& shape, const std::vector<float>& host_data,
         Device device = Device::GPU, cudaStream_t stream = 0, Dtype dtype = Dtype::Float32) -> Tensor;

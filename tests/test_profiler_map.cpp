@@ -38,6 +38,7 @@ TEST(MapTest, DisjointBoxesYieldZeroMap)
     EXPECT_NEAR(map, 0.0F, kEpsilon);
 }
 
+// Threshold 1.5 lies outside [0, 1], which mean_average_precision requires.
 TEST(MapTest, EmptyGroundTruthIsZeroAndInvalidThresholdThrows)
 {
     // Given: Predictions but no ground truth

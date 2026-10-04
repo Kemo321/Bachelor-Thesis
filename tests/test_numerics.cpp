@@ -35,14 +35,9 @@ auto zeros_grid() -> std::vector<float>
 
 class GpuNumericsTest : public GpuTest
 {
-protected:
-    void SetUp() override
-    {
-        GpuTest::SetUp();
-        set_mixed_precision(false);
-    }
 };
 
+// Indices 2 and 3 in the cell are the width and height of the first box, so a zero and a negative value enter safe_sqrt.
 TEST_F(GpuNumericsTest, YoloLossStaysFiniteForZeroAndNegativeBoxSizes)
 {
     // Given: An occupied cell whose predicted width is zero and height is negative
@@ -99,7 +94,7 @@ TEST_F(GpuNumericsTest, CrossEntropyClampsNearZeroProbabilities)
 
     // Then: log(prob) is clamped, so the loss is finite and near -log(kSafeEps)
     EXPECT_TRUE(std::isfinite(loss));
-    EXPECT_NEAR(loss, -std::log(kSafeEps), 1.0e-3F);
+    EXPECT_NEAR(loss, -std::log(kSafeEps), 1.0e-3F); // clamped loss stays within 1e-3 of -log(kSafeEps)
 }
 
 TEST_F(GpuNumericsTest, NetworkStoresConfigurableGradientClip)
@@ -117,6 +112,7 @@ TEST_F(GpuNumericsTest, NetworkStoresConfigurableGradientClip)
     EXPECT_FLOAT_EQ(network.gradient_clip(), 7.0F);
 }
 
+// The default loss scale is 1, so the bound stays 3: 100 and −50 are clipped, while 0 and 3 pass through.
 TEST_F(GpuNumericsTest, ClipLossGradientBoundsEveryElement)
 {
     // Given: A loss gradient with values far outside the clip window
@@ -165,7 +161,7 @@ TEST_F(GpuNumericsTest, ParameterGradientClipBoundsDenseUpdates)
     // Then: The weight update is bounded by the clip value (plus a tiny decay term)
     const std::vector<float> weights = dense->get_parameters().at("weights").to_host();
     ASSERT_EQ(weights.size(), 1U);
-    EXPECT_NEAR(weights[0], -1.0F, 1.0e-3F);
+    EXPECT_NEAR(weights[0], -1.0F, 1.0e-3F); // 1e-3 covers the weight-decay term around the clipped step of -1
 }
 
 TEST_F(GpuNumericsTest, HasNonFiniteDetectsInfAndNan)

@@ -7,6 +7,8 @@
 namespace
 {
 
+// Rejects a host tensor or a null device pointer. cuDNN softmax reads the device
+// memory named by the descriptor, with no host-to-device copy.
 auto require_gpu(const dl::Tensor& tensor, const char* name) -> void
 {
     if (tensor.get_device() != dl::Device::GPU)
@@ -21,11 +23,14 @@ auto require_gpu(const dl::Tensor& tensor, const char* name) -> void
 
 } // namespace
 
+// Sets the cuDNN NCHW descriptor for rank 2 or rank 4. Rank 2 is treated as
+// [N, C, 1, 1], because channel softmax requires four dimensions.
 auto Softmax::configure_descriptor(const dl::Tensor& tensor) -> void
 {
     const auto& shape = tensor.get_shape();
     if (shape.size() == 2)
     {
+        // cuDNN channel mode wants NCHW, so [N, C] gets H = W = 1.
         tensor_desc_.set_nchw(shape[0], shape[1], 1, 1, cudnn_data_type(tensor.get_dtype()));
     }
     else if (shape.size() == 4)
@@ -41,6 +46,8 @@ auto Softmax::configure_descriptor(const dl::Tensor& tensor) -> void
     descriptor_configured_ = true;
 }
 
+// Computes accurate softmax in channel mode and keeps the output in the cache.
+// cuDNN backward needs the softmax values, not the input alone, and ensure does not allocate when the shape is unchanged.
 auto Softmax::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("Softmax_Forward");
@@ -59,12 +66,15 @@ auto Softmax::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl
 
     const float alpha = 1.0F;
     const float beta = 0.0F;
+    // Accurate channel softmax. The output is cached because backward differentiates y, not the logits.
     CHECK_CUDNN(cudnnSoftmaxForward(dl::get_cudnn_handle(), CUDNN_SOFTMAX_ACCURATE, CUDNN_SOFTMAX_MODE_CHANNEL, &alpha,
         tensor_desc_.get(), input_tensor.data(), &beta, tensor_desc_.get(), output.data()));
     output_cache_ready_ = true;
     return output.as_view();
 }
 
+// Computes the softmax derivative from the cached output and the gradient. The
+// cache flag is cleared afterwards so a stale y is not differentiated.
 auto Softmax::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("Softmax_Backward");
@@ -91,9 +101,11 @@ auto Softmax::backward(const dl::Tensor& output_error_derivative, cudaStream_t s
     configure_descriptor(*output_cache_);
     const float alpha = 1.0F;
     const float beta = 0.0F;
+    // y is the cached softmax output. cuDNN backward does not recompute it from the input.
     CHECK_CUDNN(cudnnSoftmaxBackward(dl::get_cudnn_handle(), CUDNN_SOFTMAX_ACCURATE, CUDNN_SOFTMAX_MODE_CHANNEL, &alpha,
         tensor_desc_.get(), output_cache_->data(), tensor_desc_.get(), output_error_derivative.data(), &beta,
         tensor_desc_.get(), grad_input.data()));
+    // Drop the cache so a later backward cannot differentiate a stale y.
     output_cache_ready_ = false;
     return grad_input.as_view();
 }

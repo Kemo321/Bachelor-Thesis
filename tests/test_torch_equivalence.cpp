@@ -46,7 +46,7 @@ auto unique_host(const std::vector<int>& shape, unsigned seed) -> std::vector<fl
     std::vector<float> values = random_host(count, seed, 0.25F);
     for (std::size_t index = 0; index < values.size(); ++index)
     {
-        values[index] += static_cast<float>(index) * 1.0e-3F;
+        values[index] += static_cast<float>(index) * 1.0e-3F; // breaks ties so each pooling window has one maximum
     }
     return values;
 }
@@ -94,6 +94,7 @@ protected:
     }
 };
 
+// The comparison uses kTorchTol (1e-3), the shared float32 tolerance against LibTorch.
 TEST_F(TorchEquivalenceTest, Conv2dForwardAndBackwardMatchLibTorch)
 {
     // Given: Identical NCHW input, NCHW weights, and bias on dl and LibTorch
@@ -130,6 +131,7 @@ TEST_F(TorchEquivalenceTest, Conv2dForwardAndBackwardMatchLibTorch)
     expect_near_vector(dl_grad_input.to_host(), torch_to_host(torch_input.grad()), kTorchTol);
 }
 
+// The comparison uses kTorchTol (1e-3), the shared float32 tolerance against LibTorch.
 TEST_F(TorchEquivalenceTest, MaxPool2dForwardAndBackwardMatchLibTorch)
 {
     // Given: Identical NCHW inputs with unique values so argmax routing is unambiguous
@@ -154,6 +156,7 @@ TEST_F(TorchEquivalenceTest, MaxPool2dForwardAndBackwardMatchLibTorch)
     expect_near_vector(dl_grad_input.to_host(), torch_to_host(torch_input.grad()), kTorchTol);
 }
 
+// The comparison uses kTorchTol (1e-3), the shared float32 tolerance against LibTorch.
 TEST_F(TorchEquivalenceTest, FullyConnectedForwardAndBackwardMatchLibTorch)
 {
     // Given: Identical rank-2 inputs; LibTorch Linear stores W as [out, in], dl stores [in, out]
@@ -204,7 +207,7 @@ auto torch_yolo_loss(torch::Tensor prediction, torch::Tensor target, bool detach
     constexpr int kGridSize = 7;
     constexpr float kLambdaCoord = 5.0F;
     constexpr float kLambdaNoobj = 0.5F;
-    constexpr float kEps = 1.0e-7F;
+    constexpr float kEps = 1.0e-7F; // floor for IoU area, the IoU denominator, and safe sqrt
 
     auto as_grid = [](torch::Tensor tensor) -> torch::Tensor
     {
@@ -296,6 +299,7 @@ auto torch_yolo_loss(torch::Tensor prediction, torch::Tensor target, bool detach
 
 } // namespace
 
+// Train BatchNorm with the default eps 1e-5 and momentum 0.1 must match torch::batch_norm at those same constants, within kTorchTol (1e-3).
 TEST_F(TorchEquivalenceTest, BatchNorm2dTrainForwardAndBackwardMatchLibTorch)
 {
     const int channels = 4;
@@ -329,6 +333,7 @@ TEST_F(TorchEquivalenceTest, BatchNorm2dTrainForwardAndBackwardMatchLibTorch)
     expect_near_vector(dl_grad_input.to_host(), torch_to_host(torch_input.grad()), kTorchTol);
 }
 
+// Eval FusedCBR2d must match conv, batch_norm (eps 1e-5, gamma 1, beta 0), and leaky_relu(0.1) within kTorchTol (1e-3).
 TEST_F(TorchEquivalenceTest, FusedCBR2dEvalForwardMatchesLibTorch)
 {
     const std::vector<int> input_shape = { 2, 3, 8, 8 };
@@ -368,6 +373,7 @@ TEST_F(TorchEquivalenceTest, FusedCBR2dEvalForwardMatchesLibTorch)
 // The scalar matches compute_yolo_loss. The CUDA kernel treats IoU and the
 // responsible-box mask as constants, so the gradient oracle detaches those
 // terms. Autograd through compute_yolo_loss is not that comparison.
+// Widths and heights are raised to at least 0.05 so safe_sqrt does not start from zero; the comparison uses kTorchTol (1e-3).
 TEST_F(TorchEquivalenceTest, YOLOLossMatchesLibTorchBaseline)
 {
     constexpr int kBatch = 2;

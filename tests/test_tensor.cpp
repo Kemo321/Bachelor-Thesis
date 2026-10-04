@@ -24,15 +24,15 @@ TEST_F(TensorConstructorTest, CpuAllocationAndZeroInitialization)
     std::vector<int> shape = { 2, 3, 4 };
 
     // When: The tensor is allocated on CPU
-    Tensor t(shape, Device::CPU);
+    Tensor tensor(shape, Device::CPU);
 
     // Then: Size, device, and zero-filled storage match the request
-    EXPECT_EQ(t.get_shape(), shape);
-    EXPECT_EQ(t.get_size(), 24);
-    EXPECT_EQ(t.get_device(), Device::CPU);
-    const float* data_ptr = t.get_data();
+    EXPECT_EQ(tensor.get_shape(), shape);
+    EXPECT_EQ(tensor.get_size(), 24);
+    EXPECT_EQ(tensor.get_device(), Device::CPU);
+    const float* data_ptr = tensor.get_data();
     ASSERT_NE(data_ptr, nullptr);
-    for (size_t i = 0; i < t.get_size(); ++i)
+    for (size_t i = 0; i < tensor.get_size(); ++i)
     {
         EXPECT_NEAR(data_ptr[i], 0.0F, kTensorEpsilon);
     }
@@ -44,12 +44,12 @@ TEST_F(TensorConstructorTest, ScalarCpuAllocation)
     std::vector<int> empty_shape = {};
 
     // When: The tensor is allocated on CPU
-    Tensor t(empty_shape, Device::CPU);
+    Tensor tensor(empty_shape, Device::CPU);
 
     // Then: The tensor holds a single element
-    EXPECT_EQ(t.get_size(), 1);
-    EXPECT_EQ(t.get_shape(), empty_shape);
-    EXPECT_NE(t.get_data(), nullptr);
+    EXPECT_EQ(tensor.get_size(), 1);
+    EXPECT_EQ(tensor.get_shape(), empty_shape);
+    EXPECT_NE(tensor.get_data(), nullptr);
 }
 
 TEST_F(TensorConstructorTest, GpuAllocationBehavior)
@@ -62,15 +62,15 @@ TEST_F(TensorConstructorTest, GpuAllocationBehavior)
     if (HasCudaDevice())
     {
         EXPECT_NO_THROW({
-            Tensor t(shape, Device::GPU);
-            EXPECT_EQ(t.get_size(), 100);
-            EXPECT_EQ(t.get_device(), Device::GPU);
-            EXPECT_NE(t.get_data(), nullptr);
+            Tensor tensor(shape, Device::GPU);
+            EXPECT_EQ(tensor.get_size(), 100);
+            EXPECT_EQ(tensor.get_device(), Device::GPU);
+            EXPECT_NE(tensor.get_data(), nullptr);
         });
     }
     else
     {
-        EXPECT_THROW({ Tensor t(shape, Device::GPU); }, std::runtime_error);
+        EXPECT_THROW({ Tensor tensor(shape, Device::GPU); }, std::runtime_error);
     }
 }
 
@@ -147,6 +147,7 @@ TEST_F(GpuTensorTest, ThreeDimensionalAllocationShapeAndStrides)
     EXPECT_EQ(tensor.get_strides(), (std::vector<int> { 12, 4, 1 }));
 }
 
+// Strides {192, 64, 8, 1} are C·H·W, H·W, W, and 1 for shape 1×3×8×8.
 TEST_F(GpuTensorTest, NchwStridesMatchNetworkLayout)
 {
     // Given: An NCHW 1x3x8x8 tensor
@@ -238,6 +239,7 @@ TEST_F(GpuTensorTest, ZerosLikeMatchesShapeDeviceAndValues)
     expect_near_vector(zeros.to_host(), std::vector<float>(6, 0.0F), kTensorEpsilon);
 }
 
+// First row [1, 2] times columns [5, 7] and [6, 8] gives 19 and 22; row [3, 4] gives 43 and 50.
 TEST_F(GpuTensorTest, SquareMatmul)
 {
     // Given: Two 2x2 GPU matrices
@@ -253,6 +255,7 @@ TEST_F(GpuTensorTest, SquareMatmul)
     expect_near_vector(result.to_host(), { 19.0F, 22.0F, 43.0F, 50.0F }, kTensorEpsilon);
 }
 
+// Rows [1, 2, 3] and [4, 5, 6] times successive columns of the right-hand matrix give 38, 44, 50, 56 and 83, 98, 113, 128.
 TEST_F(GpuTensorTest, RectangularMatmul)
 {
     // Given: A 2x3 matrix and a 3x4 matrix
