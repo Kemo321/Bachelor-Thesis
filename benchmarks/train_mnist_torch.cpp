@@ -80,6 +80,8 @@ int main()
         const float gradient_clip = pipeline_gradient_clip(config);
         const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/mnist"));
         const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/mnist"));
+        // Keep the console log next to the CSV. A new run replaces this file.
+        open_results_log(results_dir, "log_torch.txt");
         const fs::path train_bin = data_root / "train.bin";
         const fs::path test_bin = data_root / "test.bin";
 

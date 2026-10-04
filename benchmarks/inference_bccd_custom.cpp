@@ -30,6 +30,8 @@ int main()
     const float nms_threshold = config.value("nms_threshold", 0.60F);
     const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/BCCD_Dataset/BCCD"));
     const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/bccd"));
+    // Keep the console log next to the CSV. A new run replaces this file.
+    open_results_log(results_dir, "log_infer_custom.txt");
     const fs::path model_path = results_dir / "yolov1_bccd_custom_final.pt";
     const fs::path out_dir = results_dir / "predictions_custom";
     fs::create_directories(out_dir);

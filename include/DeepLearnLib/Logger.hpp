@@ -6,6 +6,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -14,6 +15,9 @@ namespace dl
 
 auto log_error_message(const std::string& message) -> void;
 auto log_info_message(const std::string& message) -> void;
+
+// Extra info-level file, replaced when the call starts. Benchmarks pass a path inside their results directory.
+auto log_to_file(const std::filesystem::path& path) -> void;
 
 /**
  * Process-wide asynchronous logger: color stdout at INFO, rotating file at TRACE.

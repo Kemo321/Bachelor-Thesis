@@ -21,6 +21,8 @@ int main()
     const nlohmann::json config = load_pipeline_config("voc_custom");
     const auto data_root = resolve_from_source(config.value("dataset_root", "data/VOCdevkit"));
     const auto results_dir = resolve_from_source("results/voc_short");
+    // Keep the console log next to the CSV. A new run replaces this file.
+    open_results_log(results_dir, "log_custom.txt");
     const std::string voc_subset = config.value("voc_subset", "VOC2012");
     const int batch_size = config.value("batch_size", 16);
     const float learning_rate = config.value("learning_rate", 1.0e-5F);

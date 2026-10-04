@@ -39,6 +39,8 @@ int main()
     const float nms_threshold = config.value("nms_threshold", 0.45F);
     const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/Synthetic3/train"));
     const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/synthetic"));
+    // Keep the console log next to the CSV. A new run replaces this file.
+    open_results_log(results_dir, "log_infer_torch.txt");
     const fs::path model_path = results_dir / "yolov1_synthetic_torch_final.pt";
     const fs::path out_dir = results_dir / "predictions_torch";
     fs::create_directories(out_dir);

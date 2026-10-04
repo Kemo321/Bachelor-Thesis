@@ -25,7 +25,7 @@ Every detection binary writes `Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;mAP@0.5
 
 ## CSV
 
-Training writes `results/<experiment>/metrics_custom.csv` or `metrics_torch.csv`. The separator is a semicolon.
+Training writes `results/<experiment>/metrics_custom.csv` or `metrics_torch.csv`. The separator is a semicolon. The same directory receives `log_custom.txt` or `log_torch.txt`: the info lines from the console, replaced when that program starts. Inference writes `log_infer_custom.txt` or `log_infer_torch.txt` there, so a drawing run leaves the training log in place. `logs/framework.log` stays the rotating trace log.
 
 Detection:
 

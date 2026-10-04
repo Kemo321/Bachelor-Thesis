@@ -39,6 +39,8 @@ int main()
         const std::string test_split = config.value("test_split", "test");
         const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/cifar10"));
         const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/cifar10"));
+        // Keep the console log next to the CSV. A new run replaces this file.
+        open_results_log(results_dir, "log_custom.txt");
 
         // Separate train and test splits so evaluation walks images held out of the training epoch.
         ClassificationLoader train_loader(data_root.string(), train_split, batch_size, image_size, true);

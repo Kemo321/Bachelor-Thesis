@@ -27,6 +27,13 @@
 inline constexpr const char* kDetectionCsvHeader = "Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;mAP@0.5";
 inline constexpr const char* kClassificationCsvHeader = "Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;TrainAcc;TestAcc";
 inline constexpr const char* kTabularCsvHeader = "Epoch;TrainLoss;Time(s);VRAM_MiB;TrainAcc";
+
+// Info lines from this process, next to the CSV. A new run replaces the file.
+inline auto open_results_log(const std::filesystem::path& results_dir, const std::string& filename) -> void
+{
+    dl::log_to_file(results_dir / filename);
+}
+
 inline auto open_metrics_csv(const std::filesystem::path& results_dir, const std::string& filename,
     const std::string& header) -> std::ofstream
 {

@@ -36,4 +36,4 @@ Device tensors are FP32. `Layer::step_learning_rate` returns `learning_rate`. `p
 
 ## Logging
 
-`dl::Logger` is a process-wide spdlog logger. `LOG_INFO`, `LOG_DEBUG`, `LOG_ERROR`, and `LOG_FLUSH` are the macros used by binaries. Logging is the caller's choice. The tensor and layer implementations do not log on the hot path except through `CHECK_*` when a CUDA call fails.
+`dl::Logger` is a process-wide spdlog logger. `LOG_INFO`, `LOG_DEBUG`, `LOG_ERROR`, and `LOG_FLUSH` are the macros used by binaries. `log_to_file` adds an info-level file and replaces it at the start of the call. Training and inference pass a path under `results_dir`. Logging is the caller's choice. The tensor and layer implementations do not log on the hot path except through `CHECK_*` when a CUDA call fails.

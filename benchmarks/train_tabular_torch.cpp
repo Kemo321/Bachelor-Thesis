@@ -65,6 +65,8 @@ int main(int argc, char** argv)
     const bool skip_header = config.value("skip_header", true);
     const fs::path csv_path = resolve_from_source(config.value("csv_path", "data/tabular/demo.csv"));
     const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/tabular"));
+    // Keep the console log next to the CSV. A new run replaces this file.
+    open_results_log(results_dir, "log_torch.txt");
     std::vector<std::string> class_names;
     if (config.contains("class_names") && config.at("class_names").is_array())
     {

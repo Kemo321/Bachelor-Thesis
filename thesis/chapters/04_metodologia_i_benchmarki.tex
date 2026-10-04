@@ -25,6 +25,8 @@ Iris i Wisconsin są plikami CSV. Ostatnia kolumna jest etykietą, wcześniejsze
 
 \section{Definicja metryk oraz rozdzielenie czasu epoki od czasu jądra}
 
+Te same komunikaty poziomu info trafiają do pliku w \api{results\_dir}. Trening własny zapisuje \api{log\_custom.txt}, referencyjny \api{log\_torch.txt}. Inferencja zapisuje \api{log\_infer\_custom.txt} albo \api{log\_infer\_torch.txt}. Start programu zastępuje zawartość tego pliku. Ślad procesu z poziomem trace zostaje w \api{logs/framework.log}.
+
 Kolumna \api{Time(s)} jest czasem \api{std::chrono::steady\_clock} od początku epoki do zapisu wiersza, obciętym do pełnych sekund. W tym odcinku jest przejście uczące, przejście testowe i, dla VOC, liczenie mAP. To nie jest czas jądra. CIFAR-10 i MNIST dodatkowo wołają \api{Profiler::start} oraz \api{stop}. Zwrócone milisekundy idą tylko do logu debugowania. Do CSV wchodzi czas ze ściany.
 
 Czas operatora mierzy \api{bench\_micro\_ops}. Pętla Google Benchmark woła \api{Profiler} i ustawia czas iteracji z \api{stop}. Plik obejmuje wysyłkę i odbiór, splot w przód i wstecz, warstwę gęstą oraz \api{YOLOLoss}. Wsad w tych próbach wynosi \(16\), bok obrazu \(448\), splot idzie z \(64\) do \(192\) kanałów na mapie o boku \(112\), a warstwa gęsta z \(7\cdot 7\cdot 1024\) do \(4096\). Przed pomiarem jest pięć rozgrzań. Te czasy nie są kolumną \api{Time(s)}.

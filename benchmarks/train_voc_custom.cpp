@@ -51,6 +51,8 @@ int main()
         const std::string voc_subset = config.value("voc_subset", "VOC2012");
         const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/VOCdevkit"));
         const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/voc"));
+        // Keep the console log next to the CSV. A new run replaces this file.
+        open_results_log(results_dir, "log_custom.txt");
 
         // Split the directory into image lists so the training epoch walks train and mAP walks test.
         DataPaths train_paths, val_paths, test_paths;

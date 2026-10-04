@@ -1,6 +1,6 @@
 # Logger.cpp
 
-Builds one asynchronous spdlog logger: a color stdout sink and an optional rotating file.
+Builds one asynchronous spdlog logger: a color stdout sink and an optional rotating file. `log_to_file` can add a third sink for the current run.
 
 ## Logger::Logger
 
@@ -25,6 +25,10 @@ Passes the text to the logger at error level.
 ## log_info_message
 
 Passes the text to the logger at info level.
+
+## log_to_file
+
+Creates the parent directory and adds a file sink at info level. The file is truncated, so it holds the current run. The pattern is time, level, and message, without the source location used by `logs/framework.log`. Queue records already buffered are flushed before the sink is attached.
 
 ## log_debug_message
 

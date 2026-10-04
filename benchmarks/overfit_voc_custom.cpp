@@ -45,6 +45,8 @@ int main()
     const std::string voc_subset = config.value("voc_subset", "VOC2012");
     const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/VOCdevkit"));
     const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/overfit"));
+    // Keep the console log next to the CSV. A new run replaces this file.
+    open_results_log(results_dir, "log_custom.txt");
 
     // Split VOC, then cut it down to at most one batch, so the model can overfit a few images.
     DataPaths train_paths, val_paths, test_paths;
