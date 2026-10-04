@@ -37,8 +37,7 @@ endif()
 
 if(Torch_FOUND)
   target_sources(dllib_tests PRIVATE test_torch_equivalence.cpp)
-  target_link_libraries(dllib_tests PRIVATE ${TORCH_LIBRARIES})
-  target_include_directories(dllib_tests SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})
+  target_link_libraries(dllib_tests PRIVATE TorchBaseline)
 endif()
 
 if(MSVC)

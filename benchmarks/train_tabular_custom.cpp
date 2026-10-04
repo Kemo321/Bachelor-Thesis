@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <random>
 #include <string>
 #include <vector>
@@ -37,11 +38,13 @@ int main(int argc, char** argv)
 {
     const std::string pipeline = pipeline_name_from_args(argc, argv);
     const nlohmann::json config = load_pipeline_config(pipeline);
+    apply_pipeline_precision(config);
     const int epochs = config.value("epochs", 20);
     const int batch_size = config.value("batch_size", 32);
     const float learning_rate = config.value("learning_rate", 0.05F);
     const float momentum = config.value("momentum", 0.9F);
     const float weight_decay = config.value("weight_decay", 0.0005F);
+    const float gradient_clip = pipeline_gradient_clip(config);
     const int hidden_size = config.value("hidden_size", 16);
     const int num_classes = config.value("num_classes", 3);
     const int num_samples = config.value("num_samples", 64);
@@ -72,8 +75,6 @@ int main(int argc, char** argv)
     const int feature_count = loader.features().get_shape()[1];
     const int available = static_cast<int>(loader.size());
     const int batch = std::max(1, std::min(batch_size, available));
-    LOG_INFO("[TABULAR CUSTOM] pipeline={} csv={} epochs={} batch_size={} lr={} momentum={} weight_decay={} n={} features={}",
-        pipeline, csv_path.string(), epochs, batch, learning_rate, momentum, weight_decay, available, feature_count);
 
     std::vector<float> feature_host = loader.features().to_host();
     std::vector<float> label_host = loader.targets().to_host();
@@ -89,8 +90,17 @@ int main(int argc, char** argv)
         layer->train();
     }
     apply_sgd_hyperparameters(layers, learning_rate, momentum, weight_decay);
+    for (auto& layer : layers)
+    {
+        layer->gradient_clip = gradient_clip;
+    }
     softmax->to(dl::Device::GPU);
     softmax->eval();
+
+    log_pipeline_banner({ "Tabular Custom", "custom", batch, epochs, learning_rate, momentum, weight_decay,
+        gradient_clip, pipeline_precision_name(config), num_classes, 0, static_cast<int>(layers.size()),
+        csv_path.string(), static_cast<std::size_t>(available), 0 });
+    LOG_INFO("Tabular Custom | pipeline={}", pipeline);
 
     write_class_names(results_dir / "class_names.txt", class_names);
     auto csv_file = open_metrics_csv(results_dir, "metrics_custom.csv", "Epoch;Loss;Time(s);VRAM_MiB;Acc");
@@ -102,7 +112,8 @@ int main(int argc, char** argv)
     for (int epoch = 1; epoch <= epochs; ++epoch)
     {
         const auto epoch_start = std::chrono::steady_clock::now();
-        apply_sgd_hyperparameters(layers, scheduled_learning_rate(config, epoch), momentum, weight_decay);
+        const float current_lr = scheduled_learning_rate(config, epoch);
+        apply_sgd_hyperparameters(layers, current_lr, momentum, weight_decay);
         std::shuffle(order.begin(), order.end(), rng);
         float epoch_loss = 0.0F;
         int epoch_correct = 0;
@@ -163,10 +174,9 @@ int main(int argc, char** argv)
         const float accuracy = static_cast<float>(epoch_correct) / static_cast<float>(std::max(1, epoch_seen));
         const auto elapsed
             = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
-        const auto vram = current_vram_mib();
-        log_train_epoch("Tabular Custom", epoch, epochs, avg_loss, elapsed, vram);
-        LOG_INFO("Tabular Custom | pipeline={} Acc: {:.4f}", pipeline, accuracy);
-        csv_file << epoch << ";" << avg_loss << ";" << elapsed << ";" << vram << ";" << accuracy << "\n";
+        log_train_epoch({ "Tabular Custom", epoch, epochs, current_lr, avg_loss, std::nullopt, accuracy, std::nullopt,
+            std::nullopt, batches, elapsed, current_vram_mib() });
+        csv_file << epoch << ";" << avg_loss << ";" << elapsed << ";" << current_vram_mib() << ";" << accuracy << "\n";
         csv_file.flush();
     }
 

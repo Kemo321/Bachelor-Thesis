@@ -61,9 +61,7 @@ target_include_directories(
   DeepLearnLib
   PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
          $<INSTALL_INTERFACE:include>
-         "${CMAKE_SOURCE_DIR}/extern/stb"
-         ${CUTLASS_DIR}/include
-         ${CUTLASS_DIR}/tools/util/include)
+         "${CMAKE_SOURCE_DIR}/extern/stb")
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(DeepLearnLib PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-mavx2 -mfma>)
@@ -72,10 +70,11 @@ endif()
 # spdlog's bundled fmt is not a valid C++17 constexpr under nvcc's host GCC
 # (CI Debug treats it as an error). Keep spdlog out of CUDA TUs; this flag
 # covers any remaining host-side include of the headers.
-target_compile_options(
-  DeepLearnLib
-  PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-diag-suppress=177,1675>
-          $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Wno-invalid-constexpr>)
+target_compile_options(DeepLearnLib PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-diag-suppress=177,1675>)
+if(NOT MSVC)
+  # nvcc's host GCC rejects spdlog's fmt constexpr. cl.exe does not accept this flag.
+  target_compile_options(DeepLearnLib PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Wno-invalid-constexpr>)
+endif()
 
 if(MSVC)
   target_compile_options(
@@ -91,7 +90,6 @@ target_link_libraries(
   PUBLIC CUDA::cudart
          CUDA::cublas
          CUDA::cudnn
-         hwy
          spdlog::spdlog
          Threads::Threads)
 

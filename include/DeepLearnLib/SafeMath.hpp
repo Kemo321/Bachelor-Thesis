@@ -14,8 +14,8 @@ namespace dl
 /** Strict floor for denominators, square roots, and log arguments. */
 constexpr float kSafeEps = 1e-7F;
 
-/** Default element-wise absolute bound for global gradient clipping. */
-constexpr float kDefaultGradientClip = 10.0F;
+/** Default element-wise absolute bound; `0` disables clipping (matches Torch). */
+constexpr float kDefaultGradientClip = 0.0F;
 
 DL_HOST_DEVICE inline auto safe_sqrt(float value) -> float
 {

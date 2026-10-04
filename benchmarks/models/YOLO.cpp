@@ -47,10 +47,11 @@ YOLO::YOLO(int num_classes)
     add_block(1024, 1024, 3, 1, 1);
 
     head_layers.push_back(std::make_shared<Flatten>());
-    head_layers.push_back(std::make_shared<FullyConnected>(7 * 7 * 1024, 4096, 0.9F));
+    // inertia must stay 0: it is GEMM beta on dW, not SGD momentum (Layer::momentum).
+    head_layers.push_back(std::make_shared<FullyConnected>(7 * 7 * 1024, 4096));
     head_layers.push_back(std::make_shared<LeakyReLU>(0.1F));
     head_layers.push_back(std::make_shared<Dropout>(0.5F));
-    head_layers.push_back(std::make_shared<FullyConnected>(4096, 7 * 7 * (10 + num_classes), 0.9F));
+    head_layers.push_back(std::make_shared<FullyConnected>(4096, 7 * 7 * (10 + num_classes)));
 }
 
 auto YOLO::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor

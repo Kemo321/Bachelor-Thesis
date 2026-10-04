@@ -1,5 +1,6 @@
 #include "experiment_config.hpp"
 #include "image_inference.hpp"
+#include "run_metrics.hpp"
 
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Network.hpp"
@@ -23,11 +24,12 @@ int main(int argc, char* argv[])
 {
     const nlohmann::json config = load_pipeline_config("voc_custom");
     const int num_classes = config.value("num_classes", 20);
-    const float conf_threshold = config.value("conf_threshold", 0.2F);
+    const float conf_threshold = config.value("conf_threshold", 0.25F);
     const float nms_threshold = config.value("nms_threshold", 0.5F);
+    const std::string voc_subset = config.value("voc_subset", "VOC2012");
     const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/voc"));
     const fs::path default_model = results_dir / "yolov1_voc_custom_final.pt";
-    const fs::path default_images = resolve_from_source(config.value("dataset_root", "data/VOCdevkit")) / "VOC2012" / "JPEGImages";
+    const fs::path default_images = resolve_from_source(config.value("dataset_root", "data/VOCdevkit")) / voc_subset / "JPEGImages";
 
     if (argc != 1 && argc != 3)
     {
@@ -62,7 +64,8 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    LOG_INFO("[VOC CUSTOM INFERENCE] model={} images={}", model_path.string(), images.size());
+    log_inference_start("VOC Custom Infer", "custom", model_path.string(), images.size(), conf_threshold, nms_threshold,
+        out_dir.string());
     std::size_t saved = 0;
     for (const auto& image_file : images)
     {
@@ -82,6 +85,6 @@ int main(int argc, char* argv[])
         cv::imwrite(save_path, img);
         ++saved;
     }
-    LOG_INFO("Successfully processed and saved {} images.", saved);
+    log_inference_done("VOC Custom Infer", saved, out_dir.string());
     return 0;
 }

@@ -186,7 +186,7 @@ TEST_F(GpuNumericsTest, HasNonFiniteDetectsInfAndNan)
     EXPECT_FALSE(finite_tensor.has_non_finite());
 }
 
-TEST_F(GpuNumericsTest, DefaultNetworkGradientClipIsTen)
+TEST_F(GpuNumericsTest, DefaultNetworkGradientClipIsDisabled)
 {
     // Given: A network constructed without an explicit clip argument
     auto dense = std::make_shared<FullyConnected>(2, 2);
@@ -194,6 +194,7 @@ TEST_F(GpuNumericsTest, DefaultNetworkGradientClipIsTen)
     // When: The two-argument constructor runs
     Network network({ dense }, 0.01F);
 
-    // Then: The YOLO default of 10 is applied
+    // Then: Clipping is off so custom SGD matches an unclipped Torch step
     EXPECT_FLOAT_EQ(network.gradient_clip(), kDefaultGradientClip);
+    EXPECT_FLOAT_EQ(network.gradient_clip(), 0.0F);
 }

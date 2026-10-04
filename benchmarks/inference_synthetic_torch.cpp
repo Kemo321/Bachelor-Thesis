@@ -1,5 +1,6 @@
 #include "experiment_config.hpp"
 #include "image_inference.hpp"
+#include "run_metrics.hpp"
 
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/dataset.hpp"
@@ -50,7 +51,6 @@ int main()
     torch::load(torch_model, model_path.string());
     torch_model->to(device);
     torch_model->eval();
-    LOG_INFO("[SYNTHETIC TORCH INFERENCE] Loaded {}", model_path.string());
 
     DataPaths train_paths, val_paths, test_paths;
     split_dataset(data_root.string(), train_paths, val_paths, test_paths, SYNTH_CLASSES);
@@ -63,6 +63,8 @@ int main()
     std::mt19937 rng { std::random_device {}() };
     std::shuffle(sample_images.begin(), sample_images.end(), rng);
     sample_images.resize(std::min<std::size_t>(30, sample_images.size()));
+    log_inference_start("Synth Torch Infer", "torch", model_path.string(), sample_images.size(), conf_threshold,
+        nms_threshold, out_dir.string());
 
     std::size_t saved = 0;
     for (const auto& img_path : sample_images)
@@ -86,6 +88,6 @@ int main()
         cv::imwrite((out_dir / ("torch_" + filename)).string(), img);
         ++saved;
     }
-    LOG_INFO("Successfully processed and saved {} images.", saved);
+    log_inference_done("Synth Torch Infer", saved, out_dir.string());
     return 0;
 }

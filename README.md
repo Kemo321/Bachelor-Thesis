@@ -27,7 +27,7 @@ DeepLearnLib provides a dense `dl::Tensor` with GPU storage, in-place arithmetic
 - **Models** — `benchmarks/models/YOLO.{hpp,cpp}` and `SimpleCNN.{hpp,cpp}` are compiled into `DeepLearnModels` and linked only by apps and tests.
 - **Torch baselines** — optional LibTorch binaries (`*_torch`) for apples-to-apples timing. They are not part of the custom stack.
 
-See the numbered thesis chapters in [docs/README.md](docs/README.md). Start with [Chapter 1 — Introduction and setup](docs/01_INTRODUCTION_AND_SETUP.md). How to add a generic layer: [docs/ADDING_LAYERS.md](docs/ADDING_LAYERS.md).
+Documentation is split in [docs/README.md](docs/README.md). The library API is [docs/library/](docs/library/README.md). Training binaries, models, and benchmarks are [docs/usage/](docs/usage/README.md).
 
 ## Prerequisites
 
@@ -87,7 +87,7 @@ Training binaries write `results/<experiment>/metrics_custom.csv` and `metrics_t
 python3 scripts/plot_metrics.py --results-root results
 ```
 
-Details: [docs/BENCHMARKS.md](docs/BENCHMARKS.md). Adding a layer: [docs/ADDING_LAYERS.md](docs/ADDING_LAYERS.md).
+Details: [docs/usage/experiments.md](docs/usage/experiments.md). Adding a layer: [docs/library/extending.md](docs/library/extending.md).
 
 ## Project structure
 
@@ -104,7 +104,8 @@ Details: [docs/BENCHMARKS.md](docs/BENCHMARKS.md). Adding a layer: [docs/ADDING_
 ├── torch_baseline/           # Optional LibTorch YOLO / dataset
 ├── config/                   # experiments.json, sanity.json
 ├── scripts/                  # menu.sh, dev.sh, plot_metrics.py
-├── docs/                     # Thesis chapters 01–06 plus ADDING_LAYERS.md
+├── docs/library/             # DeepLearnLib API only
+├── docs/usage/               # Models, training binaries, benchmarks
 └── docker-compose.yml
 ```
 

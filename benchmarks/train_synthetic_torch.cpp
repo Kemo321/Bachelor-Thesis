@@ -1,5 +1,6 @@
 #include "experiment_config.hpp"
 #include "run_metrics.hpp"
+#include "torch_optim.hpp"
 
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/dataset.hpp"
@@ -13,7 +14,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <random>
+#include <optional>
 #include <string>
 #include <torch/torch.h>
 #include <vector>
@@ -27,19 +28,19 @@ int main()
     std::srand(std::time(nullptr));
 
     const nlohmann::json config = load_pipeline_config("synthetic_torch");
+    apply_pipeline_precision(config);
     const int batch_size = config.value("batch_size", 16);
     const int total_epochs = config.value("epochs", 800);
     const int num_classes = config.value("num_classes", 3);
     const int dataloader_workers = config.value("dataloader_workers", 8);
+    const float learning_rate = config.value("learning_rate", 1.0e-4F);
     const double momentum = config.value("momentum", 0.9);
     const double weight_decay = config.value("weight_decay", 0.0005);
+    const float gradient_clip = pipeline_gradient_clip(config);
     const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/Synthetic3/train"));
     const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/synthetic"));
 
     torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
-    LOG_INFO("[SYNTHETIC TORCH PIPELINE] Starting on device: {}", device.is_cuda() ? "GPU" : "CPU");
-    LOG_INFO("[CONFIG] batch_size={} epochs={} dataloader_workers={} dataset_root={}", batch_size, total_epochs,
-        dataloader_workers, data_root.string());
 
     if (device.is_cuda())
     {
@@ -64,8 +65,11 @@ int main()
     auto get_lr = [&config](int ep) -> float
     { return scheduled_learning_rate(config, ep); };
 
-    torch::optim::SGD optimizer(model->parameters(),
-        torch::optim::SGDOptions(get_lr(1)).momentum(momentum).weight_decay(weight_decay));
+    torch::optim::SGD optimizer = make_sgd(*model, get_lr(1), momentum, weight_decay);
+
+    log_pipeline_banner({ "Synth Torch", "torch", batch_size, total_epochs, learning_rate, static_cast<float>(momentum),
+        static_cast<float>(weight_decay), gradient_clip, pipeline_precision_name(config), num_classes,
+        dataloader_workers, 0, data_root.string(), train_paths.images.size(), test_paths.images.size() });
 
     fs::create_directories(results_dir);
     std::ofstream csv_file((results_dir / "metrics_torch.csv").string());
@@ -75,10 +79,7 @@ int main()
     {
         auto epoch_start_time = std::chrono::steady_clock::now();
         float current_lr = get_lr(epoch);
-        for (auto& group : optimizer.param_groups())
-        {
-            static_cast<torch::optim::SGDOptions&>(group.options()).lr(current_lr);
-        }
+        set_sgd_lr(optimizer, current_lr);
 
         model->train();
         float epoch_train_loss = 0.0F;
@@ -94,6 +95,7 @@ int main()
             auto loss = compute_yolo_loss(pred, target);
 
             loss.backward();
+            clip_torch_grad_value(*model, gradient_clip);
             optimizer.step();
 
             epoch_train_loss += loss.item().toFloat();
@@ -121,13 +123,13 @@ int main()
         auto epoch_end_time = std::chrono::steady_clock::now();
         auto epoch_duration = std::chrono::duration_cast<std::chrono::seconds>(epoch_end_time - epoch_start_time).count();
 
-        const auto vram = current_vram_mib();
-        log_train_epoch("Synth Torch", epoch, total_epochs, avg_train_loss, avg_test_loss, epoch_duration, vram);
-        write_train_test_row(csv_file, epoch, avg_train_loss, avg_test_loss, epoch_duration, vram);
+        log_train_epoch({ "Synth Torch", epoch, total_epochs, current_lr, avg_train_loss, avg_test_loss, std::nullopt,
+            std::nullopt, std::nullopt, train_batches, epoch_duration, current_vram_mib() });
+        write_train_test_row(csv_file, epoch, avg_train_loss, avg_test_loss, epoch_duration, current_vram_mib());
     }
 
     std::string save_path = (results_dir / "yolov1_synthetic_torch_final.pt").string();
     torch::save(model, save_path);
-    LOG_INFO("Final model saved: {}", save_path);
+    log_saved("Synth Torch", save_path);
     return 0;
 }

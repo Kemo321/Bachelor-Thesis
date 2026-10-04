@@ -2,6 +2,7 @@
 #include "classification_vis.hpp"
 #include "experiment_config.hpp"
 #include "run_metrics.hpp"
+#include "torch_optim.hpp"
 
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/PackedImageLoader.hpp"
@@ -10,6 +11,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <torch/torch.h>
@@ -69,37 +71,38 @@ int main()
     try
     {
         const nlohmann::json config = load_pipeline_config("mnist_classification");
+        apply_pipeline_precision(config);
         const int batch_size = config.value("batch_size", 128);
         const int total_epochs = config.value("epochs", 10);
         const float learning_rate = config.value("learning_rate", 1.0e-2F);
         const double momentum = config.value("momentum", 0.9);
         const double weight_decay = config.value("weight_decay", 0.0005);
+        const float gradient_clip = pipeline_gradient_clip(config);
         const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/mnist"));
         const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/mnist"));
         const fs::path train_bin = data_root / "train.bin";
         const fs::path test_bin = data_root / "test.bin";
 
         torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
-        LOG_INFO("[MNIST TORCH] Starting on device: {}", device.is_cuda() ? "GPU" : "CPU");
-        LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} momentum={} weight_decay={} train_bin={}",
-            batch_size, total_epochs, learning_rate, momentum, weight_decay, train_bin.string());
 
         PackedImageLoader train_loader(train_bin.string(), batch_size, true);
         PackedImageLoader test_loader(test_bin.string(), batch_size, false);
         const int num_classes = train_loader.num_classes();
         const int image_size = train_loader.height();
         const int in_channels = train_loader.channels();
-        LOG_INFO("[CONFIG] classes={} channels={} {}x{} train={} test={}", num_classes, in_channels, image_size,
-            train_loader.width(), train_loader.size(), test_loader.size());
 
         auto get_lr = [&config](int ep) -> float
         { return scheduled_learning_rate(config, ep); };
 
         SimpleCNN model(num_classes, image_size, in_channels);
         model->to(device);
-        torch::optim::SGD optimizer(model->parameters(),
-            torch::optim::SGDOptions(get_lr(1)).momentum(momentum).weight_decay(weight_decay));
+        torch::optim::SGD optimizer = make_sgd(*model, get_lr(1), momentum, weight_decay);
         torch::nn::CrossEntropyLoss criterion;
+
+        log_pipeline_banner({ "MNIST Torch", "torch", batch_size, total_epochs, learning_rate,
+            static_cast<float>(momentum), static_cast<float>(weight_decay), gradient_clip,
+            pipeline_precision_name(config), num_classes, 0, 0, train_bin.string(),
+            static_cast<std::size_t>(train_loader.size()), static_cast<std::size_t>(test_loader.size()) });
 
         write_class_names(results_dir / "class_names.txt", train_loader.class_names());
         auto csv_file = open_metrics_csv(
@@ -111,10 +114,7 @@ int main()
         {
             const auto epoch_start = std::chrono::steady_clock::now();
             const float current_lr = get_lr(epoch);
-            for (auto& group : optimizer.param_groups())
-            {
-                static_cast<torch::optim::SGDOptions&>(group.options()).lr(current_lr);
-            }
+            set_sgd_lr(optimizer, current_lr);
             model->train();
             float train_loss = 0.0F;
             float train_acc = 0.0F;
@@ -128,6 +128,7 @@ int main()
                 auto logits = model->forward(tensors.first);
                 auto loss = criterion(logits, tensors.second);
                 loss.backward();
+                clip_torch_grad_value(*model, gradient_clip);
                 optimizer.step();
                 train_loss += loss.item<float>();
                 train_acc += logits.argmax(1).eq(tensors.second).to(torch::kFloat).mean().item<float>();
@@ -182,10 +183,9 @@ int main()
             const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::steady_clock::now() - epoch_start)
                                      .count();
-            const auto vram = current_vram_mib();
-            log_train_epoch("MNIST Torch", epoch, total_epochs, avg_train, avg_test, elapsed, vram);
-            LOG_INFO("MNIST Torch | Train Acc: {:.4f} | Test Acc: {:.4f}", avg_train_acc, avg_test_acc);
-            csv_file << epoch << ";" << avg_train << ";" << avg_test << ";" << elapsed << ";" << vram << ";"
+            log_train_epoch({ "MNIST Torch", epoch, total_epochs, current_lr, avg_train, avg_test, avg_train_acc,
+                avg_test_acc, std::nullopt, train_batches, elapsed, current_vram_mib() });
+            csv_file << epoch << ";" << avg_train << ";" << avg_test << ";" << elapsed << ";" << current_vram_mib() << ";"
                      << avg_train_acc << ";" << avg_test_acc << "\n";
             csv_file.flush();
         }
@@ -194,7 +194,7 @@ int main()
         write_classification_samples(results_dir / "samples_torch", samples, train_loader.class_names());
         const std::string save_path = (results_dir / "simplecnn_mnist_torch_final.pt").string();
         torch::save(model, save_path);
-        LOG_INFO("Final model saved: {}", save_path);
+        log_saved("MNIST Torch", save_path);
         return 0;
     }
     catch (const std::exception& exception)

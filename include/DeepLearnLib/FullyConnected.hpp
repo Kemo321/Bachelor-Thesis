@@ -18,6 +18,7 @@ class FullyConnected : public Layer
 {
 public:
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+    /** `inertia_val` is GEMM beta when writing dW/db (0 = replace, PyTorch zero_grad). Not SGD momentum. */
     FullyConnected(int input_size, int output_size, float inertia_val = 0.0F);
 
     [[nodiscard]] auto forward(const dl::Tensor& input_tensor, cudaStream_t stream = 0) -> dl::Tensor override;

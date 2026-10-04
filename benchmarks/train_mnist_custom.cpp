@@ -13,9 +13,9 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cuda_runtime.h>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -39,12 +39,6 @@ int main()
         const fs::path train_bin = data_root / "train.bin";
         const fs::path test_bin = data_root / "test.bin";
 
-        int gpu_count = 0;
-        cudaGetDeviceCount(&gpu_count);
-        LOG_INFO("[MNIST CLASSIFICATION] Starting on device: {}", gpu_count > 0 ? "GPU" : "CPU");
-        LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} momentum={} weight_decay={} train_bin={}",
-            batch_size, total_epochs, learning_rate, momentum, weight_decay, train_bin.string());
-
         PackedImageLoader train_loader(train_bin.string(), batch_size, true);
         PackedImageLoader test_loader(test_bin.string(), batch_size, false);
         const int num_classes = train_loader.num_classes();
@@ -54,8 +48,6 @@ int main()
         {
             throw std::runtime_error("MNIST train/test packed files disagree on shape or class count");
         }
-        LOG_INFO("[CONFIG] classes={} channels={} {}x{} train={} test={}", num_classes, in_channels, image_size,
-            train_loader.width(), train_loader.size(), test_loader.size());
 
         SimpleCNN model(num_classes, image_size, in_channels);
         Network trainer(model.get_all_layers(), learning_rate, gradient_clip);
@@ -65,6 +57,10 @@ int main()
             layer->train();
         }
         apply_sgd_hyperparameters(model.get_all_layers(), learning_rate, momentum, weight_decay);
+        log_pipeline_banner({ "MNIST Custom", "custom", batch_size, total_epochs, learning_rate, momentum, weight_decay,
+            gradient_clip, pipeline_precision_name(config), num_classes, 0,
+            static_cast<int>(model.get_all_layers().size()), train_bin.string(),
+            static_cast<std::size_t>(train_loader.size()), static_cast<std::size_t>(test_loader.size()) });
 
         fs::create_directories(results_dir);
         write_class_names(results_dir / "class_names.txt", train_loader.class_names());
@@ -78,8 +74,8 @@ int main()
         {
             auto epoch_start = std::chrono::steady_clock::now();
             profiler.start();
-            apply_sgd_hyperparameters(model.get_all_layers(), scheduled_learning_rate(config, epoch), momentum,
-                weight_decay);
+            const float current_lr = scheduled_learning_rate(config, epoch);
+            apply_sgd_hyperparameters(model.get_all_layers(), current_lr, momentum, weight_decay);
             for (auto& layer : model.get_all_layers())
             {
                 layer->train();
@@ -138,12 +134,10 @@ int main()
             const float avg_test = test_loss / static_cast<float>(std::max(1, test_batches));
             const float avg_train_acc = train_acc / static_cast<float>(std::max(1, train_batches));
             const float avg_test_acc = test_acc / static_cast<float>(std::max(1, test_batches));
-            const auto vram = current_vram_mib();
-            log_train_epoch("MNIST Custom", epoch, total_epochs, avg_train, avg_test, elapsed, vram);
-            LOG_INFO("MNIST Custom | Train Acc: {:.4f} | Test Acc: {:.4f} | GPU: {} ms", avg_train_acc, avg_test_acc,
-                gpu_ms);
-            LOG_FLUSH();
-            csv_file << epoch << ";" << avg_train << ";" << avg_test << ";" << elapsed << ";" << vram << ";"
+            log_train_epoch({ "MNIST Custom", epoch, total_epochs, current_lr, avg_train, avg_test, avg_train_acc,
+                avg_test_acc, std::nullopt, train_batches, elapsed, current_vram_mib() });
+            LOG_DEBUG("MNIST Custom | GPU: {} ms", gpu_ms);
+            csv_file << epoch << ";" << avg_train << ";" << avg_test << ";" << elapsed << ";" << current_vram_mib() << ";"
                      << avg_train_acc << ";" << avg_test_acc << "\n";
             csv_file.flush();
         }
@@ -152,7 +146,7 @@ int main()
         write_classification_samples(results_dir / "samples_custom", samples, train_loader.class_names());
         const std::string save_path = (results_dir / "simplecnn_mnist_final.bin").string();
         trainer.save(save_path);
-        LOG_INFO("Final model saved: {}", save_path);
+        log_saved("MNIST Custom", save_path);
         LOG_FLUSH();
         return 0;
     }

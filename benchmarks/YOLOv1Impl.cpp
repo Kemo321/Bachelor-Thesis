@@ -19,9 +19,9 @@ auto create_yolo_v1() -> Network
 
     // --- Head ---
     // Flattening is handled by Network::forward via std::move/view
-    layers.push_back(std::make_shared<FullyConnected>(7 * 7 * 1024, 4096, 0.9F));
+    layers.push_back(std::make_shared<FullyConnected>(7 * 7 * 1024, 4096));
     layers.push_back(std::make_shared<LeakyReLU>(0.1F));
-    layers.push_back(std::make_shared<FullyConnected>(4096, 7 * 7 * 30, 0.9F));
+    layers.push_back(std::make_shared<FullyConnected>(4096, 7 * 7 * 30));
 
     return Network(std::move(layers), 0.001F);
 }

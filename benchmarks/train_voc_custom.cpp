@@ -1,5 +1,7 @@
 #include "experiment_config.hpp"
+#include "prefetch_batch.hpp"
 #include "run_metrics.hpp"
+#include "yolo_eval.hpp"
 
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Network.hpp"
@@ -7,7 +9,6 @@
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
 #include "DeepLearnLib/mAP.hpp"
-#include "DeepLearnLib/utils.hpp"
 #include "YOLO.hpp"
 
 #include <algorithm>
@@ -15,10 +16,8 @@
 #include <cstddef>
 #include <cstdlib>
 #include <ctime>
-#include <cuda_runtime.h>
 #include <filesystem>
 #include <fstream>
-#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -31,34 +30,6 @@ const std::vector<std::string> VOC_CLASSES = {
 };
 
 constexpr int kImageSize = 448;
-
-auto slice_sample(const std::vector<float>& host, int sample_index, int elements_per_sample) -> std::vector<float>
-{
-    const auto offset = static_cast<std::size_t>(sample_index) * static_cast<std::size_t>(elements_per_sample);
-    return { host.begin() + static_cast<std::ptrdiff_t>(offset),
-        host.begin() + static_cast<std::ptrdiff_t>(offset + static_cast<std::size_t>(elements_per_sample)) };
-}
-
-auto detections_from_batch(const dl::Tensor& tensor, float conf_threshold, int num_classes, bool apply_suppression,
-    float nms_threshold) -> std::vector<Detection>
-{
-    const std::vector<float> host = tensor.to_host();
-    const int batch = tensor.get_shape()[0];
-    const int elements_per_sample = static_cast<int>(tensor.get_size()) / batch;
-    std::vector<Detection> all;
-    for (int sample = 0; sample < batch; ++sample)
-    {
-        std::vector<float> sample_buffer = slice_sample(host, sample, elements_per_sample);
-        std::vector<Detection> decoded = decode_yolo_tensor(sample_buffer, conf_threshold, kImageSize, kImageSize,
-            num_classes);
-        if (apply_suppression)
-        {
-            decoded = apply_nms(decoded, nms_threshold);
-        }
-        all.insert(all.end(), decoded.begin(), decoded.end());
-    }
-    return all;
-}
 
 int main()
 {
@@ -77,17 +48,12 @@ int main()
         const int num_classes = config.value("num_classes", 20);
         const float conf_threshold = config.value("conf_threshold", 0.25F);
         const float nms_threshold = config.value("nms_threshold", 0.5F);
+        const std::string voc_subset = config.value("voc_subset", "VOC2012");
         const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/VOCdevkit"));
         const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/voc"));
 
-        int gpu_count = 0;
-        cudaGetDeviceCount(&gpu_count);
-        LOG_INFO("[VOC CUSTOM PIPELINE] Starting on device: {}", gpu_count > 0 ? "GPU" : "CPU");
-        LOG_INFO("[CONFIG] batch_size={} epochs={} learning_rate={} momentum={} weight_decay={} gradient_clip={} dataset_root={}",
-            batch_size, total_epochs, learning_rate, momentum, weight_decay, gradient_clip, data_root.string());
-
         DataPaths train_paths, val_paths, test_paths;
-        split_dataset((data_root / "VOC2012").string(), train_paths, val_paths, test_paths, VOC_CLASSES);
+        split_dataset((data_root / voc_subset).string(), train_paths, val_paths, test_paths, VOC_CLASSES);
 
         CustomDataLoader train_loader(train_paths, batch_size, true, VOC_CLASSES);
         CustomDataLoader test_loader(test_paths, batch_size, false, VOC_CLASSES);
@@ -99,9 +65,11 @@ int main()
         {
             layer->to(dl::Device::GPU);
         }
-        LOG_INFO("YOLO on GPU ({} layers). Train images={} test={}", custom_model.get_all_layers().size(),
-            train_loader.size(), test_loader.size());
-        LOG_FLUSH();
+
+        log_pipeline_banner({ "VOC Custom", "custom", batch_size, total_epochs, learning_rate, momentum, weight_decay,
+            gradient_clip, pipeline_precision_name(config), num_classes, 0,
+            static_cast<int>(custom_model.get_all_layers().size()), data_root.string(),
+            static_cast<std::size_t>(train_loader.size()), static_cast<std::size_t>(test_loader.size()) });
 
         fs::create_directories(results_dir);
         std::ofstream csv_file((results_dir / "metrics_custom.csv").string());
@@ -118,68 +86,35 @@ int main()
             }
 
             float epoch_train_loss = 0.0F;
-            int train_batches = 0;
 
-            train_loader.reset();
-            dl::UniqueCudaStream copy_streams[2];
-            std::optional<Batch> batches[2];
-            bool has_batch[2] { false, false };
-
-            if (train_loader.has_next())
-            {
-                batches[0] = train_loader.get_batch(copy_streams[0].get());
-                has_batch[0] = true;
-            }
-
-            int slot = 0;
-            while (has_batch[slot])
-            {
-                const int next = 1 - slot;
-                const cudaStream_t compute_stream = copy_streams[slot].get();
-                CHECK_CUDA(cudaStreamSynchronize(compute_stream));
-
-                const dl::StreamGuard stream_guard(compute_stream);
-                dl::Tensor pred = custom_model.forward(batches[slot]->images, compute_stream);
-
-                const float batch_loss = YOLOLoss::loss(batches[slot]->targets, pred, num_classes, compute_stream).to_host(compute_stream).front();
-
-                dl::Tensor grad_error = trainer.clip_loss_gradient(
-                    YOLOLoss::loss_derivative(batches[slot]->targets, pred, num_classes, compute_stream));
-
-                auto layers = custom_model.get_all_layers();
-                for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator)
+            const int train_batches = for_each_prefetched_batch(train_loader,
+                [&](Batch& batch, int index, cudaStream_t stream)
                 {
-                    grad_error = (*iterator)->backward(grad_error, compute_stream);
-                }
-                trainer.clip_parameter_gradients(compute_stream);
-                for (auto& layer : layers)
-                {
-                    layer->step(compute_stream);
-                }
+                    dl::Tensor pred = custom_model.forward(batch.images, stream);
+                    const float batch_loss
+                        = YOLOLoss::loss(batch.targets, pred, num_classes, stream).to_host(stream).front();
 
-                epoch_train_loss += batch_loss;
-                train_batches++;
-                if (train_batches == 1 || train_batches % 50 == 0)
-                {
-                    LOG_DEBUG("VOC train epoch {} batch {} last_loss={:.4f} pred {}", epoch, train_batches, batch_loss,
-                        pred.describe());
-                }
+                    dl::Tensor grad_error = trainer.clip_loss_gradient(
+                        YOLOLoss::loss_derivative(batch.targets, pred, num_classes, stream));
 
-                if (train_loader.has_next())
-                {
-                    CHECK_CUDA(cudaStreamSynchronize(copy_streams[next].get()));
-                    batches[next] = train_loader.get_batch(copy_streams[next].get());
-                    has_batch[next] = true;
-                }
-                else
-                {
-                    has_batch[next] = false;
-                    batches[next].reset();
-                }
-                slot = next;
-            }
-            CHECK_CUDA(cudaStreamSynchronize(copy_streams[0].get()));
-            CHECK_CUDA(cudaStreamSynchronize(copy_streams[1].get()));
+                    auto layers = custom_model.get_all_layers();
+                    for (auto iterator = layers.rbegin(); iterator != layers.rend(); ++iterator)
+                    {
+                        grad_error = (*iterator)->backward(grad_error, stream);
+                    }
+                    trainer.clip_parameter_gradients(stream);
+                    for (auto& layer : layers)
+                    {
+                        layer->step(stream);
+                    }
+
+                    epoch_train_loss += batch_loss;
+                    if (index == 0 || (index + 1) % 50 == 0)
+                    {
+                        LOG_DEBUG("VOC train epoch {} batch {} last_loss={:.4f} pred {}", epoch, index + 1, batch_loss,
+                            pred.describe());
+                    }
+                });
             float avg_train_loss = epoch_train_loss / static_cast<float>(std::max(1, train_batches));
             LOG_DEBUG("VOC epoch {} train done ({} batches). Starting eval ...", epoch, train_batches);
 
@@ -189,43 +124,40 @@ int main()
             }
 
             float epoch_test_loss = 0.0F;
-            int test_batches = 0;
             std::vector<Detection> predicted_detections;
             std::vector<Detection> ground_truth_detections;
 
-            test_loader.reset();
-            while (test_loader.has_next())
-            {
-                Batch batch = test_loader.get_batch();
-                dl::Tensor pred = custom_model.forward(batch.images);
-                epoch_test_loss += YOLOLoss::loss(batch.targets, pred, num_classes).to_host().front();
-                test_batches++;
+            const int test_batches = for_each_prefetched_batch(test_loader,
+                [&](Batch& batch, int, cudaStream_t stream)
+                {
+                    dl::Tensor pred = custom_model.forward(batch.images, stream);
+                    epoch_test_loss += YOLOLoss::loss(batch.targets, pred, num_classes, stream).to_host(stream).front();
 
-                auto batch_pred = detections_from_batch(pred, conf_threshold, num_classes, true, nms_threshold);
-                auto batch_gt = detections_from_batch(batch.targets, 0.5F, num_classes, false, nms_threshold);
-                predicted_detections.insert(predicted_detections.end(), batch_pred.begin(), batch_pred.end());
-                ground_truth_detections.insert(ground_truth_detections.end(), batch_gt.begin(), batch_gt.end());
-            }
+                    auto batch_pred = detections_from_tensor(
+                        pred, conf_threshold, kImageSize, num_classes, true, nms_threshold, stream);
+                    auto batch_gt = detections_from_tensor(
+                        batch.targets, 0.5F, kImageSize, num_classes, false, nms_threshold, stream);
+                    predicted_detections.insert(predicted_detections.end(), batch_pred.begin(), batch_pred.end());
+                    ground_truth_detections.insert(
+                        ground_truth_detections.end(), batch_gt.begin(), batch_gt.end());
+                });
             float avg_test_loss = epoch_test_loss / static_cast<float>(std::max(1, test_batches));
             const float map50 = mean_average_precision(predicted_detections, ground_truth_detections, 0.5F);
 
             auto epoch_end_time = std::chrono::steady_clock::now();
             auto epoch_duration = std::chrono::duration_cast<std::chrono::seconds>(epoch_end_time - epoch_start_time).count();
 
-            const auto vram = current_vram_mib();
-            log_train_epoch("VOC Custom", epoch, total_epochs, avg_train_loss, avg_test_loss, epoch_duration, vram);
-            LOG_INFO("VOC Custom | mAP@0.5: {}", map50);
-            LOG_FLUSH();
+            log_train_epoch({ "VOC Custom", epoch, total_epochs, current_lr, avg_train_loss, avg_test_loss, std::nullopt,
+                std::nullopt, map50, train_batches, epoch_duration, current_vram_mib() });
 
-            csv_file << epoch << ";" << avg_train_loss << ";" << avg_test_loss << ";" << epoch_duration << ";" << vram << ";"
-                     << map50 << "\n";
+            csv_file << epoch << ";" << avg_train_loss << ";" << avg_test_loss << ";" << epoch_duration << ";"
+                     << current_vram_mib() << ";" << map50 << "\n";
             csv_file.flush();
         }
 
         std::string save_path = (results_dir / "yolov1_voc_custom_final.pt").string();
         trainer.save(save_path);
-        LOG_INFO("Final model saved: {}", save_path);
-        LOG_FLUSH();
+        log_saved("VOC Custom", save_path);
         return 0;
     }
     catch (const std::exception& exception)
