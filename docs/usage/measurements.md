@@ -50,13 +50,13 @@ GitHub-hosted runners have no NVIDIA GPU. CI compiles the training binaries and 
 
 | File | Epoch | Loss | Time(s) | VRAM_MiB |
 | --- | --- | --- | --- | --- |
-| results/overfit/metrics_custom.csv | 300 | 2.07541 | 0 | 7227 |
+| results/overfit/metrics_custom.csv | 300 | 0.870204 | 0 | 8273 |
 
 ### `results/overfit/metrics_torch.csv`
 
 | File | Epoch | Loss | Time(s) | VRAM_MiB |
 | --- | --- | --- | --- | --- |
-| results/overfit/metrics_torch.csv | 300 | 1.54788 | 0 | 5309 |
+| results/overfit/metrics_torch.csv | 300 | 0.420846 | 0 | 7795 |
 
 ### `results/synthetic/metrics_custom.csv`
 
@@ -114,9 +114,7 @@ GitHub-hosted runners have no NVIDIA GPU. CI compiles the training binaries and 
 
 ### `results/voc/metrics_torch.csv`
 
-| File | Epoch | TrainLoss | TestLoss | Time(s) | VRAM_MiB |
-| --- | --- | --- | --- | --- | --- |
-| results/voc/metrics_torch.csv | 130 | 2.86758 | 12.6827 | 79 | 8633 |
+The file has a header and no data row.
 
 ### `results/voc_short/metrics_custom.csv`
 

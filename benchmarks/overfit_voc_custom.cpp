@@ -2,12 +2,14 @@
 #include "image_inference.hpp"
 #include "prefetch_batch.hpp"
 #include "run_metrics.hpp"
+#include "yolo_eval.hpp"
 
 #include "DeepLearnLib/Logger.hpp"
 #include "DeepLearnLib/Network.hpp"
 #include "DeepLearnLib/Tensor.hpp"
 #include "DeepLearnLib/YOLOLoss.hpp"
 #include "DeepLearnLib/dataset.hpp"
+#include "DeepLearnLib/mAP.hpp"
 #include "DeepLearnLib/utils.hpp"
 #include "YOLO.hpp"
 
@@ -20,6 +22,8 @@
 
 namespace fs = std::filesystem;
 
+constexpr int kImageSize = 448;
+
 const std::vector<std::string> VOC_CLASSES = {
     "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow",
     "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"
@@ -27,8 +31,8 @@ const std::vector<std::string> VOC_CLASSES = {
 
 int main()
 {
+    // Read the overfit_voc_custom pipeline JSON so the epoch count, learning rate, and VOC directory come from the overfit experiment.
     const nlohmann::json config = load_pipeline_config("overfit_voc_custom");
-    apply_pipeline_precision(config);
     const int batch_size = config.value("batch_size", 8);
     const int total_epochs = config.value("epochs", 300);
     const float learning_rate = config.value("learning_rate", 2.0e-5F);
@@ -42,6 +46,7 @@ int main()
     const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/VOCdevkit"));
     const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/overfit"));
 
+    // Split VOC, then cut it down to at most one batch, so the model can overfit a few images.
     DataPaths train_paths, val_paths, test_paths;
     split_dataset((data_root / voc_subset).string(), train_paths, val_paths, test_paths, VOC_CLASSES);
     if (train_paths.images.empty())
@@ -58,26 +63,34 @@ int main()
     }
 
     CustomDataLoader train_loader(tiny_paths, batch_size, false, VOC_CLASSES);
+    // Build YOLO and the SGD trainer on the GPU so the overfit run goes through the custom stack.
     YOLO custom_model(num_classes);
     Network trainer(custom_model.get_all_layers(), learning_rate, gradient_clip);
     for (auto& layer : custom_model.get_all_layers())
     {
         layer->to(dl::Device::GPU);
-        layer->train();
     }
     apply_sgd_hyperparameters(custom_model.get_all_layers(), learning_rate, momentum, weight_decay);
 
     log_pipeline_banner({ "Overfit VOC Custom", "custom", batch_size, total_epochs, learning_rate, momentum,
-        weight_decay, gradient_clip, pipeline_precision_name(config), num_classes, 0,
-        static_cast<int>(custom_model.get_all_layers().size()), data_root.string(), tiny_paths.images.size(), 0 });
+        weight_decay, gradient_clip, num_classes, 0,
+        static_cast<int>(custom_model.get_all_layers().size()), data_root.string(), tiny_paths.images.size(),
+        tiny_paths.images.size() });
 
-    auto csv_file = open_metrics_csv(results_dir, "metrics_custom.csv", "Epoch;Loss;Time(s);VRAM_MiB");
+    // Metrics CSV so each epoch appends loss, time, and mAP for comparing runs.
+    auto csv_file = open_metrics_csv(results_dir, "metrics_custom.csv", kDetectionCsvHeader);
 
     for (int epoch = 1; epoch <= total_epochs; ++epoch)
     {
+        // The custom loader was built with is_train false, so neither pass augments.
         const auto epoch_start = std::chrono::steady_clock::now();
         const float current_lr = scheduled_learning_rate(config, epoch);
         apply_sgd_hyperparameters(custom_model.get_all_layers(), current_lr, momentum, weight_decay);
+        for (auto& layer : custom_model.get_all_layers())
+        {
+            layer->train();
+        }
+        // The training epoch computes the YOLO loss and takes an SGD step so the model memorizes the boxes from this one batch.
         float epoch_loss = 0.0F;
         const int batches = for_each_prefetched_batch(train_loader,
             [&](Batch& batch, int, cudaStream_t stream)
@@ -99,16 +112,43 @@ int main()
                 }
             });
         const float avg_loss = epoch_loss / static_cast<float>(std::max(1, batches));
+        // Second pass over the same batch in eval mode, so the loss and boxes show how the model memorized these images.
+        // Test loss and mAP are a second pass over the same tiny slice after eval, not a held-out split.
+        for (auto& layer : custom_model.get_all_layers())
+        {
+            layer->eval();
+        }
+        float test_sum = 0.0F;
+        std::vector<Detection> predicted_detections;
+        std::vector<Detection> ground_truth_detections;
+        const int test_batches = for_each_prefetched_batch(train_loader,
+            [&](Batch& batch, int, cudaStream_t stream)
+            {
+                dl::Tensor pred = custom_model.forward(batch.images, stream);
+                test_sum += YOLOLoss::loss(batch.targets, pred, num_classes, stream).to_host(stream).front();
+                // Detection mAP uses IoU 0.5. Predicted boxes use the JSON confidence and NMS; ground truth uses threshold 0.5 without NMS.
+                auto batch_pred = detections_from_tensor(
+                    pred, conf_threshold, kImageSize, num_classes, true, nms_threshold, stream);
+                auto batch_gt = detections_from_tensor(
+                    batch.targets, 0.5F, kImageSize, num_classes, false, nms_threshold, stream);
+                predicted_detections.insert(predicted_detections.end(), batch_pred.begin(), batch_pred.end());
+                ground_truth_detections.insert(ground_truth_detections.end(), batch_gt.begin(), batch_gt.end());
+            });
+        const float avg_test = test_sum / static_cast<float>(std::max(1, test_batches));
+        // mAP at IoU 0.5 on the decoded boxes, so detection quality is compared at the same threshold in every run.
+        const float map50 = mean_average_precision(predicted_detections, ground_truth_detections, 0.5F);
         const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
-        log_train_epoch({ "Overfit VOC Custom", epoch, total_epochs, current_lr, avg_loss, std::nullopt, std::nullopt,
-            std::nullopt, std::nullopt, batches, elapsed, current_vram_mib() });
-        write_loss_row(csv_file, epoch, avg_loss, elapsed, current_vram_mib());
+        log_train_epoch({ "Overfit VOC Custom", epoch, total_epochs, current_lr, avg_loss, avg_test, std::nullopt,
+            std::nullopt, map50, batches, elapsed, current_vram_mib() });
+        write_detection_row(csv_file, epoch, avg_loss, avg_test, elapsed, current_vram_mib(), map50);
     }
 
+    // Save the weights at the end of the run so the same model can be loaded without repeating training.
     const std::string save_path = (results_dir / "yolov1_custom_overfitted.pt").string();
     trainer.save(save_path);
     log_saved("Overfit VOC Custom", save_path);
 
+    // Draw detections on the images from the overfit batch so the result can be viewed next to the CSV metrics.
     for (auto& layer : custom_model.get_all_layers())
     {
         layer->eval();

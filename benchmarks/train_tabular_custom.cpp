@@ -37,8 +37,8 @@ auto pipeline_name_from_args(int argc, char** argv) -> std::string
 int main(int argc, char** argv)
 {
     const std::string pipeline = pipeline_name_from_args(argc, argv);
+    // Read the selected pipeline JSON so the epochs, hidden-layer size, and CSV path come from the experiment.
     const nlohmann::json config = load_pipeline_config(pipeline);
-    apply_pipeline_precision(config);
     const int epochs = config.value("epochs", 20);
     const int batch_size = config.value("batch_size", 32);
     const float learning_rate = config.value("learning_rate", 0.05F);
@@ -65,6 +65,7 @@ int main(int argc, char** argv)
         }
     }
 
+    // Load the whole CSV table for training so the experiment measures fit on every row.
     if (!fs::exists(csv_path))
     {
         LOG_INFO("[TABULAR CUSTOM] Writing dummy CSV at {}", csv_path.string());
@@ -79,6 +80,7 @@ int main(int argc, char** argv)
     std::vector<float> feature_host = loader.features().to_host();
     std::vector<float> label_host = loader.targets().to_host();
 
+    // Two dense layers with LeakyReLU on the GPU, because the input is a feature vector from the table.
     auto dense1 = std::make_shared<FullyConnected>(feature_count, hidden_size, 0.0F);
     auto relu = std::make_shared<LeakyReLU>(0.1F);
     auto dense2 = std::make_shared<FullyConnected>(hidden_size, num_classes, 0.0F);
@@ -98,12 +100,13 @@ int main(int argc, char** argv)
     softmax->eval();
 
     log_pipeline_banner({ "Tabular Custom", "custom", batch, epochs, learning_rate, momentum, weight_decay,
-        gradient_clip, pipeline_precision_name(config), num_classes, 0, static_cast<int>(layers.size()),
+        gradient_clip, num_classes, 0, static_cast<int>(layers.size()),
         csv_path.string(), static_cast<std::size_t>(available), 0 });
     LOG_INFO("Tabular Custom | pipeline={}", pipeline);
 
     write_class_names(results_dir / "class_names.txt", class_names);
-    auto csv_file = open_metrics_csv(results_dir, "metrics_custom.csv", "Epoch;Loss;Time(s);VRAM_MiB;Acc");
+    // Metrics CSV so each epoch appends loss, time, and accuracy for comparing runs.
+    auto csv_file = open_metrics_csv(results_dir, "metrics_custom.csv", kTabularCsvHeader);
     std::mt19937 rng(42U);
     std::vector<int> order(static_cast<std::size_t>(available));
     std::iota(order.begin(), order.end(), 0);
@@ -114,6 +117,7 @@ int main(int argc, char** argv)
         const auto epoch_start = std::chrono::steady_clock::now();
         const float current_lr = scheduled_learning_rate(config, epoch);
         apply_sgd_hyperparameters(layers, current_lr, momentum, weight_decay);
+        // The epoch shuffles the rows and updates the weights on every batch so the CSV order does not stick in the gradient.
         std::shuffle(order.begin(), order.end(), rng);
         float epoch_loss = 0.0F;
         int epoch_correct = 0;
@@ -141,6 +145,8 @@ int main(int argc, char** argv)
             dl::Tensor hidden = relu->forward(dense1->forward(features));
             dl::Tensor logits = dense2->forward(hidden);
             epoch_loss += CrossEntropyLoss::loss(targets, logits).to_host().front();
+            // Accuracy and the confusion matrix on the current batch, so the epoch reports fit to the same table.
+            // Accuracy is on the same rows used for the step, because there is no held-out split.
             dl::Tensor probabilities = softmax->forward(logits);
             const std::vector<float> prob_host = probabilities.to_host();
             std::vector<int> truths(static_cast<std::size_t>(n));
@@ -176,8 +182,7 @@ int main(int argc, char** argv)
             = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
         log_train_epoch({ "Tabular Custom", epoch, epochs, current_lr, avg_loss, std::nullopt, accuracy, std::nullopt,
             std::nullopt, batches, elapsed, current_vram_mib() });
-        csv_file << epoch << ";" << avg_loss << ";" << elapsed << ";" << current_vram_mib() << ";" << accuracy << "\n";
-        csv_file.flush();
+        write_tabular_row(csv_file, epoch, avg_loss, elapsed, current_vram_mib(), accuracy);
     }
 
     write_confusion_csv(results_dir / "confusion_custom.csv", confusion, num_classes, class_names);

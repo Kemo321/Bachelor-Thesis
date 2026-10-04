@@ -15,13 +15,18 @@
 #include <utility>
 
 /**
- * Shared epoch logging / CSV helpers so every train_* and inference_* binary
- * writes the same stdout columns.
+ * Shared epoch logging / CSV helpers.
  *
- * Epoch line (fields omitted when optional values are absent):
- *   TAG | Epoch [e/N] | LR: x | Train Loss: x | Test Loss: x | Train Acc: x |
- *        Test Acc: x | mAP@0.5: x | Batches: n | Time: ts | VRAM_MiB: v
+ * Every training line prints the same fields. A task that does not compute one
+ * writes n/a on stdout. CSV headers stay numeric and are one of the three below.
+ *
+ * Detection:  Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;mAP@0.5
+ * Classification: Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;TrainAcc;TestAcc
+ * Tabular (no held-out split): Epoch;TrainLoss;Time(s);VRAM_MiB;TrainAcc
  */
+inline constexpr const char* kDetectionCsvHeader = "Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;mAP@0.5";
+inline constexpr const char* kClassificationCsvHeader = "Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;TrainAcc;TestAcc";
+inline constexpr const char* kTabularCsvHeader = "Epoch;TrainLoss;Time(s);VRAM_MiB;TrainAcc";
 inline auto open_metrics_csv(const std::filesystem::path& results_dir, const std::string& filename,
     const std::string& header) -> std::ofstream
 {
@@ -60,7 +65,6 @@ struct PipelineBanner
     float momentum = 0.0F;
     float weight_decay = 0.0F;
     float gradient_clip = 0.0F;
-    std::string precision { "fp32" };
     int num_classes = 0;
     int workers = 0;
     int layers = 0;
@@ -72,10 +76,9 @@ struct PipelineBanner
 inline auto log_pipeline_banner(const PipelineBanner& banner) -> void
 {
     LOG_INFO("{} | start backend={} device={}", banner.tag, banner.backend, accelerator_label());
-    LOG_INFO("{} | config batch={} epochs={} lr={:.6g} momentum={:.4g} wd={:.6g} clip={:.4g} precision={} classes={} "
-             "workers={}",
+    LOG_INFO("{} | config batch={} epochs={} lr={:.6g} momentum={:.4g} wd={:.6g} clip={:.4g} classes={} workers={}",
         banner.tag, banner.batch_size, banner.epochs, banner.learning_rate, banner.momentum, banner.weight_decay,
-        banner.gradient_clip, banner.precision, banner.num_classes, banner.workers);
+        banner.gradient_clip, banner.num_classes, banner.workers);
     LOG_INFO("{} | data root={} train={} test={} layers={}", banner.tag, banner.dataset, banner.train_count,
         banner.test_count, banner.layers);
     LOG_FLUSH();
@@ -97,31 +100,26 @@ struct EpochMetrics
     std::size_t vram_mib = 0;
 };
 
+inline auto format_metric(const std::optional<float>& value) -> std::string
+{
+    if (!value.has_value())
+    {
+        return "n/a";
+    }
+    std::ostringstream out;
+    out.setf(std::ios::fixed);
+    out.precision(4);
+    out << *value;
+    return out.str();
+}
+
 inline auto log_train_epoch(const EpochMetrics& metrics) -> void
 {
-    std::ostringstream extra;
-    extra.setf(std::ios::fixed);
-    extra.precision(4);
-    if (metrics.test_loss.has_value())
-    {
-        extra << " | Test Loss: " << *metrics.test_loss;
-    }
-    if (metrics.train_acc.has_value())
-    {
-        extra << " | Train Acc: " << *metrics.train_acc;
-    }
-    if (metrics.test_acc.has_value())
-    {
-        extra << " | Test Acc: " << *metrics.test_acc;
-    }
-    extra.precision(4);
-    if (metrics.map50.has_value())
-    {
-        extra << " | mAP@0.5: " << *metrics.map50;
-    }
-    LOG_INFO("{} | Epoch [{}/{}] | LR: {:.6g} | Train Loss: {:.4f}{} | Batches: {} | Time: {}s | VRAM_MiB: {}",
-        metrics.tag, metrics.epoch, metrics.total_epochs, metrics.lr, metrics.train_loss, extra.str(),
-        metrics.train_batches, metrics.time_s, metrics.vram_mib);
+    LOG_INFO("{} | Epoch [{}/{}] | LR: {:.6g} | Train Loss: {:.4f} | Test Loss: {} | Train Acc: {} | Test Acc: {} | "
+             "mAP@0.5: {} | Batches: {} | Time: {}s | VRAM_MiB: {}",
+        metrics.tag, metrics.epoch, metrics.total_epochs, metrics.lr, metrics.train_loss,
+        format_metric(metrics.test_loss), format_metric(metrics.train_acc), format_metric(metrics.test_acc),
+        format_metric(metrics.map50), metrics.train_batches, metrics.time_s, metrics.vram_mib);
     LOG_FLUSH();
 }
 
@@ -159,15 +157,24 @@ inline auto log_inference_done(const char* tag, std::size_t saved, const std::st
     LOG_FLUSH();
 }
 
-inline auto write_train_test_row(std::ofstream& csv, int epoch, float train_loss, float test_loss, long long time_s,
-    std::size_t vram_mib) -> void
+inline auto write_detection_row(std::ofstream& csv, int epoch, float train_loss, float test_loss, long long time_s,
+    std::size_t vram_mib, float map50) -> void
 {
-    csv << epoch << ";" << train_loss << ";" << test_loss << ";" << time_s << ";" << vram_mib << "\n";
+    csv << epoch << ";" << train_loss << ";" << test_loss << ";" << time_s << ";" << vram_mib << ";" << map50 << "\n";
     csv.flush();
 }
 
-inline auto write_loss_row(std::ofstream& csv, int epoch, float loss, long long time_s, std::size_t vram_mib) -> void
+inline auto write_classification_row(std::ofstream& csv, int epoch, float train_loss, float test_loss, long long time_s,
+    std::size_t vram_mib, float train_acc, float test_acc) -> void
 {
-    csv << epoch << ";" << loss << ";" << time_s << ";" << vram_mib << "\n";
+    csv << epoch << ";" << train_loss << ";" << test_loss << ";" << time_s << ";" << vram_mib << ";" << train_acc << ";"
+        << test_acc << "\n";
+    csv.flush();
+}
+
+inline auto write_tabular_row(std::ofstream& csv, int epoch, float train_loss, long long time_s, std::size_t vram_mib,
+    float train_acc) -> void
+{
+    csv << epoch << ";" << train_loss << ";" << time_s << ";" << vram_mib << ";" << train_acc << "\n";
     csv.flush();
 }

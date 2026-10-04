@@ -34,8 +34,8 @@ int main()
 {
     std::srand(std::time(nullptr));
 
+    // Read the voc_torch pipeline JSON so the epoch count, learning rate, and detection thresholds come from the experiment.
     const nlohmann::json config = load_pipeline_config("voc_torch");
-    apply_pipeline_precision(config);
     const int batch_size = config.value("batch_size", 16);
     const int total_epochs = config.value("epochs", 150);
     const int num_classes = config.value("num_classes", 20);
@@ -56,6 +56,7 @@ int main()
         at::globalContext().setBenchmarkCuDNN(true);
     }
 
+    // Split the directory into image lists so the training epoch walks train and mAP walks test.
     DataPaths train_paths, val_paths, test_paths;
     split_dataset((data_root / voc_subset).string(), train_paths, val_paths, test_paths, VOC_CLASSES);
 
@@ -68,6 +69,7 @@ int main()
         VOCYoloDataset(test_paths, false, VOC_CLASSES).map(torch::data::transforms::Stack<>()),
         torch::data::DataLoaderOptions().batch_size(batch_size).workers(dataloader_workers));
 
+    // Build YOLOv1 in LibTorch so the same detector is trained on the reference stack.
     YOLOv1 model(num_classes);
     model->to(device);
 
@@ -77,12 +79,13 @@ int main()
     torch::optim::SGD optimizer = make_sgd(*model, get_lr(1), momentum, weight_decay);
 
     log_pipeline_banner({ "VOC Torch", "torch", batch_size, total_epochs, learning_rate, static_cast<float>(momentum),
-        static_cast<float>(weight_decay), gradient_clip, pipeline_precision_name(config), num_classes,
+        static_cast<float>(weight_decay), gradient_clip, num_classes,
         dataloader_workers, 0, data_root.string(), train_paths.images.size(), test_paths.images.size() });
 
     fs::create_directories(results_dir);
+    // Metrics CSV so each epoch appends loss, time, and mAP for comparing runs.
     std::ofstream csv_file((results_dir / "metrics_torch.csv").string());
-    csv_file << "Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;mAP@0.5\n";
+    csv_file << kDetectionCsvHeader << "\n";
 
     for (int epoch = 1; epoch <= total_epochs; ++epoch)
     {
@@ -90,6 +93,7 @@ int main()
         float current_lr = get_lr(epoch);
         set_sgd_lr(optimizer, current_lr);
 
+        // The training epoch in train mode computes the YOLO loss and takes an SGD step so the grid fits boxes to the labels.
         model->train();
         float epoch_train_loss = 0.0F;
         int train_batches = 0;
@@ -112,6 +116,7 @@ int main()
         }
         float avg_train_loss = epoch_train_loss / std::max(1, train_batches);
 
+        // Test pass in eval mode, to collect loss and boxes on images held out of training.
         model->eval();
         float epoch_test_loss = 0.0F;
         int test_batches = 0;
@@ -132,6 +137,7 @@ int main()
                 const auto target_host = tensor_to_host_f32(target);
                 const int batch_n = static_cast<int>(pred.size(0));
                 const int elems = static_cast<int>(pred.numel() / pred.size(0));
+                // Detection mAP uses IoU 0.5. Predicted boxes use the JSON confidence and NMS; ground truth uses threshold 0.5 without NMS.
                 auto batch_pred = detections_from_flat(
                     pred_host, batch_n, elems, conf_threshold, kImageSize, num_classes, true, nms_threshold);
                 auto batch_gt = detections_from_flat(
@@ -141,6 +147,7 @@ int main()
             }
         }
         float avg_test_loss = epoch_test_loss / std::max(1, test_batches);
+        // mAP at IoU 0.5 on the decoded boxes, so detection quality is compared at the same threshold in every run.
         const float map50 = mean_average_precision(predicted_detections, ground_truth_detections, 0.5F);
 
         auto epoch_end_time = std::chrono::steady_clock::now();
@@ -148,11 +155,10 @@ int main()
 
         log_train_epoch({ "VOC Torch", epoch, total_epochs, current_lr, avg_train_loss, avg_test_loss, std::nullopt,
             std::nullopt, map50, train_batches, epoch_duration, current_vram_mib() });
-        csv_file << epoch << ";" << avg_train_loss << ";" << avg_test_loss << ";" << epoch_duration << ";"
-                 << current_vram_mib() << ";" << map50 << "\n";
-        csv_file.flush();
+        write_detection_row(csv_file, epoch, avg_train_loss, avg_test_loss, epoch_duration, current_vram_mib(), map50);
     }
 
+    // Save the weights at the end of the run so the same model can be loaded without repeating training.
     std::string save_path = (results_dir / "yolov1_voc_torch_final.pt").string();
     torch::save(model, save_path);
     log_saved("VOC Torch", save_path);

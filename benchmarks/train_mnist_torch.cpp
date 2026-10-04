@@ -70,8 +70,8 @@ int main()
 {
     try
     {
+        // Read the mnist_classification pipeline JSON so the epoch count, learning rate, and paths come from the experiment.
         const nlohmann::json config = load_pipeline_config("mnist_classification");
-        apply_pipeline_precision(config);
         const int batch_size = config.value("batch_size", 128);
         const int total_epochs = config.value("epochs", 10);
         const float learning_rate = config.value("learning_rate", 1.0e-2F);
@@ -85,6 +85,7 @@ int main()
 
         torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
 
+        // Separate train and test files so accuracy after the epoch is computed on images held out of training.
         PackedImageLoader train_loader(train_bin.string(), batch_size, true);
         PackedImageLoader test_loader(test_bin.string(), batch_size, false);
         const int num_classes = train_loader.num_classes();
@@ -94,6 +95,7 @@ int main()
         auto get_lr = [&config](int ep) -> float
         { return scheduled_learning_rate(config, ep); };
 
+        // Build SimpleCNN in LibTorch so the same classifier is trained on the reference stack.
         SimpleCNN model(num_classes, image_size, in_channels);
         model->to(device);
         torch::optim::SGD optimizer = make_sgd(*model, get_lr(1), momentum, weight_decay);
@@ -101,12 +103,13 @@ int main()
 
         log_pipeline_banner({ "MNIST Torch", "torch", batch_size, total_epochs, learning_rate,
             static_cast<float>(momentum), static_cast<float>(weight_decay), gradient_clip,
-            pipeline_precision_name(config), num_classes, 0, 0, train_bin.string(),
+            num_classes, 0, 0, train_bin.string(),
             static_cast<std::size_t>(train_loader.size()), static_cast<std::size_t>(test_loader.size()) });
 
         write_class_names(results_dir / "class_names.txt", train_loader.class_names());
+        // Metrics CSV so each epoch appends a row for comparing runs later.
         auto csv_file = open_metrics_csv(
-            results_dir, "metrics_torch.csv", "Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;TrainAcc;TestAcc");
+            results_dir, "metrics_torch.csv", kClassificationCsvHeader);
 
         std::vector<int> confusion;
         std::vector<SamplePrediction> samples;
@@ -115,6 +118,7 @@ int main()
             const auto epoch_start = std::chrono::steady_clock::now();
             const float current_lr = get_lr(epoch);
             set_sgd_lr(optimizer, current_lr);
+            // Training epoch in train mode: cross-entropy and an SGD step so the weights fit the training images.
             model->train();
             float train_loss = 0.0F;
             float train_acc = 0.0F;
@@ -135,6 +139,7 @@ int main()
                 ++train_batches;
             }
 
+            // Test pass in eval mode, to measure loss and accuracy on the test set.
             model->eval();
             float test_loss = 0.0F;
             float test_acc = 0.0F;
@@ -185,13 +190,13 @@ int main()
                                      .count();
             log_train_epoch({ "MNIST Torch", epoch, total_epochs, current_lr, avg_train, avg_test, avg_train_acc,
                 avg_test_acc, std::nullopt, train_batches, elapsed, current_vram_mib() });
-            csv_file << epoch << ";" << avg_train << ";" << avg_test << ";" << elapsed << ";" << current_vram_mib() << ";"
-                     << avg_train_acc << ";" << avg_test_acc << "\n";
-            csv_file.flush();
+            write_classification_row(csv_file, epoch, avg_train, avg_test, elapsed, current_vram_mib(), avg_train_acc,
+                avg_test_acc);
         }
 
         write_confusion_csv(results_dir / "confusion_torch.csv", confusion, num_classes, train_loader.class_names());
         write_classification_samples(results_dir / "samples_torch", samples, train_loader.class_names());
+        // Save the weights at the end of the run so the same model can be loaded without repeating training.
         const std::string save_path = (results_dir / "simplecnn_mnist_torch_final.pt").string();
         torch::save(model, save_path);
         log_saved("MNIST Torch", save_path);

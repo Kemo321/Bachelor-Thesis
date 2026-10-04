@@ -26,8 +26,8 @@ int main()
 {
     try
     {
+        // Read the mnist_classification pipeline JSON so the epoch count, learning rate, and paths come from the experiment.
         const nlohmann::json config = load_pipeline_config("mnist_classification");
-        apply_pipeline_precision(config);
         const int batch_size = config.value("batch_size", 128);
         const int total_epochs = config.value("epochs", 10);
         const float learning_rate = config.value("learning_rate", 1.0e-2F);
@@ -39,6 +39,7 @@ int main()
         const fs::path train_bin = data_root / "train.bin";
         const fs::path test_bin = data_root / "test.bin";
 
+        // Separate train and test files so accuracy after the epoch is computed on images held out of training.
         PackedImageLoader train_loader(train_bin.string(), batch_size, true);
         PackedImageLoader test_loader(test_bin.string(), batch_size, false);
         const int num_classes = train_loader.num_classes();
@@ -49,6 +50,7 @@ int main()
             throw std::runtime_error("MNIST train/test packed files disagree on shape or class count");
         }
 
+        // Build SimpleCNN and the SGD trainer on the GPU so the forward pass and the weight update stay on the device.
         SimpleCNN model(num_classes, image_size, in_channels);
         Network trainer(model.get_all_layers(), learning_rate, gradient_clip);
         for (auto& layer : model.get_all_layers())
@@ -58,14 +60,15 @@ int main()
         }
         apply_sgd_hyperparameters(model.get_all_layers(), learning_rate, momentum, weight_decay);
         log_pipeline_banner({ "MNIST Custom", "custom", batch_size, total_epochs, learning_rate, momentum, weight_decay,
-            gradient_clip, pipeline_precision_name(config), num_classes, 0,
+            gradient_clip, num_classes, 0,
             static_cast<int>(model.get_all_layers().size()), train_bin.string(),
             static_cast<std::size_t>(train_loader.size()), static_cast<std::size_t>(test_loader.size()) });
 
         fs::create_directories(results_dir);
         write_class_names(results_dir / "class_names.txt", train_loader.class_names());
+        // Metrics CSV so each epoch appends a row for comparing runs later.
         std::ofstream csv_file((results_dir / "metrics_custom.csv").string());
-        csv_file << "Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;TrainAcc;TestAcc\n";
+        csv_file << kClassificationCsvHeader << "\n";
 
         Profiler profiler;
         std::vector<int> confusion;
@@ -81,6 +84,7 @@ int main()
                 layer->train();
             }
 
+            // Training epoch: cross-entropy, backpropagation, and an SGD step so the weights fit the training images.
             float train_loss = 0.0F;
             float train_acc = 0.0F;
             const int train_batches = for_each_prefetched_batch(train_loader,
@@ -102,6 +106,7 @@ int main()
                     }
                 });
 
+            // Test pass in eval mode, to measure loss and accuracy on the test set.
             for (auto& layer : model.get_all_layers())
             {
                 layer->eval();
@@ -137,13 +142,13 @@ int main()
             log_train_epoch({ "MNIST Custom", epoch, total_epochs, current_lr, avg_train, avg_test, avg_train_acc,
                 avg_test_acc, std::nullopt, train_batches, elapsed, current_vram_mib() });
             LOG_DEBUG("MNIST Custom | GPU: {} ms", gpu_ms);
-            csv_file << epoch << ";" << avg_train << ";" << avg_test << ";" << elapsed << ";" << current_vram_mib() << ";"
-                     << avg_train_acc << ";" << avg_test_acc << "\n";
-            csv_file.flush();
+            write_classification_row(csv_file, epoch, avg_train, avg_test, elapsed, current_vram_mib(), avg_train_acc,
+                avg_test_acc);
         }
 
         write_confusion_csv(results_dir / "confusion_custom.csv", confusion, num_classes, train_loader.class_names());
         write_classification_samples(results_dir / "samples_custom", samples, train_loader.class_names());
+        // Save the weights at the end of the run so the same model can be loaded without repeating training.
         const std::string save_path = (results_dir / "simplecnn_mnist_final.bin").string();
         trainer.save(save_path);
         log_saved("MNIST Custom", save_path);

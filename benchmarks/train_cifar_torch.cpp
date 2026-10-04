@@ -69,8 +69,8 @@ int main()
 {
     try
     {
+        // Read the cifar10_classification pipeline JSON so the epoch count, learning rate, and paths come from the experiment.
         const nlohmann::json config = load_pipeline_config("cifar10_classification");
-        apply_pipeline_precision(config);
         const int batch_size = config.value("batch_size", 64);
         const int total_epochs = config.value("epochs", 20);
         const float learning_rate = config.value("learning_rate", 1.0e-3F);
@@ -85,6 +85,7 @@ int main()
 
         torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
 
+        // Separate train and test splits so evaluation walks images held out of the training epoch.
         ClassificationLoader train_loader(data_root.string(), train_split, batch_size, image_size, true);
         const std::vector<std::string> class_names = train_loader.class_names();
         ClassificationLoader test_loader(data_root.string(), test_split, batch_size, image_size, false, class_names);
@@ -97,6 +98,7 @@ int main()
         auto get_lr = [&config](int ep) -> float
         { return scheduled_learning_rate(config, ep); };
 
+        // Build SimpleCNN in LibTorch so the same classifier is trained on the reference stack.
         SimpleCNN model(num_classes, image_size);
         model->to(device);
         torch::optim::SGD optimizer = make_sgd(*model, get_lr(1), momentum, weight_decay);
@@ -104,12 +106,13 @@ int main()
 
         log_pipeline_banner({ "CIFAR-10 Torch", "torch", batch_size, total_epochs, learning_rate,
             static_cast<float>(momentum), static_cast<float>(weight_decay), gradient_clip,
-            pipeline_precision_name(config), num_classes, 0, 0, data_root.string(),
+            num_classes, 0, 0, data_root.string(),
             static_cast<std::size_t>(train_loader.size()), static_cast<std::size_t>(test_loader.size()) });
 
         write_class_names(results_dir / "class_names.txt", class_names);
+        // Metrics CSV so each epoch appends a row for comparing runs later.
         auto csv_file = open_metrics_csv(
-            results_dir, "metrics_torch.csv", "Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;TrainAcc;TestAcc");
+            results_dir, "metrics_torch.csv", kClassificationCsvHeader);
 
         std::vector<int> confusion;
         std::vector<SamplePrediction> samples;
@@ -119,6 +122,7 @@ int main()
             const auto epoch_start = std::chrono::steady_clock::now();
             const float current_lr = get_lr(epoch);
             set_sgd_lr(optimizer, current_lr);
+            // Training epoch in train mode: cross-entropy and an SGD step so the weights fit the training images.
             model->train();
             float train_loss = 0.0F;
             float train_acc = 0.0F;
@@ -140,6 +144,7 @@ int main()
                 ++train_batches;
             }
 
+            // Test pass in eval mode, to measure loss and accuracy on the test set.
             model->eval();
             float test_loss = 0.0F;
             float test_acc = 0.0F;
@@ -189,13 +194,13 @@ int main()
             const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
             log_train_epoch({ "CIFAR-10 Torch", epoch, total_epochs, current_lr, avg_train, avg_test, avg_train_acc,
                 avg_test_acc, std::nullopt, train_batches, elapsed, current_vram_mib() });
-            csv_file << epoch << ";" << avg_train << ";" << avg_test << ";" << elapsed << ";" << current_vram_mib() << ";"
-                     << avg_train_acc << ";" << avg_test_acc << "\n";
-            csv_file.flush();
+            write_classification_row(csv_file, epoch, avg_train, avg_test, elapsed, current_vram_mib(), avg_train_acc,
+                avg_test_acc);
         }
 
         write_confusion_csv(results_dir / "confusion_torch.csv", confusion, num_classes, class_names);
         write_classification_samples(results_dir / "samples_torch", samples, class_names);
+        // Save the weights at the end of the run so the same model can be loaded without repeating training.
         const std::string save_path = (results_dir / "simplecnn_cifar10_torch_final.pt").string();
         torch::save(model, save_path);
         log_saved("CIFAR-10 Torch", save_path);

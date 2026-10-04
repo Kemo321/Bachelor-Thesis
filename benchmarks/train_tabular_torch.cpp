@@ -50,8 +50,8 @@ auto pipeline_name_from_args(int argc, char** argv) -> std::string
 int main(int argc, char** argv)
 {
     const std::string pipeline = pipeline_name_from_args(argc, argv);
+    // Read the selected pipeline JSON so the epochs, hidden-layer size, and CSV path come from the experiment.
     const nlohmann::json config = load_pipeline_config(pipeline);
-    apply_pipeline_precision(config);
     const int epochs = config.value("epochs", 20);
     const int batch_size = config.value("batch_size", 32);
     const float learning_rate = config.value("learning_rate", 0.05F);
@@ -78,6 +78,7 @@ int main(int argc, char** argv)
         }
     }
 
+    // Load the whole CSV table for training so the experiment measures fit on every row.
     if (!fs::exists(csv_path))
     {
         LOG_INFO("[TABULAR TORCH] Writing dummy CSV at {}", csv_path.string());
@@ -95,18 +96,20 @@ int main(int argc, char** argv)
     { return scheduled_learning_rate(config, ep); };
 
     torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
+    // An MLP in LibTorch with two linear layers, so the same tabular task is trained on the reference stack.
     TabularMLP model(feature_count, hidden_size, num_classes);
     model->to(device);
     torch::optim::SGD optimizer = make_sgd(*model, get_lr(1), momentum, weight_decay);
     torch::nn::CrossEntropyLoss criterion;
 
     log_pipeline_banner({ "Tabular Torch", "torch", batch, epochs, learning_rate, static_cast<float>(momentum),
-        static_cast<float>(weight_decay), gradient_clip, pipeline_precision_name(config), num_classes, 0, 0,
+        static_cast<float>(weight_decay), gradient_clip, num_classes, 0, 0,
         csv_path.string(), static_cast<std::size_t>(available), 0 });
     LOG_INFO("Tabular Torch | pipeline={}", pipeline);
 
     write_class_names(results_dir / "class_names.txt", class_names);
-    auto csv_file = open_metrics_csv(results_dir, "metrics_torch.csv", "Epoch;Loss;Time(s);VRAM_MiB;Acc");
+    // Metrics CSV so each epoch appends loss, time, and accuracy for comparing runs.
+    auto csv_file = open_metrics_csv(results_dir, "metrics_torch.csv", kTabularCsvHeader);
     std::mt19937 rng(42U);
     std::vector<int> order(static_cast<std::size_t>(available));
     std::iota(order.begin(), order.end(), 0);
@@ -117,6 +120,7 @@ int main(int argc, char** argv)
         const auto epoch_start = std::chrono::steady_clock::now();
         const float current_lr = get_lr(epoch);
         set_sgd_lr(optimizer, current_lr);
+        // The epoch shuffles the rows and updates the weights on every batch so the CSV order does not stick in the gradient.
         std::shuffle(order.begin(), order.end(), rng);
         model->train();
         float epoch_loss = 0.0F;
@@ -152,6 +156,8 @@ int main(int argc, char** argv)
             optimizer.step();
 
             epoch_loss += loss.item<float>();
+            // Accuracy and the confusion matrix on the current batch, so the epoch reports fit to the same table.
+            // Accuracy is on the same rows used for the step, because there is no held-out split.
             const auto predicted = logits.argmax(1);
             epoch_correct += static_cast<int>(predicted.eq(targets).sum().item<int64_t>());
             epoch_seen += n;
@@ -174,8 +180,7 @@ int main(int argc, char** argv)
             = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - epoch_start).count();
         log_train_epoch({ "Tabular Torch", epoch, epochs, current_lr, avg_loss, std::nullopt, accuracy, std::nullopt,
             std::nullopt, batches, elapsed, current_vram_mib() });
-        csv_file << epoch << ";" << avg_loss << ";" << elapsed << ";" << current_vram_mib() << ";" << accuracy << "\n";
-        csv_file.flush();
+        write_tabular_row(csv_file, epoch, avg_loss, elapsed, current_vram_mib(), accuracy);
     }
 
     write_confusion_csv(results_dir / "confusion_torch.csv", confusion, num_classes, class_names);

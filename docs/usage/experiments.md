@@ -12,10 +12,10 @@ Each dataset has a Custom binary and, when LibTorch was found at configure time,
 | `cifar10_classification` | `train_cifar_*` | `SimpleCNN` | `CrossEntropyLoss` | accuracy |
 | `mnist_classification` | `train_mnist_*` | `SimpleCNN` | `CrossEntropyLoss` | accuracy |
 | `tabular_demo`, `tabular_iris`, `tabular_wisconsin` | `train_tabular_*` | two-layer MLP | `CrossEntropyLoss` | accuracy |
-| `overfit_voc_*` | `overfit_voc_*` | `YOLO` | `YOLOLoss` | loss on a tiny VOC slice |
-| short VOC | `short_voc_*` | `YOLO` | `YOLOLoss` | abbreviated schedule |
+| `overfit_voc_*` | `overfit_voc_*` | `YOLO` | `YOLOLoss` | detection CSV on the tiny slice |
+| short VOC | `short_voc_*` | `YOLO` | `YOLOLoss` | detection CSV, 3 epochs |
 
-`overfit_voc_*` checks that the loss falls on a handful of images. `short_voc_*` runs the full VOC step, including mAP, on a short schedule.
+Every detection binary writes `Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;mAP@0.5`. `overfit_voc_*` computes test loss and mAP on the same images used for the step, after `eval`. `short_voc_*` uses the VOC test split. Classification writes `TrainAcc` and `TestAcc` instead of mAP. Tabular writes `Epoch;TrainLoss;Time(s);VRAM_MiB;TrainAcc` because that loader has no held-out split.
 
 ## Benchmarks
 
@@ -37,6 +37,12 @@ Classification:
 
 ```text
 Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;TrainAcc;TestAcc
+```
+
+Tabular, no held-out split:
+
+```text
+Epoch;TrainLoss;Time(s);VRAM_MiB;TrainAcc
 ```
 
 `Time(s)` is wall time of the epoch, including the test pass and mAP or accuracy. It is not a kernel time. Kernel time comes from `Profiler` or from `bench_micro_ops`. `VRAM_MiB` is the process device-memory reading at the log point. On the Custom stack the buffers from `Tensor::ensure` stay allocated, so the column should be flat across epochs. A climb means a new allocation every step.

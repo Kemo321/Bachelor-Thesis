@@ -26,8 +26,8 @@ int main()
 {
     try
     {
+        // Read the cifar10_classification pipeline JSON so the epoch count, learning rate, and paths come from the experiment.
         const nlohmann::json config = load_pipeline_config("cifar10_classification");
-        apply_pipeline_precision(config);
         const int batch_size = config.value("batch_size", 64);
         const int total_epochs = config.value("epochs", 20);
         const float learning_rate = config.value("learning_rate", 1.0e-3F);
@@ -40,6 +40,7 @@ int main()
         const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/cifar10"));
         const fs::path results_dir = resolve_from_source(config.value("results_dir", "results/cifar10"));
 
+        // Separate train and test splits so evaluation walks images held out of the training epoch.
         ClassificationLoader train_loader(data_root.string(), train_split, batch_size, image_size, true);
         const std::vector<std::string> class_names = train_loader.class_names();
         ClassificationLoader test_loader(
@@ -56,6 +57,7 @@ int main()
                 train_loader.size(), test_loader.size());
         }
 
+        // Build SimpleCNN and the SGD trainer on the GPU so the forward pass and the weight update stay on the device.
         SimpleCNN model(num_classes, image_size);
         Network trainer(model.get_all_layers(), learning_rate, gradient_clip);
         for (auto& layer : model.get_all_layers())
@@ -65,15 +67,16 @@ int main()
         }
         apply_sgd_hyperparameters(model.get_all_layers(), learning_rate, momentum, weight_decay);
         log_pipeline_banner({ "CIFAR-10 Custom", "custom", batch_size, total_epochs, learning_rate, momentum,
-            weight_decay, gradient_clip, pipeline_precision_name(config), num_classes, 0,
+            weight_decay, gradient_clip, num_classes, 0,
             static_cast<int>(model.get_all_layers().size()), data_root.string(),
             static_cast<std::size_t>(train_loader.size()), static_cast<std::size_t>(test_loader.size()) });
         LOG_FLUSH();
 
         fs::create_directories(results_dir);
         write_class_names(results_dir / "class_names.txt", class_names);
+        // Metrics CSV so each epoch appends a row for comparing runs later.
         std::ofstream csv_file((results_dir / "metrics_custom.csv").string());
-        csv_file << "Epoch;TrainLoss;TestLoss;Time(s);VRAM_MiB;TrainAcc;TestAcc\n";
+        csv_file << kClassificationCsvHeader << "\n";
 
         Profiler profiler;
         std::vector<int> confusion;
@@ -90,6 +93,7 @@ int main()
                 layer->train();
             }
 
+            // Training epoch: cross-entropy, backpropagation, and an SGD step so the weights fit the training images.
             float train_loss = 0.0F;
             float train_acc = 0.0F;
             const int train_batches = for_each_prefetched_batch(train_loader,
@@ -122,6 +126,7 @@ int main()
                 });
 
             LOG_DEBUG("CIFAR-10 epoch {} train done ({} batches). Starting eval ...", epoch, train_batches);
+            // Test pass in eval mode, to measure loss and accuracy on the test set.
             for (auto& layer : model.get_all_layers())
             {
                 layer->eval();
@@ -158,13 +163,13 @@ int main()
             log_train_epoch({ "CIFAR-10 Custom", epoch, total_epochs, current_lr, avg_train, avg_test, avg_train_acc,
                 avg_test_acc, std::nullopt, train_batches, elapsed, current_vram_mib() });
             LOG_DEBUG("CIFAR-10 Custom | GPU: {} ms", gpu_ms);
-            csv_file << epoch << ";" << avg_train << ";" << avg_test << ";" << elapsed << ";" << current_vram_mib() << ";"
-                     << avg_train_acc << ";" << avg_test_acc << "\n";
-            csv_file.flush();
+            write_classification_row(csv_file, epoch, avg_train, avg_test, elapsed, current_vram_mib(), avg_train_acc,
+                avg_test_acc);
         }
 
         write_confusion_csv(results_dir / "confusion_custom.csv", confusion, num_classes, class_names);
         write_classification_samples(results_dir / "samples_custom", samples, class_names);
+        // Save the weights at the end of the run so the same model can be loaded without repeating training.
         const std::string save_path = (results_dir / "simplecnn_cifar10_final.bin").string();
         trainer.save(save_path);
         log_saved("CIFAR-10 Custom", save_path);
