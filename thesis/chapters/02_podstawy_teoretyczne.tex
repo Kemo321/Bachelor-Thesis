@@ -1,0 +1,508 @@
+% !TeX root = ../main.tex
+\chapter{Podstawy teoretyczne}
+
+\section{Uczenie nadzorowane i wsad}
+
+Uczenie jest nadzorowane. Próbka ma wejście \(x\) i cel \(y\). Parametry to \(w\). Kryterium to skalar \(L\) liczony na GPU \cite{goodfellow2016deep}.
+
+Klasyfikacja obrazu i tabela dają cel one-hot o długości równej liczbie klas. Detekcja daje siatkę o układzie predykcji YOLOv1 \cite{redmon2016yolo}. Loader podaje wsad o rozmiarze \(N\). Entropia krzyżowa i \api{YOLOLoss} dzielą sumę przez \(N\). MSE dzieli sumę kwadratów przez liczbę elementów tensora. Krok widzi ten wsad, nie gradient po całym zbiorze \cite{goodfellow2016deep}.
+
+Przykład. CIFAR-10: \(x\) ma kształt \([128, 3, 32, 32]\), typ \texttt{float}, \(128 \cdot 3 \cdot 32 \cdot 32 \cdot 4 = 1\,572\,864\)~B. Cel \(y\) ma kształt \([128, 10]\), w wierszu jedna jedynka. VOC: \(x\) ma kształt \([16, 3, 448, 448]\), czyli \(16 \cdot 3 \cdot 448 \cdot 448 \cdot 4 = 38\,535\,168\)~B. Cel ma kształt \([16, 7, 7, 30]\) przy \(C = 20\).
+
+\section{Propagacja wsteczna}
+
+Warstwa dostaje tensor wejściowy i zwraca tensor wyjściowy. Dla \(y = f(x, w)\) obowiązuje reguła łańcuchowa \cite{goodfellow2016deep}
+\begin{equation}
+\label{eq:lancuch}
+\frac{\partial L}{\partial x}
+  = \frac{\partial L}{\partial y}\,\frac{\partial y}{\partial x},
+\qquad
+\frac{\partial L}{\partial w}
+  = \frac{\partial L}{\partial y}\,\frac{\partial y}{\partial w}.
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(L\) -- skalar straty.
+\item \(x\) -- tensor wejścia warstwy.
+\item \(y\) -- tensor wyjścia warstwy, \(y = f(x, w)\).
+\item \(w\) -- parametry tej warstwy. Warstwa bez wag nie ma drugiego iloczynu.
+\item \(\partial L / \partial y\) -- gradient wchodzący do \api{backward}.
+\item \(\partial L / \partial x\) -- gradient zwracany do poprzedniej warstwy.
+\item \(\partial L / \partial w\) -- gradient parametrów. Zostaje w polach warstwy do \api{step}.
+\end{itemize}
+
+Graf tych iloczynów nie powstaje. \api{backward} przyjmuje \(\partial L / \partial y\) i zwraca \(\partial L / \partial x\). Kolejność jest odwrotna do przebiegu w przód. Spłaszczenie i max pooling liczą tylko pochodną względem wejścia. Rozkład wag nie wchodzi do \api{backward}. Wchodzi w aktualizacji z równania~\eqref{eq:sgd}.
+
+Przykład. \api{Conv2d} na mapie \([16, 64, 112, 112]\), filtr \([192, 64, 3, 3]\), krok \(1\), dopełnienie \(1\). Wyjście ma kształt \([16, 192, 112, 112]\). \api{backward} dostaje gradient tego kształtu i zwraca gradient \([16, 64, 112, 112]\). Wejście to \(16 \cdot 64 \cdot 112 \cdot 112 \cdot 4 = 51\,380\,224\)~B.
+
+\section{Optymalizacja parametrów}
+
+\subsection{Stochastyczny spadek wzdłuż gradientu}
+
+Jądro \api{sgd\_update\_} wykonuje
+\begin{equation}
+\label{eq:sgd}
+u = g + \lambda w,
+\qquad
+w \leftarrow w - \eta\,\widetilde{u},
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(w\) -- jeden element parametru, bufor na GPU.
+\item \(g\) -- gradient tego elementu. Nie zawiera jeszcze \(\lambda w\).
+\item \(\lambda\) -- współczynnik rozkładu wag. Domyślnie \(0{,}0005\). JSON nadpisuje pole warstwy.
+\item \(u\) -- gradient po dodaniu członu \(L_2\) \cite{goodfellow2016deep}.
+\item \(\widetilde{u}\) -- \(u\) po obcięciu z równania~\eqref{eq:clip}. Przy progu \(0\) jest \(\widetilde{u} = u\).
+\item \(\eta\) -- krok przekazany do jądra. To pole \api{learning\_rate} warstwy.
+\end{itemize}
+
+Przykład. Element wagi \(w = 0{,}1\), \(g = 0{,}02\), \(\lambda = 0{,}0005\), \(\eta = 2 \cdot 10^{-5}\), próg obcięcia \(0\). Wtedy \(u = 0{,}02 + 0{,}0005 \cdot 0{,}1 = 0{,}02005\) i \(w \leftarrow 0{,}1 - 2 \cdot 10^{-5} \cdot 0{,}02005\).
+
+\subsection{Momentum, rozkład wag i obcinanie gradientu}
+
+Pęd \(\mu\) jest polem warstwy. Domyślnie \(\mu = 0\). Brak klucza w JSON daje w binariach \(\mu = 0{,}9\). Dla \(\mu > 0\) jądro \api{sgd\_momentum\_update\_} wykonuje
+\begin{equation}
+\label{eq:momentum}
+v \leftarrow \mu v + \widetilde{u},
+\qquad
+w \leftarrow w - \eta v,
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(\mu\) -- pęd SGD. To nie jest \(m\) ze statystyk kroczących normalizacji wsadowej.
+\item \(v\) -- bufor prędkości, ten sam kształt co \(w\). Startuje od zera \cite{goodfellow2016deep}.
+\item \(\widetilde{u}\), \(\eta\), \(w\) -- jak w równaniu~\eqref{eq:sgd}.
+\end{itemize}
+
+Splot, warstwa gęsta oraz \(\gamma\) i \(\beta\) w \api{FusedCBR2d} biorą równanie~\eqref{eq:momentum}, gdy \(\mu > 0\). \api{BatchNorm2d::step} zawsze woła równanie~\eqref{eq:sgd}.
+
+Obcięcie jest progowe:
+\begin{equation}
+\label{eq:clip}
+\widetilde{u} =
+\begin{cases}
+\min(\max(u, -c), c) & \text{gdy } c > 0,\\
+u & \text{gdy } c \le 0.
+\end{cases}
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(c\) -- próg obcięcia w jądrze. W eksperymentach pole bywa zerem.
+\item \(u\) -- suma \(g + \lambda w\). Człon rozkładu wag wchodzi pod ten sam próg.
+\item \(\widetilde{u}\) -- wartość podstawiana do równań~\eqref{eq:sgd} i~\eqref{eq:momentum}.
+\end{itemize}
+
+Przy \(c > 0\) program przed \api{step} obcina gradient straty i gradienty parametrów do \([-c, c]\). Próg \(c\) jest polem \api{gradient\_clip}.
+
+Przykład. \(\mu = 0{,}9\), \(\widetilde{u} = 0{,}02005\), \(v = 0\) w pierwszym kroku. Wtedy \(v \leftarrow 0{,}02005\) i \(w\) maleje o \(\eta \cdot 0{,}02005\). Bufor \(v\) ma tyle elementów \texttt{float}, ile waga. Filtr \([192, 64, 3, 3]\) to \(192 \cdot 64 \cdot 9 \cdot 4 = 442\,368\)~B na prędkość.
+
+\subsection{Harmonogram współczynnika uczenia}
+
+Na początku epoki \api{scheduled\_learning\_rate} wpisuje wynik do \api{learning\_rate} każdej warstwy. Niepusta lista \api{lr\_schedule} daje pierwszy wpis, którego \api{until\_epoch} jest nie mniejsze niż numer epoki. Ta wartość jest \(\eta\) przekazywanym do jądra.
+
+Bez listy zostaje spadek schodkowy. Progi to \(\mathrm{round}(0{,}7E)\) i \(\mathrm{round}(0{,}9E)\), nie mniejsze niż \(1\). Drugi próg jest nie mniejszy niż pierwszy. Dla epoki \(t\)
+\begin{equation}
+\label{eq:schedule}
+\eta_0(t) =
+\begin{cases}
+\eta_0 & \text{gdy } t \le \mathrm{round}(0{,}7E),\\
+0{,}1\,\eta_0 & \text{gdy } \mathrm{round}(0{,}7E) < t \le \mathrm{round}(0{,}9E),\\
+0{,}01\,\eta_0 & \text{w pozostałych epokach.}
+\end{cases}
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(\eta_0\) -- bazowy współczynnik. Brak klucza \api{learning\_rate} daje \(10^{-4}\).
+\item \(E\) -- liczba epok z JSON.
+\item \(t\) -- numer epoki, od \(1\).
+\item \(\eta_0(t)\) -- wartość wpisywana do pola warstwy i przekazywana do jądra jako \(\eta\).
+\end{itemize}
+
+Listę \api{lr\_schedule} mają VOC, BCCD, zbiór syntetyczny, CIFAR-10 i MNIST. Równanie~\eqref{eq:schedule} tam nie działa. Listy nie mają Iris, Wisconsin, \api{tabular\_demo} i przeuczenie VOC.
+
+Przykład. Przeuczenie: \(\eta_0 = 2 \cdot 10^{-5}\), \(E = 300\). Progi to \(\mathrm{round}(210) = 210\) i \(\mathrm{round}(270) = 270\). Epoka \(211\) dostaje \(2 \cdot 10^{-6}\). Epoka \(271\) dostaje \(2 \cdot 10^{-7}\).
+
+\section{Operacje warstw wykorzystywane w silniku}
+
+\subsection{Splot dwuwymiarowy}
+
+\api{Conv2d} czyta tensor NCHW. Filtr ma kształt \([C_{\mathrm{out}}, C_{\mathrm{in}}, k, k]\). Deskryptor cuDNN stoi w \api{CUDNN\_CROSS\_CORRELATION}: jądro nie jest odbijane \cite{nvidia-cudnn}. Dla jednego kanału wyjściowego
+\begin{equation}
+\label{eq:conv}
+y_{c_{\mathrm{out}}, h, w}
+  = b_{c_{\mathrm{out}}}
+  + \sum_{c_{\mathrm{in}}} \sum_{i=0}^{k-1} \sum_{j=0}^{k-1}
+    x_{c_{\mathrm{in}},\, hs + i - p,\, ws + j - p}\,
+    K_{c_{\mathrm{out}}, c_{\mathrm{in}}, i, j}.
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(x\) -- wejście, indeksy kanału, wiersza i kolumny. Układ pamięci NCHW.
+\item \(y\) -- wyjście.
+\item \(c_{\mathrm{out}}\), \(c_{\mathrm{in}}\) -- indeks kanału wyjściowego i wejściowego.
+\item \(h\), \(w\) -- wiersz i kolumna wyjścia.
+\item \(K\) -- filtr. Ostatnie dwa wymiary to okno \(k \times k\).
+\item \(i\), \(j\) -- przesunięcie wewnątrz okna, od \(0\) do \(k-1\).
+\item \(s\) -- krok splotu.
+\item \(p\) -- dopełnienie. Poza zakresem \(x\) składnik nie wchodzi do sumy.
+\item \(b_{c_{\mathrm{out}}}\) -- obciążenie tego kanału, osobny tensor.
+\end{itemize}
+
+Szerokość wyjścia, ten sam wzór dla wysokości:
+\begin{equation}
+\label{eq:conv-out}
+W_{\mathrm{out}}
+  = \left\lfloor \frac{W + 2p - k}{s} \right\rfloor + 1.
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(W\) -- szerokość wejścia w pikselach.
+\item \(W_{\mathrm{out}}\) -- szerokość wyjścia.
+\item \(p\), \(k\), \(s\) -- jak w równaniu~\eqref{eq:conv}. Wartości są stałe od konstruktora.
+\end{itemize}
+
+Pochodne względem \(x\), \(K\) i \(b\) liczy cuDNN \cite{chetlur2014cudnn}.
+
+Przykład. Wsad \([16, 64, 112, 112]\), \(k = 3\), \(s = 1\), \(p = 1\), \(C_{\mathrm{out}} = 192\). \(W_{\mathrm{out}} = \lfloor (112 + 2 - 3) / 1 \rfloor + 1 = 112\). Wyjście \([16, 192, 112, 112]\). Filtr: \(192 \cdot 64 \cdot 3 \cdot 3 \cdot 4 = 442\,368\)~B.
+
+\subsection{Normalizacja wsadowa}
+
+Jedna średnia i jedna wariancja na kanał, po osiach wsadu, wysokości i szerokości \cite{ioffe2015batch}:
+\begin{equation}
+\label{eq:bn}
+\hat{x} = (x - \mu)\,(\sigma^2 + \varepsilon)^{-1/2},
+\qquad
+y = \gamma \hat{x} + \beta.
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(x\), \(y\) -- aktywacja przed normalizacją i po niej. Ten sam kształt NCHW.
+\item \(\mu\), \(\sigma^2\) -- średnia i wariancja kanału. W uczeniu z bieżącego wsadu. W ewaluacji ze statystyk kroczących.
+\item \(\varepsilon\) -- próg stabilizacji. Konstruktor daje \(10^{-5}\). Wywołanie bierze maksimum tej wartości i \api{CUDNN\_BN\_MIN\_EPSILON}.
+\item \(\hat{x}\) -- aktywacja po standaryzacji, przed skalą.
+\item \(\gamma\), \(\beta\) -- skala i przesunięcie, jeden element na kanał.
+\end{itemize}
+
+W \api{BatchNorm2d::forward} pole \api{momentum\_bn\_} wchodzi do \api{cudnnBatchNormalizationForwardTraining} jako \api{average\_factor}. \api{Layer::momentum} tam nie idzie. W \api{FusedCBR2d} jądro aktualizuje statystyki tak:
+\begin{equation}
+\label{eq:bn-run}
+\mu_{\mathrm{run}} \leftarrow (1 - m)\,\mu_{\mathrm{run}} + m\,\mu,
+\qquad
+\sigma^2_{\mathrm{run}} \leftarrow (1 - m)\,\sigma^2_{\mathrm{run}} + m\,\sigma^2,
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(\mu_{\mathrm{run}}\), \(\sigma^2_{\mathrm{run}}\) -- statystyki trzymane między wsadami.
+\item \(\mu\), \(\sigma^2\) -- statystyki bieżącego wsadu.
+\item \(m\) -- waga bieżącego wsadu. Domyślnie \(0{,}1\). To nie jest pęd SGD \(\mu\).
+\end{itemize}
+
+Wariancja wsadu w tym bloku to \(\mathbb{E}[x^2] - \mu^2\), obcięta od dołu do zera. Samodzielna \api{BatchNorm2d} oddaje ten schemat cuDNN i przekazuje \(m\) jako wagę wsadu \cite{nvidia-cudnn}. Po normalizacji \api{FusedCBR2d} stosuje Leaky ReLU z nachyleniem warstwy. W ewaluacji statystyki kroczące nie są aktualizowane.
+
+Przykład. Mapa \([16, 192, 112, 112]\). Na kanał \(\mu\) jest średnią z \(16 \cdot 112 \cdot 112 = 200\,704\) elementów. Wektory \(\gamma\) i \(\beta\) mają \(192\) elementy \texttt{float}, razem \(192 \cdot 2 \cdot 4 = 1\,536\)~B.
+
+\subsection{Redukcja maksymalizująca}
+
+\api{MaxPool2d} liczy maksimum w oknie kwadratowym. Dopełnienie wynosi zero \cite{goodfellow2016deep}:
+\begin{equation}
+\label{eq:pool}
+y_{c, h, w}
+  = \max_{0 \le i, j < k}
+    x_{c,\, hs + i,\, ws + j},
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(x\), \(y\) -- wejście i wyjście, ten sam kanał \(c\).
+\item \(k\) -- bok okna.
+\item \(s\) -- krok.
+\item \(i\), \(j\) -- przesunięcie w oknie. Indeks poza tensorem nie wchodzi do maksimum.
+\item \(h\), \(w\) -- położenie wyjścia.
+\end{itemize}
+
+Wymiar wyjścia bierze równanie~\eqref{eq:conv-out} przy \(p = 0\). Deskryptor: \api{CUDNN\_POOLING\_MAX} i \api{CUDNN\_NOT\_PROPAGATE\_NAN} \cite{nvidia-cudnn}. Pochodna wymaga zapisanych tensorów wejścia i wyjścia. Parametrów nie ma.
+
+Przykład. Wejście \([16, 192, 112, 112]\), \(k = 2\), \(s = 2\). \(W_{\mathrm{out}} = \lfloor (112 - 2) / 2 \rfloor + 1 = 56\). Wyjście \([16, 192, 56, 56]\), czyli \(16 \cdot 192 \cdot 56 \cdot 56 \cdot 4 = 38\,535\,168\)~B.
+
+\subsection{Warstwa w pełni połączona}
+
+Wejście \api{FullyConnected} ma kształt \([N, F_{\mathrm{in}}]\). Waga ma kształt \([F_{\mathrm{in}}, F_{\mathrm{out}}]\). Obciążenie ma kształt \([1, F_{\mathrm{out}}]\) \cite{goodfellow2016deep}:
+\begin{equation}
+\label{eq:fc}
+Y = XW + b.
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(X\) -- macierz wejścia, wiersz to jedna próbka, \(N\) wierszy, \(F_{\mathrm{in}}\) kolumn.
+\item \(W\) -- macierz wag. Układ własny to \([F_{\mathrm{in}}, F_{\mathrm{out}}]\), nie \([F_{\mathrm{out}}, F_{\mathrm{in}}]\).
+\item \(b\) -- obciążenie dodawane do każdego wiersza.
+\item \(Y\) -- wyjście \([N, F_{\mathrm{out}}]\).
+\end{itemize}
+
+Przy gradiencie \(G = \partial L / \partial Y\):
+\begin{equation}
+\label{eq:fc-grad}
+\frac{\partial L}{\partial W} = X^{\top} G,
+\qquad
+\frac{\partial L}{\partial b} = \sum_{n=1}^{N} G_{n,:},
+\qquad
+\frac{\partial L}{\partial X} = G W^{\top}.
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(G\) -- gradient wyjścia, kształt \([N, F_{\mathrm{out}}]\).
+\item \(X^{\top} G\) -- gradient wagi, kształt \([F_{\mathrm{in}}, F_{\mathrm{out}}]\).
+\item \(G_{n,:}\) -- wiersz \(n\) macierzy \(G\). Suma daje kształt \([1, F_{\mathrm{out}}]\).
+\item \(G W^{\top}\) -- gradient wejścia, kształt \([N, F_{\mathrm{in}}]\).
+\item \(N\) -- liczba wierszy wsadu.
+\end{itemize}
+
+W \api{src/FullyConnected.cpp} \api{backward} woła \api{matmul\_into} na gradient wagi z \api{transpose\_a} i z \api{beta} równym \api{inertia\_}. \api{add\_sum\_rows\_} dostaje to samo \api{inertia\_}. Gradient wejścia woła \api{matmul\_into} z \api{transpose\_b} i z \api{beta} równym \(0\). W \api{plan\_rowmajor\_gemm} \api{trans\_a} dostaje \api{CUBLAS\_OP\_T}, gdy \api{transpose\_b} jest prawdziwe, a \api{trans\_b} dostaje \api{CUBLAS\_OP\_T}, gdy \api{transpose\_a} jest prawdziwe. \api{cublasGemmEx} dostaje wskaźnik drugiego operandu jako pierwszą macierz \cite{nvidia-cublas}. \api{inertia\_} nie jest pędem SGD. Głowica w \api{YOLO.cpp} woła konstruktor dwuargumentowy, więc \api{inertia\_} zostaje \(0\).
+
+Przykład. Głowica: \(X\) ma kształt \([16, 50176]\), \(W\) ma kształt \([50176, 4096]\). \(W\) to \(50176 \cdot 4096 \cdot 4 = 822\,083\,584\)~B. \(Y\) ma kształt \([16, 4096]\). Druga warstwa idzie z \(4096\) do \(1470 = 7 \cdot 7 \cdot 30\).
+
+\subsection{LeakyReLU, Dropout, Softmax i spłaszczenie tensora}
+
+Leaky ReLU z nachyleniem \(s\) \cite{redmon2016yolo}:
+\begin{equation}
+\label{eq:leaky}
+y =
+\begin{cases}
+x & \text{gdy } x > 0,\\
+s x & \text{gdy } x \le 0.
+\end{cases}
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(x\), \(y\) -- jeden element tensora. Kształt się nie zmienia.
+\item \(s\) -- nachylenie strony niedodatniej. Domyślnie \(0{,}1\).
+\end{itemize}
+
+Pochodna wynosi \(1\) dla \(x > 0\) i \(s\) dla \(x \le 0\). W ewaluacji wzór jest ten sam.
+
+Przykład. Element \(x = -2\) przy \(s = 0{,}1\) daje \(y = -0{,}2\). Gradient wejścia w tym elemencie to \(0{,}1 \cdot \partial L / \partial y\).
+
+Dropout jest odwrócony \cite{srivastava2014dropout}. Prawdopodobieństwo wyzerowania \(p\) leży w \([0, 1)\), domyślnie \(0{,}5\). W uczeniu maska elementu wynosi \(1/(1-p)\), gdy liczba z \([0, 1)\) jest mniejsza niż \(1-p\), w przeciwnym razie \(0\). Wyjście jest iloczynem wejścia i maski. Ta sama maska mnoży gradient. W ewaluacji wyjście jest równe wejściu.
+
+Przykład. \(p = 0{,}5\), element \(x = 1{,}2\). Liczba \(0{,}2 < 0{,}5\) daje maskę \(2\) i \(y = 2{,}4\). Liczba \(0{,}7\) daje maskę \(0\) i \(y = 0\).
+
+Softmax woła cuDNN w trybie \api{CUDNN\_SOFTMAX\_ACCURATE} i \api{CUDNN\_SOFTMAX\_MODE\_CHANNEL} \cite{nvidia-cudnn}. Tryb dokładny odejmuje maksimum przed funkcją wykładniczą. Oś normalizacji jest osią kanałów.
+
+Spłaszczenie nie liczy wartości. Zamienia \([N, \ldots]\) na \([N, F]\). \(F\) jest iloczynem pozostałych wymiarów. \api{backward} wraca do kształtu zapisanego w przebiegu w przód.
+
+Przykład. Mapa \([16, 1024, 7, 7]\) po \api{Flatten} ma kształt \([16, 50176]\). Liczba bajtów się nie zmienia: \(16 \cdot 1024 \cdot 7 \cdot 7 \cdot 4 = 3\,211\,264\)~B. Widok wskazuje ten sam bufor.
+
+\section{Funkcje straty}
+
+\subsection{Błąd średniokwadratowy}
+
+\api{MSELoss} porównuje dwa tensory o identycznym kształcie na GPU \cite{goodfellow2016deep}:
+\begin{equation}
+\label{eq:mse}
+L = \frac{1}{M}\sum_{i=1}^{M}(\hat{y}_i - y_i)^2,
+\qquad
+\frac{\partial L}{\partial \hat{y}_i} = \frac{2}{M}(\hat{y}_i - y_i).
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(\hat{y}_i\) -- element predykcji.
+\item \(y_i\) -- element celu. Ten sam indeks liniowy.
+\item \(M\) -- liczba elementów tensora, nie rozmiar wsadu \(N\).
+\item \(L\) -- skalar. Pusty tensor daje \(0\).
+\end{itemize}
+
+Układu siatki ani liczby klas ta strata nie narzuca.
+
+Przykład. Dwa tensory \([8, 10]\). \(M = 80\). Jeden element \(\hat{y} = 0{,}5\), \(y = 0\) wnosi do sumy \(0{,}25\), a do gradientu \(2/80 \cdot 0{,}5 = 0{,}0125\).
+
+\subsection{Entropia krzyżowa na logitach}
+
+\api{CrossEntropyLoss} bierze logity i cel o kształcie \([N, C]\). Softmax jest liczony w stracie, wiersz po wierszu. To nie jest warstwa \api{Softmax}. Dla wiersza \(z\)
+\begin{equation}
+\label{eq:softmax}
+p_c = \frac{\exp(z_c - \max_k z_k)}{\sum_{j=1}^{C}\exp(z_j - \max_k z_k)}.
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(z_c\) -- logit klasy \(c\) w jednym wierszu.
+\item \(C\) -- liczba klas, liczba kolumn.
+\item \(k\), \(j\) -- indeksy klas w tym samym wierszu.
+\item \(\max_k z_k\) -- maksimum wiersza, odejmowane przed funkcją wykładniczą.
+\item \(p_c\) -- prawdopodobieństwo klasy \(c\). Suma po \(c\) wynosi \(1\).
+\end{itemize}
+
+Gdy maksimum wiersza nie jest skończone, wiersz dostaje \(1/C\) w każdej kolumnie. Strata \cite{goodfellow2016deep}:
+\begin{equation}
+\label{eq:ce}
+L = \frac{1}{N}\sum_{n=1}^{N}\sum_{c=1}^{C}
+  -\, y_{n,c}\,\log \tilde{p}_{n,c},
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(N\) -- liczba wierszy wsadu.
+\item \(y_{n,c}\) -- cel. W loaderach klasyfikacji jest to one-hot: jedna jedynka w wierszu.
+\item \(\tilde{p}_{n,c}\) -- \(p_{n,c}\) obcięte do \([10^{-7}, 1]\) przed logarytmem.
+\item \(L\) -- średnia po wierszach.
+\end{itemize}
+
+Pochodna względem logitów wynosi \((p - y) / N\). Warstwa softmax nie leży na tej ścieżce.
+
+Przykład. MNIST, wsad \(128\), \(C = 10\). Logity i cel mają kształt \([128, 10]\), czyli \(128 \cdot 10 \cdot 4 = 5\,120\)~B każdy. Wiersz z jedynką w klasie \(3\) dokłada do sumy tylko składnik \(-\log \tilde{p}_{n,3}\).
+
+\subsection{Funkcja straty YOLOv1: współrzędne, objectness i klasy}
+
+\api{YOLOLoss} dotyczy siatki \(S \times S\) przy \(S = 7\), dwóch ramek na komórkę i \(C\) klas \cite{redmon2016yolo}. Predykcja ma kształt \([N, 7, 7, 10+C]\) albo \([N, 7 \cdot 7 \cdot (10+C)]\). W komórce pierwsze pięć liczb to \(x\), \(y\), \(w\), \(h\) i ufność pierwszej ramki. Kolejne pięć to druga ramka. Dalej leżą wyniki klas. \(x\) i \(y\) są przesunięciem środka wewnątrz komórki. \(w\) i \(h\) są ułamkiem obrazu. W jądrze \(\lambda_{\mathrm{coord}} = 5\) i \(\lambda_{\mathrm{noobj}} = 0{,}5\).
+
+IoU liczy się po przeniesieniu środków do układu obrazu: \((x + j)/S\) oraz \((y + i)/S\). \(i\) i \(j\) to wiersz i kolumna komórki. Ramka ma ten środek oraz boki \(w\) i \(h\). IoU jest ilorazem pola przecięcia i pola sumy. Mianownik sumy jest powiększony o \(10^{-7}\). Pierwiastek \(w\) i \(h\) nie schodzi poniżej tego progu.
+
+Odpowiedzialna jest ramka o większym IoU, i tylko gdy ufność celu wynosi \(1\). Przy równych IoU zostaje pierwsza ramka: jądro sprawdza warunek ostry. Składniki jednej komórki:
+\begin{align}
+\label{eq:yolo}
+L_{\mathrm{xywh}}
+  &= \lambda_{\mathrm{coord}} \sum_{b=1}^{2} r_b \Big(
+      (x_b - t_x)^2 + (y_b - t_y)^2
+      + (\sqrt{w_b} - \sqrt{t_w})^2
+      + (\sqrt{h_b} - \sqrt{t_h})^2 \Big),\\
+L_{\mathrm{conf}}
+  &= \sum_{b=1}^{2} r_b (c_b - \mathrm{IoU}_b)^2
+   + \lambda_{\mathrm{noobj}} \sum_{b=1}^{2} (1 - r_b)\, c_b^2,\\
+L_{\mathrm{cls}}
+  &= t_{\mathrm{obj}} \sum_{c=1}^{C} (p_c - t_c)^2.
+\end{align}
+gdzie:
+\begin{itemize}
+\item \(L_{\mathrm{xywh}}\), \(L_{\mathrm{conf}}\), \(L_{\mathrm{cls}}\) -- składniki jednej komórki: współrzędne, ufność, klasy.
+\item \(\lambda_{\mathrm{coord}}\) -- waga współrzędnych, stała \(5\).
+\item \(\lambda_{\mathrm{noobj}}\) -- waga ufności predyktora bez obiektu, stała \(0{,}5\).
+\item \(b\) -- numer ramki w komórce, \(1\) albo \(2\).
+\item \(r_b\) -- \(1\), gdy ramka \(b\) jest odpowiedzialna, w przeciwnym razie \(0\).
+\item \(x_b\), \(y_b\), \(w_b\), \(h_b\) -- predykcja ramki \(b\).
+\item \(t_x\), \(t_y\), \(t_w\), \(t_h\) -- cel z pierwszych pięciu liczb komórki.
+\item \(c_b\) -- ufność predykcji ramki \(b\).
+\item \(\mathrm{IoU}_b\) -- IoU ramki \(b\) z ramką celu.
+\item \(t_{\mathrm{obj}}\) -- maska obiektu celu. Przy \(0\) składnik klas znika.
+\item \(C\) -- liczba klas.
+\item \(p_c\), \(t_c\) -- wynik klasy i cel klasy. Wektor zaczyna się na offsecie \(10\).
+\end{itemize}
+
+Strata komórki jest sumą trzech składników. \api{loss} zwraca sumę strat komórek wsadu podzieloną przez \(N\), nie przez liczbę komórek. Pochodna dzieli przez to samo \(N\). Skala straty różna od \(1\) mnoży gradient potem. Dla \(x\) i \(y\) jądro ma czynnik \(2\lambda_{\mathrm{coord}}\). Dla \(w\) i \(h\) czynnik \(2\) skraca się z pochodną pierwiastka: w gradiencie zostaje iloraz różnicy pierwiastków i pierwiastka predykcji. Gdy \(w\) albo \(h\) nie przekracza \(10^{-7}\), ten składnik gradientu jest zerem.
+
+Przykład. \(C = 20\), jedna komórka to \(30\) wartości \texttt{float}, \(120\)~B. Siatka \(7 \times 7\) to \(49 \cdot 30 = 1470\) wartości, \(5\,880\)~B na obraz. Wsad \([16, 7, 7, 30]\) to \(94\,080\)~B. Jądro odpala jeden wątek na komórkę: \(16 \cdot 49 = 784\) wątki.
+
+\section{Detekcja YOLOv1}
+
+\subsection{Siatka, dwa predyktory na komórkę i kodowanie ramki}
+
+Detektor w \api{benchmarks/models/YOLO.cpp} kończy się warstwą gęstą o szerokości \(7 \cdot 7 \cdot (10 + C)\). Cel ma ten sam układ. W komórce są dwa sloty po pięć liczb i jeden wektor \(C\) klas \cite{redmon2016yolo}. Kolejność w slocie: \(x\), \(y\), \(w\), \(h\), ufność. Klasy zaczynają się na offsecie \(10\).
+
+Obraz ma bok \(448\). Piksel jest dzielony przez \(255\), więc wejście leży w \([0, 1]\). Ramka z etykiety ma środek i boki jako ułamki obrazu. W uczeniu loader przelicza je przez skalę i przesunięcie augmentacji, potem odrzuca środek poza \([0, 1]\). Komórka powstaje z obcięcia iloczynu środka i \(S\) do \(\{0, \ldots, 6\}\). Zapis w pierwszym wolnym slocie:
+\begin{equation}
+\label{eq:yolo-encode}
+t_x = x_c S - j,
+\quad
+t_y = y_c S - i,
+\quad
+t_w = w,
+\quad
+t_h = h,
+\quad
+t_{\mathrm{obj}} = 1.
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(x_c\), \(y_c\) -- środek ramki po korekcie, ułamek obrazu.
+\item \(S\) -- bok siatki, \(7\).
+\item \(i\), \(j\) -- wiersz i kolumna komórki, liczby całkowite z \(\{0, \ldots, 6\}\).
+\item \(t_x\), \(t_y\) -- przesunięcie środka wewnątrz komórki, przedział \([0, 1)\).
+\item \(w\), \(h\) -- boki jako ułamek obrazu. Trafiają do celu bez dzielenia przez \(S\).
+\item \(t_{\mathrm{obj}}\) -- maska obiektu zapisywana w slocie.
+\end{itemize}
+
+Jedynka klasy ląduje w polu \(10 + \mathrm{id}\). Drugi obiekt w tej samej komórce zajmuje drugi slot, gdy ufność pierwszego jest już \(1\). Trzeci obiekt jest pomijany. Wektor klas jest jeden, więc drugi obiekt nadpisuje jedynkę klasy.
+
+Przykład. Środek \((0{,}5,\ 0{,}5)\), \(S = 7\). Iloczyn \(3{,}5\) daje komórkę \(i = j = 3\). Wtedy \(t_x = t_y = 0{,}5\). Klasa o indeksie \(14\) zapisuje jedynkę pod offsetem \(24\).
+
+\subsection{Odpowiedzialność predyktora według IoU}
+
+Przypisanie w stracie nie czyta numeru slotu loadera. \api{YOLOLoss} bierze współrzędne celu i maskę obiektu z pierwszych pięciu liczb komórki. Oba predyktory są porównywane z tą jedną ramką. Odpowiedzialny jest predyktor o większym IoU, i tylko gdy maska wynosi \(1\). Przy równych IoU zostaje pierwszy \cite{redmon2016yolo}.
+
+\(r_1\) i \(r_2\) z równania~\eqref{eq:yolo} mnożą błąd współrzędnych i błąd ufności odpowiedzialnego predyktora. Predyktor bez odpowiedzialności dokłada \(\lambda_{\mathrm{noobj}} c_b^2\). Współrzędne drugiego slotu celu nie wchodzą do \(L_{\mathrm{xywh}}\).
+
+\subsection{Dekodowanie, progowanie ufności i NMS}
+
+\api{decode\_yolo\_tensor} odwraca równanie~\eqref{eq:yolo-encode} na hoście, po skopiowaniu predykcji z GPU. Klasa jest indeksem największego wyniku. Remis zostawia mniejszy indeks. Ufność równa progowi albo od niego mniejsza jest odrzucana. Zachowana ramka ma wynik równy samej ufności. Wynik klasy tego wyniku nie mnoży. Przy szerokości obrazu \(W\) i wysokości \(H\):
+\begin{equation}
+\label{eq:yolo-decode}
+c_x = \frac{t_x + j}{S}\, W,
+\quad
+x_{\min} = \max\left(0,\ \left\lfloor c_x - \frac{w W}{2} \right\rfloor\right).
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(t_x\), \(j\), \(S\), \(w\) -- jak w równaniu~\eqref{eq:yolo-encode}, tu czytane z predykcji.
+\item \(W\) -- szerokość obrazu w pikselach.
+\item \(c_x\) -- środek ramki w pikselach, oś \(x\).
+\item \(x_{\min}\) -- lewy brzeg, liczba całkowita, nie mniejsza niż \(0\).
+\end{itemize}
+
+\(y_{\min}\) powstaje tak samo. Szerokość i wysokość zostają liczbami \(w W\) oraz \(h H\).
+
+\api{apply\_nms} sortuje ramki malejąco po wyniku, osobno w każdej klasie. Ramka późniejsza znika, gdy jej IoU z pozostawioną ramką tej samej klasy jest większe niż próg. To IoU liczy prostokąty \api{cv::Rect}, więc boki są obcinane do pikseli całkowitych. Próg równy dokładnie IoU ramki jej nie usuwa. Progi ufności i NMS biorą się z bloku JSON.
+
+Przykład. \(S = 7\), \(j = 3\), \(t_x = 0{,}5\), \(w = 0{,}2\), \(W = 448\). Środek \(c_x = (0{,}5 + 3) / 7 \cdot 448 = 224\). Lewy brzeg to \(\lfloor 224 - 0{,}2 \cdot 448 / 2 \rfloor = \lfloor 179{,}2 \rfloor = 179\).
+
+\section{Metryki jakości}
+
+\subsection{Dokładność klasyfikacji}
+
+Dokładność czyta logity \([N, C]\) i cel one-hot. Indeks największej wartości w wierszu jest decyzją. Remis zostawia mniejszy indeks. Próbka jest trafiona, gdy indeks w logitach jest równy indeksowi w celu. Wynik wsadu to liczba trafień podzielona przez \(N\). Przy \(N = 0\) dzielnik w kodzie wynosi \(1\), więc wynik jest zerem. Liczenie idzie po \api{to\_host}. Ta sama reguła dotyczy sieci obrazowej i perceptronu.
+
+Przykład. Wiersz logitów \([0{,}1,\ 0{,}1,\ 2{,}0]\) i cel \([0,\ 0,\ 1]\) dają trafienie: argmax to klasa \(2\). Dwa równe maksima zostawiają mniejszy indeks.
+
+\subsection{mAP przy progu IoU 0,5 w wariancie 11-punktowym}
+
+Średnia precyzja jest liczona na hoście, na wektorach \api{Detection}. Domyślny próg IoU wynosi \(0{,}5\) i leży w \([0, 1]\) \cite{everingham2010voc}. IoU używa \(x\), \(y\), szerokości i wysokości jako \texttt{float}. Mianownik sumy pól nie schodzi poniżej \(10^{-7}\). To inne wywołanie niż IoU w NMS.
+
+Predykcje jednej klasy są sortowane malejąco po wyniku. Każda jest parowana z jeszcze niezużytą ramką wzorcową o największym IoU. Para jest trafieniem, gdy IoU jest nie mniejsze niż próg. Wzorzec zużywa się co najwyżej raz. Z trafień i pomyłek powstają skumulowane precyzja i czułość. Jedenastopunktowa precyzja średnia bierze progi czułości \(k/10\) dla \(k = 0, \ldots, 10\). Dla progu \(r\) wstawiana jest największa precyzja wśród punktów o czułości co najmniej \(r\). Brak takiego punktu daje zero. Precyzja średnia klasy jest średnią tych jedenastu wartości.
+
+mAP jest nieważoną średnią precyzji klas, które mają choć jedną ramkę wzorcową. Klasa obecna tylko wśród predykcji nie wchodzi do mianownika. Klasa wzorcowa bez predykcji wnosi zero. Pusty zbiór wzorców daje mAP równe zero. W eksperymentach detekcji próg przekazany do funkcji wynosi \(0{,}5\).
+
+Przykład. Jedna klasa, jedenaście progów \(0,\ 0{,}1,\ \ldots,\ 1\). Każdy próg wnosi precyzję z przedziału \([0, 1]\). Średnia tych jedenastu liczb jest AP tej klasy. Przy \(20\) klasach z ramką wzorcową mAP jest średnią dwudziestu takich AP.
+
+\section{Akceleracja na GPU}
+
+\subsection{Model wykonania CUDA: strumienie, zdarzenia i pamięć urządzenia}
+
+Splot, max pooling, normalizacja wsadowa, softmax i \api{matmul\_into} dostają strumień ustawiony przed warstwą. cuDNN jest wiązany przez \api{bind\_cudnn\_stream}. \api{matmul\_into} przed mnożeniem woła \api{cublasSetStream} \cite{nvidia-cuda}. Pamięć wartości pochodzi z \api{cudaMalloc}. Splot trzyma przestrzeń roboczą cuDNN, dobraną przy pierwszym wyborze algorytmu dla danego kształtu. Przebieg w przód tych warstw nie woła synchronizacji hosta. \api{Profiler} mierzy odcinek parą \api{cudaEvent}.
+
+Przykład. Wejście detekcji \([16, 3, 448, 448]\) leży w jednym bloku \api{cudaMalloc} o rozmiarze \(38\,535\,168\)~B. \api{forward} nie kopiuje tego bloku na host. \api{to\_host} woła \api{cudaMemcpyAsync}, a potem \api{cudaStreamSynchronize}.
+
+\subsection{cuDNN jako realizacja splotu, poolingu, normalizacji wsadowej i Softmax}
+
+\api{Conv2d} najpierw woła \api{cudnnConvolutionBiasActivationForward} z aktywacją tożsamościową. Przy błędzie splot i obciążenie idą osobno: \api{cudnnConvolutionForward} oraz \api{cudnnAddTensor}. Pochodne: \api{cudnnConvolutionBackwardData}, \api{cudnnConvolutionBackwardFilter}, \api{cudnnConvolutionBackwardBias}. Algorytm jest wybierany raz, przez \api{cudnnGetConvolutionForwardAlgorithm\_v7} i analogiczne wywołania dla pochodnych \cite{chetlur2014cudnn,nvidia-cudnn}. Deskryptor tensora jest NCHW.
+
+\api{MaxPool2d} woła \api{cudnnPoolingForward} i \api{cudnnPoolingBackward}. \api{BatchNorm2d} w uczeniu woła \api{cudnnBatchNormalizationForwardTraining}, w ewaluacji \api{cudnnBatchNormalizationForwardInference}, w pochodnej \api{cudnnBatchNormalizationBackward}. Tryb to \api{CUDNN\_BATCHNORM\_SPATIAL}. \api{Softmax} woła \api{cudnnSoftmaxForward} i \api{cudnnSoftmaxBackward}. \api{FusedCBR2d} zostawia splot w cuDNN. Afiniczną normalizację wsadową i Leaky ReLU liczy własnym jądrem. Pochodna tej normalizacji wraca do \api{cudnnBatchNormalizationBackward}.
+
+\subsection{cuBLAS i iloczyn macierzy z logiczną transpozycją}
+
+\api{matmul\_into} realizuje \(C = \alpha \,\mathrm{op}(A)\,\mathrm{op}(B) + \beta C\) przez \api{cublasGemmEx}. W wywołaniu \(\alpha = 1\).
+\begin{itemize}
+\item \(A\), \(B\) -- operandy wierszowe na GPU.
+\item \(\mathrm{op}\) -- identyczność albo transpozycja. Flagi są zamienione miejscami, bo cuBLAS jest kolumnowy: \api{trans\_a} zależy od \api{transpose\_b}, \api{trans\_b} od \api{transpose\_a}.
+\item \(C\) -- bufor wyniku. Ten sam wskaźnik stoi po prawej stronie, gdy \(\beta \neq 0\).
+\item \(\alpha\) -- skala iloczynu, tu \(1\).
+\item \(\beta\) -- skala dotychczasowej zawartości \(C\). W warstwie gęstej jest to \api{inertia\_} albo \(0\).
+\end{itemize}
+
+\api{cublasGemmEx} dostaje wskaźnik \(B\) jako pierwszą macierz i wskaźnik \(A\) jako drugą \cite{nvidia-cublas}. Wskaźniki mają typ \api{CUDA\_R\_32F}. Obliczenia idą przez \api{CUBLAS\_COMPUTE\_32F\_FAST\_TF32} i \api{CUBLAS\_GEMM\_DEFAULT\_TENSOR\_OP}. Warstwa gęsta woła ten iloczyn raz w przód i dwa razy we wstecz, zgodnie z równaniem~\eqref{eq:fc-grad}.
+
+Przykład. Gradient wagi głowicy: \(X^{\top}\) ma kształt \([50176, 16]\), \(G\) ma kształt \([16, 4096]\), zapis \(C\) ma kształt \([50176, 4096]\). Przy \api{inertia\_} \(= 0\) jądro nadpisuje \(C\).
+
+\section{Wymagania wobec własnego silnika względem stosu LibTorch}
+
+LibTorch jest interfejsem C++ biblioteki PyTorch \cite{paszke2019pytorch}. Rdzeń \api{DeepLearnLib} bez niego trzyma tensor na GPU, liczy splot, max pooling, normalizację wsadową i warstwę gęstą, przechodzi listę warstw i aktualizuje parametry. \api{forward} zwraca wyjście. \api{backward} zwraca \(\partial L / \partial x\) i zostawia \(\partial L / \partial w\) w warstwie. \api{step} wykonuje równanie~\eqref{eq:sgd} albo~\eqref{eq:momentum}. Strata zwraca skalar i tensor \(\partial L / \partial \hat{y}\) na urządzeniu. \api{Network::forward} w \api{src/Network.cpp} jest pętlą po \api{layers\_}.
+
+Ten kontrakt obsługuje trzy ułożenia tych samych warstw. \api{SimpleCNN} i perceptron liczą entropię krzyżową. Model z \api{YOLO.cpp} liczy stratę siatki. Loadery dają wsad już na GPU. Pętlę epoki, harmonogram i zapis parametrów trzyma program treningowy. Binarium z przyrostkiem \api{_torch} linkuje LibTorch i czyta ten sam blok: wsad, epoki, harmonogram, podział zbioru. Rdzeń tego binarium nie linkuje.
+
+Poza splotem, poolingiem, normalizacją wsadową i GEMM kontrakt obejmuje też to, czego cuDNN i cuBLAS tu nie liczą: Leaky ReLU, odwrócony dropout i stratę siatki. Tryb \api{train} włącza maskę dropoutu i statystyki wsadu. Tryb \api{eval} wyłącza maskę i bierze statystyki kroczące. Zapis wag własnego silnika jest mapą tensorów warstw. Binarium referencyjne trzyma stan po stronie LibTorch. To nie jest jeden plik.
+
+Rozdział~4 sprawdza, czy kontrakt wystarcza. Miary to czas epoki, zajętość pamięci urządzenia oraz dokładność albo mAP przy IoU \(0{,}5\). Zgodność operatorów z LibTorch jest osobnym testem numerycznym. Czas epoki sam nie stwierdza, że oba stosy policzyły ten sam krok.

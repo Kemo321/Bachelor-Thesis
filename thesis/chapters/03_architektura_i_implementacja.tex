@@ -1,0 +1,227 @@
+% !TeX root = ../main.tex
+\chapter{Architektura i implementacja}
+
+\section{Podział odpowiedzialności}
+
+\subsection{Rdzeń biblioteczny, modele aplikacyjne i binaria treningowe}
+
+Cel \api{add\_library} w \api{src/CMakeLists.txt} buduje \api{DeepLearnLib}. Na liście źródeł są tensor, warstwy, straty, w tym \api{YOLOLoss.cpp}, loadery i \api{Network.cpp}. Nie ma tam \api{benchmarks/models/YOLO.cpp} ani \api{SimpleCNN.cpp}. Biblioteka linkuje \api{CUDA::cudart}, \api{CUDA::cublas}, \api{CUDA::cudnn}, wątki i logger. Gdy konfiguracja znajduje OpenCV, dochodzą jeszcze obrazy i parser XML. W tej liście nie ma LibTorch.
+
+Topologie siedzą obok rdzenia. Cel \api{DeepLearnModels} jest biblioteką statyczną z dwóch plików modelu i linkuje \api{DeepLearnLib}, a nie odwrotnie. Programy \api{train\_*\_custom} biorą rdzeń oraz, gdy składają sieć obrazową albo detektor, także \api{DeepLearnModels}. Perceptron tabelaryczny powstaje w samym programie i może zlinkować sam rdzeń. Pętla epoki, harmonogram i plik CSV należą do programu. \api{Network::fit} jest pomocniczą pętlą ze stratą YOLOv1. Programy z rozdziału~4 jej nie wołają.
+
+Przy stałym rozmiarze wsadu ten podział zostawia alokację i deskryptory w rdzeniu. Nowy model dokłada ułożenie warstw i nie zmienia właściciela buforów.
+
+\subsection{Stos referencyjny LibTorch poza ścieżką własnego silnika}
+
+Konfiguracja szuka LibTorch przez \api{find\_package} i przy braku pakietu tylko pomija cele referencyjne. \api{DeepLearnLib} kompiluje się dalej. Gdy pakiet jest, katalog \api{torch\_baseline} buduje \api{TorchBaseline}. Ta biblioteka linkuje jednocześnie rdzeń i \api{TORCH\_LIBRARIES}. Cele o nazwie zakończonej \api{_torch} linkują \api{TorchBaseline} oraz biblioteki PyTorch \cite{paszke2019pytorch}. Cele \api{_custom} tej listy nie dostają.
+
+Oba programy czytają blok o tym samym układzie pól z \api{config/experiments.json}. Porównanie z rozdziału~4 jest więc porównaniem dwóch plików wykonywalnych. Czas własnego stosu nie zależy od tego, czy cel referencyjny dostał LibTorch.
+
+\subsection{Jawny przebieg w przód i wstecz oraz statyczne bufory pamięci urządzenia}
+
+Program woła \api{forward} od pierwszej warstwy do ostatniej, liczy stratę i jej pochodną na urządzeniu, potem woła \api{backward} od końca listy i na końcu \api{step}. \api{Network::forward} w \api{src/Network.cpp} po każdym \api{forward} woła \api{view} o kształcie zwróconego tensora.
+
+Bufor aktywacji i przestrzeń robocza warstwy są polami tej warstwy. \api{Tensor::ensure} oddaje istniejący blok, gdy kształt, urządzenie i typ się zgadzają. Pierwszy wsad o danym kształcie alokuje. Kolejne wsady o tym kształcie piszą w ten sam blok. Zajętość pamięci po rozgrzaniu zostaje płaska, o ile pętla nie zmieni kształtu.
+
+\section{Tensor jako wspólna reprezentacja danych}
+
+\subsection{Własność pamięci, widoki i przenoszenie host--urządzenie}
+
+Konstruktor w \api{src/Tensor.cpp} przy \api{Device::GPU} woła \api{cudaMalloc} i oddaje wskaźnik do \api{std::shared\_ptr} z \api{CudaDeleter}. \api{CudaDeleter::operator()} woła \api{cudaFree}, gdy wskaźnik nie jest pusty. Gałąź CPU woła \api{operator delete}. W \api{include/DeepLearnLib/Tensor.hpp} konstruktor kopiujący i operator przypisania są \api{delete}, a konstruktor przenoszący jest \api{default}. Konstruktor widoku dostaje istniejący \api{shared\_ptr}, kształt i kroki.
+
+\api{to\_host} na GPU bierze bufor z puli przypiętej, woła \api{cudaMemcpyAsync} w kierunku urządzenie-host, potem \api{cudaStreamSynchronize} na strumieniu argumentu i kopiuje bajty do \api{std::vector<float>}. \api{from\_host} sprawdza, czy iloczyn kształtu równa się długości bufora hosta, buduje tensor FP32 i woła \api{cudaMemcpyAsync} w drugą stronę. \api{MSELoss::loss} i \api{CrossEntropyLoss::loss} w \api{src/Losses.cpp} wołają \api{to\_host} na sumie, zanim podzielą ją przez liczbę elementów albo przez \(N\). \api{YOLOLoss.cpp} tego wywołania nie zawiera. \api{Network::save} woła \api{to\_host} na każdym parametrze.
+
+\subsection{Alokacja warunkowa \api{ensure} i kontrakt braku kopii w pętli uczenia}
+
+Warstwa trzyma cache jako \api{std::optional<dl::Tensor>}. W \api{Tensor::ensure} warunek alokacji jest jeden: brak wartości albo różnica \api{get\_shape}, \api{get\_device} albo \api{get\_dtype}. Spełniony warunek wykonuje \api{slot = Tensor(...)}. Niespełniony zwraca \api{*slot}. \api{FullyConnected::forward} oddaje \api{output.as\_view()} po \api{matmul\_into} i \api{add\_row\_}.
+
+Kontrakt widoku obowiązuje do następnego \api{forward} tej samej warstwy, bo kolejny wsad zapisuje w ten sam \api{optional}. W jednym kroku każda warstwa woła \api{forward} raz. Zmiana \(N\) trafia w różnicę kształtu i wykonuje konstruktor.
+
+\subsection{Układ NCHW, widok spłaszczający i iloczyn \api{matmul\_into}}
+
+\api{Conv2d}, \api{MaxPool2d} i \api{BatchNorm2d} ustawiają deskryptor NCHW. \api{Flatten::forward} woła \api{view} z kształtu \([N, \ldots]\) na \([N, F]\), gdzie \(F\) jest iloczynem pozostałych wymiarów. \api{Flatten::backward} woła \api{view} na kształt zapisany w przebiegu w przód. \api{Tensor::view} w \api{src/Tensor.cpp} rzuca wyjątek, gdy \api{is\_contiguous} zwraca fałsz, i buduje nowy obiekt na tym samym \api{shared\_ptr}.
+
+\api{matmul} w \api{src/Tensor.cpp} buduje \api{Tensor result(plan.result\_shape, ...)} i woła \api{launch\_rowmajor\_gemm} z \api{beta} równym \(0\). \api{matmul\_into} przed tym wywołaniem przerywa, gdy operand nie jest ciągły, gdy \api{out} nie jest na GPU, gdy typ \api{out} różni się od operandu albo gdy kształt \api{out} różni się od \api{plan.result\_shape}. Wzór zapisu to
+\begin{equation}
+\label{eq:matmul-into}
+C = \mathrm{op}(A)\,\mathrm{op}(B) + \beta C.
+\end{equation}
+gdzie:
+\begin{itemize}
+\item \(A\), \(B\) -- tensory wejściowe na GPU, układ wierszowy, pamięć ciągła.
+\item \(\mathrm{op}\) -- identyczność albo transpozycja logiczna.
+\item \(C\) -- bufor wyjścia. Przy \(\beta \neq 0\) jest też czytany.
+\item \(\beta\) -- skala dotychczasowej zawartości \(C\). W przebiegu w przód warstwy gęstej wynosi \(0\). W gradiencie wagi jest równe \api{inertia\_}.
+\end{itemize}
+
+W \api{plan\_rowmajor\_gemm} \api{trans\_a} dostaje \api{CUBLAS\_OP\_T}, gdy \api{transpose\_b} jest prawdziwe, a \api{trans\_b} dostaje \api{CUBLAS\_OP\_T}, gdy \api{transpose\_a} jest prawdziwe. \api{cublasGemmEx} dostaje wskaźnik drugiego operandu jako pierwszą macierz. W \api{FullyConnected::forward} jest jedno \api{matmul\_into}. W \api{backward} są dwa \api{matmul\_into} i jedno \api{add\_sum\_rows\_}. Przy stałych \(F_{\mathrm{in}}\) i \(F_{\mathrm{out}}\) warunek kształtu w \api{ensure} jest fałszywy i konstruktor się nie wykonuje.
+
+Przykład. Przebieg w przód głowicy: \(A\) ma kształt \([16, 50176]\), \(B\) ma kształt \([50176, 4096]\), \(C\) ma kształt \([16, 4096]\), \(\beta = 0\). \(C\) zajmuje \(16 \cdot 4096 \cdot 4 = 262\,144\)~B. Zamiana flag jest w \api{plan\_rowmajor\_gemm}, nie w kształcie widocznym dla warstwy.
+
+\subsection{Arytmetyka w miejscu oraz aktualizacja SGD z momentum}
+
+Metody z końcowym podkreśleniem piszą przez istniejący wskaźnik. \api{add\_}, \api{mul\_} i \api{add\_row\_} aktualizują tensor bez wyniku po prawej stronie. Aktualizacja wag jest tym samym wzorcem. \api{sgd\_update\_} wykonuje równanie~\eqref{eq:sgd} w buforze wagi. \api{sgd\_momentum\_update\_} wykonuje równanie~\eqref{eq:momentum} i wymaga bufora prędkości o tym samym kształcie. Warstwa z pędem tworzy ten bufor przy pierwszym kroku i potem go używa ponownie.
+
+Tymczasowy tensor \(w - \eta g\) nie powstaje. Przy stałym kształcie parametru, a kształt wag od wsadu nie zależy, krok optymalizatora nie alokuje. Alokacja prędkości jest jednorazowa, przy pierwszym kroku z dodatnim \(\mu\).
+
+\section{Abstrakcja warstwy}
+
+\subsection{Kontrakt \api{forward}, \api{backward} i \api{step}}
+
+\api{Layer} jest klasą z trzema operacjami. \api{forward} przyjmuje tensor urządzenia i strumień oraz zwraca wyjście. Zwrócony obiekt może być widokiem cache i przestaje być aktualny po następnym \api{forward} tej warstwy. \api{backward} przyjmuje \(\partial L / \partial y\) i zwraca \(\partial L / \partial x\). Gradient parametrów zostaje w polach warstwy. \api{step} czyta te pola i aktualizuje wagi. Domyślne \api{step} nic nie robi, więc aktywacja bez parametrów może je zostawić puste.
+
+Rozkład wag nie jest liczony w \api{backward}. Jądro SGD dodaje \(\lambda w\) dopiero w \api{step}, zgodnie z równaniem~\eqref{eq:sgd}. Przy stałym wsadzie warstwa trzyma w cache zarówno aktywację potrzebną pochodnej, jak i bufor \(\partial L / \partial w\). Oba mają kształt znany po pierwszym kroku.
+
+\subsection{Tryby \api{train} i \api{eval}, zamrażanie oraz serializacja parametrów}
+
+\api{train} ustawia flagę uczenia. \api{eval} ją kasuje. Dropout i normalizacja wsadowa czytają tę flagę: w uczeniu jest maska albo statystyka wsadu, w ewaluacji maski nie ma, a normalizacja wsadowa bierze statystyki kroczące. Program treningowy woła \api{train} przed wsadami uczącymi i \api{eval} przed przejściem testowym.
+
+\api{freeze} ustawia flagę, po której \api{step} w \api{Conv2d}, \api{FullyConnected} i \api{FusedCBR2d} wraca od razu. \api{BatchNorm2d::step} tej flagi nie czyta. \api{Network::save} przechodzi \api{get\_parameters} każdej warstwy i zapisuje nazwę, rząd, kształt oraz wartości \api{float} skopiowane na host. \api{load} woła \api{set\_parameters}. Rozszerzenie ścieżki nie wybiera formatu. Plik \api{.pt} programu własnego jest tym zapisem, a nie archiwum \api{torch::save}. Zapis czeka na kopię hosta. Sama pętla kroków, przy stałym kształcie, do pliku nie sięga.
+
+\subsection{Hiperparametry optymalizatora przechowywane na warstwie}
+
+Współczynnik uczenia, pęd, rozkład wag i próg obcięcia są polami publicznymi \api{Layer}. Domyślnie wynoszą \(0{,}001\), \(0\), \(0{,}0005\) i \(0\). Konstruktor \api{Network} wpisuje swój współczynnik uczenia i swój próg obcięcia do każdej warstwy. Pędu i rozkładu wag nie rusza. \api{set\_gradient\_clip} aktualizuje tylko próg.
+
+Program treningowy na starcie epoki woła \api{apply\_sgd\_hyperparameters}. Ta funkcja nadpisuje na każdej warstwie współczynnik uczenia z harmonogramu, pęd i rozkład wag wzięte z JSON. \api{step} czyta już pola warstwy: do jądra trafia \(\eta\), \(\mu\), \(\lambda\) oraz próg obcięcia. Jedna para pól obsługuje splot i warstwę gęstą. Przy stałym wsadzie te pola są skalarami na hoście. Ich zapis nie alokuje pamięci urządzenia.
+
+\section{Realizacje warstw}
+
+\subsection{\api{Conv2d}: deskryptory cuDNN, splot i osobne dodanie obciążenia}
+
+Wejście i wyjście są tensorami NCHW. Filtr ma kształt \([C_{\mathrm{out}}, C_{\mathrm{in}}, k, k]\). Krok, dopełnienie i bok jądra są stałe od konstruktora. Deskryptory tensora, filtra i splotu powstają przy zmianie kształtu wejścia. Warstwa pamięta wejście przebiegu w przód, wyjście, gradient wejścia, przestrzeń roboczą cuDNN oraz gradienty wag i obciążenia. Przy dodatnim pędzie dochodzi bufor prędkości.
+
+Przebieg w przód najpierw woła \api{cudnnConvolutionBiasActivationForward} z aktywacją tożsamościową \cite{nvidia-cudnn}. Gdy to wywołanie nie zwraca sukcesu, splot idzie przez \api{cudnnConvolutionForward}, a obciążenie przez \api{cudnnAddTensor}. Algorytm wybiera raz \api{cudnnGetConvolutionForwardAlgorithm\_v7} oraz odpowiedniki dla pochodnych. \api{backward} wymaga wcześniejszego \api{forward}. Liczy \api{cudnnConvolutionBackwardData}, \api{cudnnConvolutionBackwardFilter} i \api{cudnnConvolutionBackwardBias}. Test \api{Conv2dForwardAndBackwardMatchLibTorch} porównuje wyjście i gradient wejścia z LibTorch. Przy stałym kształcie wsadu deskryptory i przestrzeń robocza zostają, więc kolejny krok nie szuka algorytmu od nowa.
+
+\subsection{\api{BatchNorm2d}: statystyki wsadu i statystyki kroczące}
+
+Wejście jest NCHW. Jedna para \(\gamma\), \(\beta\) przypada na kanał i ma kształt \([1, C, 1, 1]\). Warstwa trzyma też średnią i wariancję kroczącą, średnią oraz odwrotność odchylenia z ostatniego wsadu uczącego, a także cache wejścia, wyjścia i gradientu wejścia. Wzór jest równaniem~\eqref{eq:bn}.
+
+W uczeniu wywołanie to \api{cudnnBatchNormalizationForwardTraining}. Aktualizuje statystyki kroczące wagą \(m\) bieżącego wsadu i zostawia statystyki wsadu dla pochodnej. W ewaluacji wywołanie to \api{cudnnBatchNormalizationForwardInference}. Statystyki kroczące wtedy stoją. \api{backward} woła \api{cudnnBatchNormalizationBackward} i potrzebuje zapamiętanych statystyk wsadu. Bez poprzedniego \api{forward} w trybie uczenia pochodna zgłasza błąd. \api{step} aktualizuje tylko \(\gamma\) i \(\beta\), zawsze równaniem~\eqref{eq:sgd}. Test \api{BatchNorm2dTrainForwardAndBackwardMatchLibTorch} sprawdza przebieg uczący w przód i wstecz. Przy stałym \(N\) oraz stałej siatce cache aktywacji ma jeden kształt przez całą epokę.
+
+\subsection{\api{FusedCBR2d}: splot z obciążeniem oraz jądro łączące afiniczną normalizację wsadową z LeakyReLU}
+
+Blok jest splotem, normalizacją wsadową i Leaky ReLU jako jedną warstwą. Splot wraz z obciążeniem zostaje w \api{Conv2d}, więc w cuDNN, z aktywacją tożsamościową. Od tego miejsca liczy jądro z tego repozytorium. Najpierw powstają średnia i wariancja kanału. Potem jądro kończące wpisuje odwrotność odchylenia oraz, w uczeniu, statystyki kroczące według równania~\eqref{eq:bn-run}. Osobne jądro liczy równanie~\eqref{eq:bn} i od razu Leaky ReLU o nachyleniu podanym w konstruktorze, domyślnie \(0{,}1\). Wynik nie wraca do pamięci globalnej między normalizacją wsadową a aktywacją.
+
+\api{backward} odtwarza pochodną Leaky ReLU z zapamiętanego wyjścia, potem woła \api{cudnnBatchNormalizationBackward}, a na końcu \api{Conv2d::backward}. Cache obejmuje wejście normalizacji wsadowej, wyjście po aktywacji oraz oba gradienty pośrednie. \api{step} aktualizuje wagi splotu i, gdy \(\mu > 0\), także \(\gamma\) oraz \(\beta\) z pędem. Test \api{FusedCBR2dEvalForwardMatchesLibTorch} porównuje przebieg w przód w ewaluacji z sekwencją splot, normalizacja wsadowa, Leaky ReLU w LibTorch.
+
+Artykuł YOLOv1 składa splot z Leaky ReLU i nie wstawia normalizacji wsadowej w każdy blok \cite{redmon2016yolo}. Implementacja w \api{YOLO.cpp} ma 24 bloki \api{FusedCBR2d}. Ta sama kolejność, już jako osobne moduły, jest w \api{torch\_baseline/TorchYOLO.cpp}: splot, \api{BatchNorm2d}, Leaky ReLU o nachyleniu \(0{,}1\). Porównanie z rozdziału~4 dotyczy więc tej wspólnej topologii, a nie sieci z artykułu bez normalizacji wsadowej. Przy stałym wsadzie jądro łączone pisze w jeden bufor wyjścia. Osobna warstwa aktywacji nie dostaje własnej alokacji między normalizacją wsadową a Leaky ReLU.
+
+\subsection{\api{MaxPool2d} i pamięć podręczna wejścia oraz wyjścia propagacji wstecznej}
+
+Wejście i wyjście są NCHW. Bok okna i krok pochodzą z konstruktora. Dopełnienie wynosi zero. Parametrów nie ma. \api{forward} woła \api{cudnnPoolingForward} w trybie maksimum \cite{nvidia-cudnn}. \api{backward} woła \api{cudnnPoolingBackward}. cuDNN wymaga przy pochodnej tensora wejścia i tensora wyjścia z przebiegu w przód, więc oba są w cache, razem z buforem gradientu wejścia. Test \api{MaxPool2dForwardAndBackwardMatchLibTorch} porównuje oba kierunki z LibTorch. Przy stałym oknie i stałym \(N\) kształt wyjścia się nie zmienia, a trzy bufory są przydzielane raz.
+
+\subsection{\api{FullyConnected}: trzy wywołania GEMM i redukcja gradientu obciążenia}
+
+Wejście ma kształt \([N, F_{\mathrm{in}}]\), wyjście \([N, F_{\mathrm{out}}]\). Waga jest zapisana jako \([F_{\mathrm{in}}, F_{\mathrm{out}}]\), obciążenie jako \([1, F_{\mathrm{out}}]\). LibTorch w teście trzyma wagę jako \([F_{\mathrm{out}}, F_{\mathrm{in}}]\). Test przekłada ją przed porównaniem. Cache to wejście, wyjście, gradient wejścia oraz, przy pędzie, prędkość wagi i obciążenia.
+
+Przebieg w przód jest jednym \api{matmul\_into} bez transpozycji, a potem \api{add\_row\_}. \api{backward} robi trzy zapisy. Gradient wagi to \api{matmul\_into} z transpozycją wejścia i ze współczynnikiem \(\beta\) równym argumentowi \api{inertia}. Gradient obciążenia jest sumą wierszy \(G\), też ze współczynnikiem \api{inertia}. Gradient wejścia to \api{matmul\_into} z transpozycją wagi i z \(\beta = 0\). Przy \api{inertia} równym zero bufor gradientu jest nadpisywany. Inna wartość dodaje nowy składnik do tego, co już w buforze leży. To nie jest \(\mu\) z równania~\eqref{eq:momentum}. Głowica w \api{YOLO.cpp} woła konstruktor dwuargumentowy, więc \api{inertia} zostaje \(0\). Test \api{FullyConnectedForwardAndBackwardMatchLibTorch} sprawdza wyjście i gradient wejścia. Przy stałych \(F_{\mathrm{in}}\) i \(F_{\mathrm{out}}\) trzy bufory GEMM mają stały kształt.
+
+\subsection{\api{LeakyReLU}, \api{Dropout}, \api{Flatten} i \api{Softmax}}
+
+\api{LeakyReLU} liczy równanie~\eqref{eq:leaky} własnym jądrem, bez cuDNN. Cache trzyma wejście, bo pochodna po stronie niedodatniej mnoży gradient przez nachylenie, a po stronie dodatniej przez jeden. Wyjście i gradient wejścia też mają swoje bufory. Domyślne nachylenie wynosi \(0{,}1\), tak jak w blokach detektora.
+
+\api{Dropout} w uczeniu losuje maskę i mnoży przez nią wejście. Maska zostaje na pochodną. W ewaluacji \api{forward} zwraca widok wejścia, a \api{backward} zwraca widok gradientu. Prawdopodobieństwo wyzerowania domyślnie wynosi \(0{,}5\). \api{Flatten} nie uruchamia jądra. Zapamiętuje kształt wejścia i zwraca widok \([N, F]\). Pochodna jest widokiem z powrotem na ten kształt.
+
+\api{Softmax} woła \api{cudnnSoftmaxForward} i \api{cudnnSoftmaxBackward} w trybie dokładnym, na osi kanałów. Do pochodnej potrzebne jest zapamiętane wyjście. Ta warstwa nie stoi na ścieżce entropii krzyżowej. Tam softmax jest wewnątrz straty, na wierszach \([N, C]\). Przy stałym wsadzie jądra elementowe i softmax piszą w bufory z pierwszego kroku. Spłaszczenie nie przydziela pamięci w ogóle.
+
+\section{Funkcje straty niezależne od topologii}
+
+\subsection{Wspólny interfejs wartości straty i pochodnej na urządzeniu}
+
+\api{YOLOLoss}, \api{CrossEntropyLoss} i \api{MSELoss} nie dziedziczą po \api{Layer}. W \api{src/Losses.cpp} \api{MSELoss::loss} woła \api{to\_host} na sumie kwadratów i dzieli przez \api{get\_size}. \api{CrossEntropyLoss::loss} woła \api{to\_host} na sumie wierszy i dzieli przez \(N\). \api{YOLOLoss::loss} zwraca tensor jednego elementu z jądra redukcji. Skalar detekcji schodzi na host dopiero w programie treningowym, przy zapisie CSV. Pochodna jest argumentem \api{backward} ostatniej warstwy w pętli tego programu.
+
+\subsection{Jądro \api{YOLOLoss} na komórkę siatki}
+
+Jądro \api{yolo\_loss\_forward\_kernel} uruchamia jeden wątek na komórkę siatki. Liczba komórek to \(N \cdot 7 \cdot 7\). Wątek czyta obie ramki predykcji i pierwszą ramkę celu, liczy IoU oraz składniki równania~\eqref{eq:yolo} i zapisuje jedną liczbę do bufora strat komórek. Drugie jądro, \api{yolo\_loss\_backward\_kernel}, ma ten sam podział wątków i zapisuje \(\partial L / \partial \hat{y}\) od razu w układzie predykcji. Trzecie jądro sumuje straty komórek w pamięci współdzielonej bloku i mnoży sumę przez \(1/N\). Wynik jest tensorem o jednym elemencie na GPU. Dzielenia nie robi CPU.
+
+Bufory komórek, gradientu i skalaru są w statycznym cache i wracają przez \api{ensure}, gdy kształt się zgadza. Spłaszczona predykcja \([N, 7\cdot 7\cdot(10+C)]\) jest przed jądrem oglądana jako \([N, 7, 7, 10+C]\). Test \api{YOLOLossMatchesLibTorchBaseline} porównuje skalar i gradient z implementacją referencyjną. Testy w \api{test\_loss.cpp} sprawdzają układ płaski, niezgodny wsad i tensor CPU. Przy stałym \(N\) i stałym \(C\) trzy bufory jądra mają jeden rozmiar przez cały trening.
+
+\subsection{\api{CrossEntropyLoss} i \api{MSELoss}}
+
+\api{CrossEntropyLoss} wymaga rzędu \(2\) i zgodnego kształtu \([N, C]\). Softmax wiersza jest jądrem wewnątrz straty, równaniem~\eqref{eq:softmax}, a nie warstwą \api{Softmax}. Skalar jest równaniem~\eqref{eq:ce}. Pochodna względem logitów to \((p - y) / N\). Cel z loadera jest gęsty.
+
+\api{MSELoss} odejmuje tensory element po elemencie, sumuje kwadraty na GPU i dzieli przez liczbę elementów, jak w równaniu~\eqref{eq:mse}. Pochodna mnoży różnicę przez \(2/M\). Pusty tensor daje stratę zero. Układu klas ani siatki ta strata nie narzuca. Obie funkcje są niezależne od tego, czy logity wyszły z \api{SimpleCNN}, czy z perceptronu. Przy stałym \(N\) i \(C\) jądro softmaxu i jądro różnicy mają stałą liczbę elementów.
+
+\section{Generyczne mechanizmy ładowania danych}
+
+\subsection{Kontrakt wsadu: obrazy i cele na urządzeniu}
+
+W \api{include/DeepLearnLib/dataset.hpp} struktura \api{Batch} ma pola \api{images} i \api{targets}. \api{CustomDataLoader::upload\_host\_batch} w \api{src/dataset.cpp} woła \api{Tensor::from\_host} dwa razy, na piksele i na siatkę, ze strumieniem argumentu. W tym pliku nie ma wywołania \api{forward}. \api{CSVLoader::from\_parsed} w \api{src/CSVLoader.cpp} też woła \api{from\_host}, ale zwraca dwa osobne tensory, bez struktury \api{Batch}.
+
+\subsection{\api{CustomDataLoader}: adnotacje w stylu VOC, kodowanie siatki YOLO i augmentacja}
+
+\api{split\_dataset} w \api{src/dataset.cpp} tasuje pary generatorem \api{std::mt19937} z \api{std::random\_device}. \api{train\_end} jest \api{static\_cast<size\_t>} z iloczynu \api{static\_cast<float>(total\_elements)} i \api{train\_ratio}. Domyślne argumenty w \api{dataset.hpp} to \api{train\_ratio} \(0{,}7\mathrm{F}\) i \api{val\_ratio} \(0{,}15\mathrm{F}\). Indeksy od \api{val\_end} są testem. Domyślna lista klas to \api{VOC\_CLASSES\_DEFAULT}. Loader czyta etykiety, koduje ramki jak w podrozdziale~2.6 i skaluje piksele przez \(255\).
+
+\api{get\_batch} woła \api{prefetch\_.get()}, potem \api{launch\_prefetch}. \api{launch\_prefetch} stawia \api{std::async}, które woła \api{decode\_job}. \api{decode\_job} idzie przez \api{dl::parallel\_for}, a w środku woła \api{load\_sample}. W \api{load\_sample} gałąź \api{is\_train\_} woła \api{apply\_affine} i \api{apply\_hsv\_jitter} przed \api{encode\_targets}. \api{reset} przy \api{is\_train\_} woła \api{std::shuffle} na \api{order\_}. \api{parallel\_worker\_count} w \api{include/DeepLearnLib/ParallelFor.hpp} przy co najwyżej jednym indeksie zwraca \(1\). W przeciwnym razie bierze \api{hardware\_concurrency}, a gdy to wywołanie zwraca zero, podstawia \(8\), potem obcina cap do \(16\) i zwraca minimum z liczby próbek i tego capu.
+
+\subsection{\api{ClassificationLoader}: katalog klas i cel one-hot}
+
+Konstruktor w \api{src/ClassificationLoader.cpp} przy pustym wektorze nazw skanuje katalogi \api{root/split} i sortuje nazwy. Przy niepustym wektorze tej pętli nie wykonuje. Brak katalogu klasy w drugiej pętli robi \api{continue}, a \api{num\_classes} zwraca \api{class\_names\_.size()}. \api{train\_cifar\_custom.cpp} przekazuje \api{train\_loader.class\_names()} do loadera testu. Obrazy są NCHW. Bok CIFAR-10 jest argumentem konstruktora, branym z JSON, domyślnie \(32\). \api{get\_batch} ma ten sam układ \api{prefetch\_.get} i \api{launch\_prefetch} co loader detekcji.
+
+\subsection{\api{PackedImageLoader}: format \api{DLIMG001} dla MNIST}
+
+Konstruktor w \api{src/PackedImageLoader.cpp} czyta osiem bajtów i porównuje je z \api{kMagic}. Potem czyta 20 bajtów i \api{read\_u32\_le} bierze z offsetów \(0\), \(4\), \(8\), \(12\) i \(16\) liczbę próbek, kanały, wysokość, szerokość i liczbę klas. Zerowy wymiar rzuca wyjątek. Dalej plik wpada do \api{pixels\_} i \api{labels\_}. Prefetch zamienia \api{uint8} na \api{float} dzielony przez \(255\) i składa jedynkę klasy. Bok i liczba kanałów dla \api{SimpleCNN} są polami ustawionymi z tego nagłówka.
+
+\subsection{\api{CSVLoader}: cechy tabelaryczne i kolumny celu}
+
+\api{parse\_csv} w \api{src/CSVLoader.cpp} przy \api{skip\_header} zdejmuje pierwszą linię. Pusta linia jest pomijana. Pusta komórka rzuca wyjątek. Pierwszy niepusty wiersz ustawia \api{width}. Kolejny wiersz o innej liczbie kolumn rzuca wyjątek o prostokątnym CSV. Szerokość nie większa niż \api{target\_columns} też rzuca wyjątek. \api{feature\_columns} jest różnicą \api{width} i \api{target\_columns}. Pętla po wierszu kopiuje kolumny \([0, F)\) do cech i kolumny od \(F\) do celu. \api{from\_parsed} woła \api{from\_host} na obu buforach, z rzędem \(2\). Metody \api{get\_batch} w tej klasie nie ma. Program tnie kopię hosta na wsady. Gdy pliku nie ma, program zapisuje plik zastępczy o liczbie wierszy z JSON i kontynuuje. Iris oraz Wisconsin są wczytywane tą samą klasą.
+
+\subsection{Prefetch na CPU i nakładanie transferu na obliczenia dwoma strumieniami}
+
+\api{for\_each\_prefetched\_batch} w \api{benchmarks/prefetch\_batch.hpp} woła \api{loader.reset()} i stawia dwie zmienne \api{dl::UniqueCudaStream}. Gdy \api{has\_next} jest prawdziwe, \api{get\_batch} idzie na \api{streams[0]}. W pętli jest \api{cudaStreamSynchronize} bieżącego slotu, potem \api{StreamGuard} i callback \api{step} z tym strumieniem. Jeśli loader ma kolejny wsad, pętla synchronizuje drugi strumień i woła \api{get\_batch} na nim. Po pętli synchronizowane są oba strumienie. \api{UniqueCudaStream} powstaje z \api{cudaStreamCreateWithFlags} i flagą \api{cudaStreamNonBlocking}.
+
+Programy obrazowe VOC, BCCD, zbioru syntetycznego, CIFAR-10 i MNIST używają tej pętli. Program tabelaryczny jej nie używa: tabela jest już w pamięci, a wsad powstaje cięciem hosta. Klucz \api{dataloader\_workers} w JSON czyta loader LibTorch. Własne loadery biorą \api{parallel\_worker\_count} i ten klucz pomijają. Przy stałym \(N\) pełne wsady mają jeden kształt. Gdy liczba próbek nie dzieli się przez \(N\), ostatni wsad jest krótszy i dostaje własny bufor.
+
+\section{Składanie modeli z komponentów bibliotecznych}
+
+\subsection{YOLOv1: stos \api{FusedCBR2d}, cztery poolingi i głowica liniowa}
+
+\api{YOLO::YOLO} układa warstwy rdzenia, nie nowy typ splotu. Szkielet to 24 wywołania \api{FusedCBR2d} z nachyleniem \(0{,}1\) i cztery \api{MaxPool2d} o oknie \(2\). Wejście ma trzy kanały i bok \(448\). Po splocie \(7\times 7\) z krokiem \(2\) oraz kolejnych poolingach i jednym splocie z krokiem \(2\) mapa przed spłaszczeniem ma bok \(7\) i \(1024\) kanały. Głowica to \api{Flatten}, warstwa gęsta do \(4096\), Leaky ReLU \(0{,}1\), dropout \(0{,}5\) i warstwa gęsta do \(7\cdot 7\cdot(10+C)\). Oba \api{inertia} są równe \(0\). \(C\) zmienia tylko ostatnią warstwę i szerokość straty. \api{forward} wiąże uchwyt cuDNN ze strumieniem wywołującego i między warstwami bierze widok.
+
+\subsection{\api{SimpleCNN} dla CIFAR-10 i MNIST}
+
+Ta sama lista typów, krótsza, obsługuje klasyfikację obrazu. Kolejność to splot do \(16\) kanałów jądrem \(3\times 3\), Leaky ReLU \(0{,}1\), pooling \(2\), splot \(16\) do \(32\), Leaky ReLU, pooling \(2\), spłaszczenie i warstwa gęsta do \(C\). Dla boku \(32\) szerokość po spłaszczeniu wynosi \(32\cdot 8\cdot 8 = 2048\). Konstruktor liczy ją z boku obrazu, więc MNIST o innym boku dostaje inną warstwę gęstą bez zmiany kodu splotu.
+
+\api{forward\_logits} zwraca logity. Tego woła trening i \api{CrossEntropyLoss}. \api{forward} dokłada \api{Softmax}. Softmax nie wchodzi do \api{get\_all\_layers}, więc \api{backward} po nim nie chodzi. W tej sieci nie ma normalizacji wsadowej ani dropoutu. CIFAR-10 i MNIST różnią się loaderem i kształtem wejścia, nie klasą modelu.
+
+\subsection{Dwuwarstwowy MLP dla danych tabelarycznych}
+
+\api{train\_tabular\_custom.cpp} nie korzysta z \api{DeepLearnModels}. Składa w miejscu dwie warstwy gęste i Leaky ReLU \(0{,}1\). Szerokość ukryta domyślnie wynosi \(16\) i może przyjść z JSON. Wejście to \([N, F]\), wyjście to logity \([N, C]\). Strata to \api{CrossEntropyLoss}. Osobny \api{Softmax} służy tylko do argmax przy raporcie dokładności i nie leży na ścieżce \api{backward}. Te same klasy \api{FullyConnected} i \api{LeakyReLU} są w głowicy detektora i w tym perceptronie.
+
+\section{Pętla uczenia i trwałość modelu}
+
+\subsection{Kolejność: przebieg w przód, strata, przebieg wstecz, obcięcie gradientu, krok}
+
+Pętla epoki jest w binariach. W katalogu \api{benchmarks} nie ma wywołania \api{Network::fit}. \api{fit} zostaje w rdzeniu jako pętla ze stałą stratą YOLOv1 i bez harmonogramu z JSON. Programy eksperymentów jej nie używają, bo same zapisują CSV i zmieniają współczynnik uczenia co epokę.
+
+W \api{train\_voc\_custom.cpp} kolejność na strumieniu z prefetchem jest taka: \api{YOLO::forward}, \api{YOLOLoss}, \api{clip\_loss\_gradient}, \api{backward} od końca, \api{clip\_parameter\_gradients}, \api{step}. Przed wsadami uczącymi każda warstwa dostaje \api{train}. Przed testem dostaje \api{eval}. Test nie woła \api{backward} ani \api{step}. \api{train\_cifar\_custom.cpp} robi ten sam szkielet na \api{forward\_logits} i \api{CrossEntropyLoss}. Program tabelaryczny powtarza szkielet na dwóch warstwach gęstych, bez dwóch strumieni i bez \api{clip\_loss\_gradient}.
+
+\subsection{Harmonogram współczynnika uczenia}
+
+Na początku epoki program liczy \api{scheduled\_learning\_rate} i woła \api{apply\_sgd\_hyperparameters}. Współczynnik, pęd i rozkład wag lądują na każdej warstwie, zanim zejdzie pierwszy wsad. Gdy w JSON jest lista \api{lr\_schedule}, obowiązuje ona. W przeciwnym razie działa równanie~\eqref{eq:schedule}.
+
+Wagi od pierwszej alokacji są FP32. Próg obcięcia z JSON równy zero wyłącza oba obcięcia w \api{Network}.
+
+\subsection{Zapis i odczyt parametrów oraz inferencja z progiem ufności i NMS}
+
+Po treningu VOC program woła \api{Network::save} na ścieżce \api{yolov1\_voc\_custom\_final.pt}. CIFAR-10 i MNIST wołają to samo \api{save} na plikach z sufiksem \api{.bin}. Zapis jest binarną mapą \api{get\_parameters}: liczba warstw, potem dla każdej warstwy liczba tensorów, nazwa, rząd, kształt i wartości \api{float}. \api{load} wymaga tej samej liczby warstw co bieżący obiekt i woła \api{set\_parameters}. Sufiks \api{.pt} nie wybiera archiwum PyTorch. \api{torch::save} jest tylko w binariach \api{_torch} i pisze inny plik. Inferencja własna czyta wyłącznie zapis \api{Network::load}.
+
+Inferencja detekcji przełącza warstwy w \api{eval}, liczy \api{forward} i kopiuje predykcję na host. Dalej działają \api{decode\_yolo\_tensor} oraz \api{apply\_nms}. Progi ufności i NMS biorą się z JSON. Inferencja klasyfikacji bierze argmax logitów. Dekodowanie ramek jest pracą hosta po zakończonym przebiegu w przód.
+
+\section{Infrastruktura wykonawcza}
+
+\subsection{Konteksty cuBLAS i cuDNN, strumień bieżący oraz makra kontroli błędów}
+
+\api{CublasContext::handle} w \api{src/Tensor.cpp} trzyma \api{static CublasContext}. Konstruktor woła \api{cublasCreate}, \api{cublasSetMathMode} z \api{CUBLAS\_TF32\_TENSOR\_OP\_MATH}, \api{cudaMalloc} na \api{kCublasWorkspaceBytes} równym \(64 \cdot 1024 \cdot 1024\) i \api{cublasSetWorkspace}. \api{CudnnContext::handle} w \api{src/Conv2d.cpp} jest takim samym obiektem statycznym i woła \api{cudnnCreate}. \api{StreamGuard} w konstruktorze zapamiętuje \api{current\_stream}, woła \api{set\_current\_stream} i \api{cublasSetStream}, a w destruktorze wraca do zapamiętanej wartości. \api{bind\_cudnn\_stream} woła \api{cudnnSetStream}. \api{launch\_rowmajor\_gemm} przed \api{cublasGemmEx} woła \api{cublasSetStream}.
+
+\api{check\_cuda} w \api{include/DeepLearnLib/Tensor.hpp} przy statusie innym niż \api{cudaSuccess} składa napis \api{CUDA error at}, dopisuje plik i linię i rzuca \api{std::runtime\_error}. \api{check\_cublas} i \api{check\_cudnn} robią to samo dla swoich statusów. W \api{CMakeLists.txt} gałąź bez \api{CUDNN\_LIBRARY} woła \api{message(FATAL\_ERROR)}. W \api{src/Tensor.cpp} gałąź bez \api{DEEPLEARNLIB\_ENABLE\_CUDA} rzuca wyjątek z \api{matmul\_into}.
+
+\subsection{Pomiar czasu zdarzeniami CUDA i odczyt zajętości VRAM}
+
+\api{Profiler::start} w \api{src/Profiler.cpp} woła \api{cudaEventRecord} na \api{start\_event\_} i ustawia \api{running\_}. \api{stop} woła \api{cudaEventRecord} na \api{stop\_event\_}, potem \api{cudaEventSynchronize} i \api{cudaEventElapsedTime}. Zwracana liczba jest w milisekundach. Tego pomiaru używają mikrobenchmarki. Czas epoki w CSV jest zegarem ściennym całej epoki, łącznie z testem. To nie jest czas zdarzenia CUDA.
+
+\api{get\_vram\_usage\_mb} woła \api{cudaMemGetInfo} i zwraca różnicę pamięci całkowitej oraz wolnej, w MiB. Jest to odczyt urządzenia, nie licznik jednego procesu. W pomiarach z rozdziału~4 ten odczyt pochodzi z karty NVIDIA GeForce RTX 5080. Przy stałym wsadzie i cache z \api{ensure} kolumna VRAM w kolejnych epokach powinna zostać płaska. Wzrost oznacza nową alokację.
+
+\subsection{mAP i dekodowanie ramek po stronie hosta}
+
+Po ewaluacji detektora program zbiera ramki wzorcowe i ramki z \api{decode\_yolo\_tensor}. \api{mean\_average\_precision} liczy na hoście jedenastopunktową precyzję średnią przy progu IoU \(0{,}5\), jak w podrozdziale~2.7. Wołanie w \api{train\_voc\_custom.cpp} przekazuje próg \(0{,}5\) wprost. NMS i rysowanie ramek też są na hoście i wymagają OpenCV. Ta praca nie wchodzi do \api{backward}. Przy stałym wsadzie koszt mAP zależy od liczby ramek po progu ufności, a nie od ponownej alokacji wag.

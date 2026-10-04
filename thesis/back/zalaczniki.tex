@@ -1,0 +1,191 @@
+% !TeX root = ../main.tex
+\appendix
+
+\chapter{Schemat konfiguracji eksperymentów}
+
+Programy treningowe czytają jeden blok z \api{config/experiments.json}. Ścieżka może przyjść ze zmiennej \api{EXPERIMENTS_JSON}. Plik \api{config/sanity.json} ma te same pola i we wszystkich blokach \api{epochs} równe \(2\). Jego wiersze nie wchodzą do tabel rozdziału~4. Krótki VOC nie ma własnego bloku: czyta \api{voc\_custom} albo \api{voc\_torch} i liczbę epok ma wpisaną w kodzie jako \(3\).
+
+\begin{table}[ht]
+\centering
+\caption{Bloki \api{config/experiments.json} i program, który je czyta.}
+\label{tab:zal-bloki}
+\small
+\begin{tabular}{lll}
+\toprule
+Klucz & Program & Model \\
+\midrule
+\api{voc\_custom}, \api{voc\_torch} & \api{train\_voc\_*} & YOLOv1, \(20\) klas \\
+\api{bccd\_custom}, \api{bccd\_torch} & \api{train\_bccd\_*} & YOLOv1, \(3\) klasy \\
+\api{synthetic\_custom}, \api{synthetic\_torch} & \api{train\_synthetic\_*} & YOLOv1, \(3\) klasy \\
+\api{overfit\_voc\_*} & \api{overfit\_voc\_*} & YOLOv1, wycinek \\
+\api{cifar10\_classification} & \api{train\_cifar\_*} & \api{SimpleCNN} \\
+\api{mnist\_classification} & \api{train\_mnist\_*} & \api{SimpleCNN} \\
+\api{tabular\_iris}, \api{tabular\_wisconsin}, \api{tabular\_demo} & \api{train\_tabular\_*} & MLP \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Pary detekcji są dwoma blokami. W odczytanym pliku mają te same wartości. CIFAR-10 i MNIST mają po jednym bloku czytanym przez oba stosy. Iris i Wisconsin wybiera argument programu tabelarycznego.
+
+\begin{table}[ht]
+\centering
+\caption{Pola JSON, które sterują treningiem. Wartości liczbowych harmonogramu ten skrót nie powtarza.}
+\label{tab:zal-pola}
+\small
+\begin{tabular}{p{3.3cm}p{10.2cm}}
+\toprule
+Pole & Rola \\
+\midrule
+\api{batch\_size} & Liczba próbek we wsadzie. \\
+\api{epochs} & Liczba epok. Krótki VOC tego pola nie bierze. \\
+\api{learning\_rate} & Bazowy współczynnik. Obowiązuje, gdy nie ma listy. \\
+\api{lr\_schedule} & Lista par \api{until\_epoch} i \api{learning\_rate}. Pierwszy próg spełniony przez numer epoki wygrywa. Brak listy włącza równanie~\eqref{eq:schedule}. Tak jest przy Iris, Wisconsin i przeuczeniu. \\
+\api{momentum} & Pęd SGD. Program wstawia \(0{,}9\), gdy klucza nie ma. \\
+\api{weight\_decay} & Rozkład wag. Program wstawia \(0{,}0005\), gdy klucza nie ma. \\
+\api{gradient\_clip} & Próg obcięcia. Zero wyłącza obcięcie w \api{Network}. \\
+\api{dataloader\_workers} & Liczba wątków loadera LibTorch. Własne loadery tego klucza nie czytają. \\
+\api{dataset\_root} & Katalog danych. \\
+\api{voc\_subset} & Podkatalog VOC. W pliku jest \api{VOC2012}. \\
+\api{results\_dir} & Katalog CSV i zapisu wag. \\
+\api{num\_classes} & Liczba klas. \\
+\api{conf\_threshold}, \api{nms\_threshold} & Progi ufności i NMS. Na pełnym VOC mAP i tak woła próg IoU \(0{,}5\) wprost. \\
+\api{train\_split}, \api{test\_split} & Nazwy katalogów CIFAR-10. \\
+\api{image\_size} & Bok CIFAR-10. Program MNIST czyta bok z nagłówka \api{DLIMG001}. \\
+\api{in\_channels} & Jest przy MNIST. Program bierze liczbę kanałów z nagłówka pliku. \\
+\api{csv\_path}, \api{skip\_header} & Plik tabeli i pominięcie pierwszego wiersza. Ostatnia kolumna jest etykietą. \\
+\api{num\_features} & Zapis w JSON. Szerokość sieci bierze się z wczytanej tabeli. Pole służy plikowi zastępczemu, gdy CSV nie istnieje. \\
+\api{hidden\_size} & Szerokość warstwy ukrytej perceptronu. \\
+\api{num\_samples} & Liczba wierszy pliku zastępczego. \\
+\api{class\_names} & Nazwy klas Iris i Wisconsin. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\chapter{Format binarny punktu kontrolnego}
+
+\api{Network::save} otwiera plik binarnie i pisze kolejno pola z \api{get\_parameters}. Nie ma magii, wersji ani sumy kontrolnej. Liczby całkowite są \api{std::int32\_t} w kolejności bajtów hosta. Nazwa jest ciągiem bajtów o podanej długości, bez dodatkowego zera na końcu. Wartości tensora są \api{float} z \api{to\_host}, także gdy tensor na urządzeniu był w innym typie. Kolejność tensorów jednej warstwy jest kolejnością \api{std::map}, czyli leksykograficznie po nazwie. Kolejność warstw jest kolejnością listy sieci.
+
+\begin{table}[ht]
+\centering
+\caption{Układ jednego pliku \api{Network::save}. Blok parametru powtarza się \api{param\_count} razy w każdej warstwie.}
+\label{tab:zal-zapis}
+\small
+\begin{tabular}{lp{9.5cm}}
+\toprule
+Pole & Zawartość \\
+\midrule
+\api{layer\_count} & Liczba warstw, \api{int32}. \\
+\api{param\_count} & Liczba tensorów bieżącej warstwy, \api{int32}. \\
+\api{name\_length} & Długość nazwy tensora, \api{int32}. \\
+nazwa & \api{name\_length} bajtów. \\
+\api{rank} & Rząd kształtu, \api{int32}. \\
+wymiary & \api{rank} liczb \api{int32}. \\
+wartości & Iloczyn wymiarów liczb \api{float}. Przy rzędzie zero plik czyta jeden element. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\api{load} wymaga tej samej liczby warstw co bieżący obiekt i woła \api{set\_parameters}. Niezgodna liczba warstw, ujemna długość nazwy i ujemny rząd kończą odczyt wyjątkiem. Sufiks \api{.pt} na ścieżce VOC nie wybiera archiwum PyTorch. \api{torch::save} jest tylko w binariach \api{_torch} i pisze inny plik. CIFAR-10 i MNIST wołają to samo \api{save} na plikach z sufiksem \api{.bin}.
+
+\chapter{Tabele pomiarów z przebiegów GPU}
+
+Tabele poniżej powtarzają rozdział~4. Źródłem liczb pozostaje \api{docs/usage/measurements.md}. Czas jest czasem epoki w pełnych sekundach. Kolumny detekcji są wspólne. Pole nieobecne w skopiowanym pliku zostaje [BRAK POMIARU].
+
+\begin{table}[ht]
+\centering
+\caption{Ostatnia epoka klasyfikacji. Powtórzenie tabeli~\ref{tab:klasyfikacja}.}
+\label{tab:zal-klasyfikacja}
+\small
+\begin{tabular}{llrrrrrrr}
+\toprule
+Zbiór & Stos & Epoka & $L_{\mathrm{ucz}}$ & $L_{\mathrm{test}}$ & Dokł. ucz. & Dokł. test. & Czas (s) & VRAM \\
+\midrule
+MNIST & własny & 12 & 2{,}79275 & 5{,}50321 & 0{,}990261 & 0{,}986353 & 1 & 1515 \\
+MNIST & LibTorch & 12 & 0{,}0327417 & 0{,}0368073 & 0{,}990422 & 0{,}987935 & 1 & 1601 \\
+\midrule
+CIFAR-10 & własny & 40 & 2{,}41182 & 1{,}39182 & 0{,}732577 & 0{,}656052 & 53 & 1521 \\
+CIFAR-10 & LibTorch & 40 & 0{,}575592 & 0{,}900853 & 0{,}807101 & 0{,}700455 & 53 & 1601 \\
+\midrule
+Iris & własny & 100 & 0{,}0451643 & -- & 0{,}986667 & -- & 0 & 1481 \\
+Iris & LibTorch & 100 & 0{,}048417 & -- & 0{,}98 & -- & 0 & 1553 \\
+\midrule
+Wisconsin & własny & 80 & 0{,}00633334 & -- & 1 & -- & 0 & 1481 \\
+Wisconsin & LibTorch & 80 & 0{,}00702566 & -- & 1 & -- & 0 & 1553 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\caption{Ostatnia epoka przeuczenia VOC. Powtórzenie tabeli~\ref{tab:overfit}.}
+\label{tab:zal-overfit}
+\small
+\begin{tabular}{lrrrrrl}
+\toprule
+Stos & Epoka & \(L_{\mathrm{ucz}}\) & \(L_{\mathrm{test}}\) & Czas (s) & VRAM & mAP@0,5 \\
+\midrule
+własny & 300 & 0{,}870204 & [BRAK POMIARU] & 0 & 8273 & [BRAK POMIARU] \\
+LibTorch & 300 & 0{,}420846 & [BRAK POMIARU] & 0 & 7795 & [BRAK POMIARU] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\caption{Ostatnia epoka zbioru syntetycznego. Powtórzenie tabeli~\ref{tab:synthetic}.}
+\label{tab:zal-synthetic}
+\small
+\begin{tabular}{lrrrrrl}
+\toprule
+Stos & Epoka & \(L_{\mathrm{ucz}}\) & \(L_{\mathrm{test}}\) & Czas (s) & VRAM & mAP@0,5 \\
+\midrule
+własny & 350 & 2{,}94468 & 3{,}74764 & 1 & 11347 & [BRAK POMIARU] \\
+LibTorch & 350 & 1{,}94937 & 1{,}48965 & 1 & 8857 & [BRAK POMIARU] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\caption{Ostatnia epoka BCCD. Powtórzenie tabeli~\ref{tab:bccd}.}
+\label{tab:zal-bccd}
+\small
+\begin{tabular}{lrrrrrl}
+\toprule
+Stos & Epoka & \(L_{\mathrm{ucz}}\) & \(L_{\mathrm{test}}\) & Czas (s) & VRAM & mAP@0,5 \\
+\midrule
+własny & 450 & 12{,}8365 & 12{,}0268 & 1 & 11009 & [BRAK POMIARU] \\
+LibTorch & 450 & 15{,}2028 & 15{,}2057 & 2 & 8927 & [BRAK POMIARU] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\caption{Ostatnia epoka krótkiego VOC. Powtórzenie tabeli~\ref{tab:voc-krotki}.}
+\label{tab:zal-voc-krotki}
+\small
+\begin{tabular}{lrrrrrl}
+\toprule
+Stos & Epoka & \(L_{\mathrm{ucz}}\) & \(L_{\mathrm{test}}\) & Czas (s) & VRAM & mAP@0,5 \\
+\midrule
+własny & 3 & 7{,}33802 & [BRAK POMIARU] & 61 & 6885 & [BRAK POMIARU] \\
+LibTorch & 3 & 7{,}28702 & [BRAK POMIARU] & 97 & 7403 & [BRAK POMIARU] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\caption{Ostatnia epoka pełnego VOC. Powtórzenie tabeli~\ref{tab:voc}.}
+\label{tab:zal-voc}
+\small
+\begin{tabular}{lrrrrrl}
+\toprule
+Stos & Epoka & \(L_{\mathrm{ucz}}\) & \(L_{\mathrm{test}}\) & Czas (s) & VRAM & mAP@0,5 \\
+\midrule
+własny & 130 & 3{,}4634 & 296{,}158 & 74 & 8903 & 0{,}115149 \\
+LibTorch & 130 & 2{,}86758 & 12{,}6827 & 79 & 8633 & [BRAK POMIARU] \\
+\bottomrule
+\end{tabular}
+\end{table}

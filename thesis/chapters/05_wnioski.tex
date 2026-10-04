@@ -1,0 +1,28 @@
+% !TeX root = ../main.tex
+\chapter{Wnioski}
+
+\section{Realizacja celu i odpowiedź na tezę}
+
+Cel pracy został wykonany w kodzie. Rdzeń \api{DeepLearnLib} linkuje CUDA, cuBLAS i cuDNN. Nie linkuje LibTorch. Z tych samych warstw powstają trzy modele: \api{SimpleCNN}, dwuwarstwowy perceptron i YOLOv1. Pary programów z rozdziału~4 doszły do ostatniej epoki. Pliki CSV istnieją dla klasyfikacji obrazu, tabel i detekcji.
+
+Teza z rozdziału~1 utrzymuje się o tyle, że rdzeń CUDA, cuBLAS i cuDNN bez LibTorch uczy \api{SimpleCNN}, dwuwarstwowy perceptron i YOLOv1. Czas epoki pełnego VOC leży w jednym rzędzie, \(74\)~s i \(79\)~s. Dokładność MNIST oraz Iris i Wisconsin jest bliska po obu stronach. Teza ogranicza się tam, gdzie metryka zadania nie jest zgodna. Na CIFAR-10 dokładność i strata są lepsze po stronie LibTorch, przy czasie \(53\)~s. Strata testowa VOC wynosi \(296{,}158\) wobec \(12{,}6827\). mAP przy progu IoU \(0{,}5\) wynosi \(0{,}115149\) po stronie własnej, a w skopiowanym wierszu LibTorch nie występuje. Podział obrazów detekcji nie jest wspólną listą plików. Czas operatora z wydruku Google Benchmark jest w rozdziale~4. Krok uczący YOLOv1 trwa \(72{,}5\)~ms i \(72{,}0\)~ms.
+
+\section{Ocena modularności silnika}
+
+Wspólna abstrakcja warstwy dała jeden kontrakt: \api{forward}, \api{backward} i \api{step}. \api{YOLO} układa \(24\) bloki \api{FusedCBR2d}, cztery poolingi i głowicę z warstw gęstych. \api{SimpleCNN} układa dwa sploty, Leaky ReLU, pooling, spłaszczenie i jedną warstwę gęstą. Perceptron tabelaryczny powstaje w programie z dwóch warstw gęstych i Leaky ReLU, bez osobnej biblioteki modelu. \api{YOLOLoss}, \api{CrossEntropyLoss} i \api{MSELoss} nie dziedziczą po \api{Layer}. Ta sama lista warstw przyjmuje \api{YOLOLoss} albo \api{CrossEntropyLoss}.
+
+Loadery dały drugi kontrakt: tensor obrazu i tensor celu na urządzeniu, albo dwie macierze z CSV. Detekcja, CIFAR-10, MNIST i tabela nie wprowadzają własnego typu tensora. Różnią się kształtem i tym, kto liczy epokę. Dzięki temu rozdział~4 porównuje trzy zadania na jednym rdzeniu, a nie trzy osobne implementacje splotu i warstwy gęstej.
+
+\section{Ograniczenia przyjętego rozwiązania}
+
+Uczenie idzie na jednym urządzeniu CUDA. \api{CublasContext::handle} i \api{CudnnContext::handle} zwracają obiekt \api{static}. W \api{CMakeLists.txt} brak \api{CUDNN\_LIBRARY} kończy konfigurację przez \api{message(FATAL\_ERROR)}.
+
+Pochodna jest zwykłą metodą warstwy. \api{Network::forward} w \api{src/Network.cpp} jest pętlą po \api{layers\_}. Kolejność jest wpisana w programie: przebieg w przód, strata, przebieg wstecz, obcięcie, \api{step}.
+
+Detektor jest siecią YOLOv1 z siatką \(7\times 7\) i z normalizacją wsadową w każdym bloku \api{FusedCBR2d}. Późniejszych wersji YOLO w repozytorium nie ma. Porównanie dotyczy tej topologii, wspólnej z modelem referencyjnym, a nie sieci z artykułu bez normalizacji wsadowej.
+
+Pętla epoki, harmonogram i CSV żyją w binariach. \api{Network::fit} jest w rdzeniu, ma na stałe stratę YOLOv1 i nie jest wołane przez programy z rozdziału~4. Dodatkowo \api{split\_dataset} tasuje listę z \api{std::random\_device}. Dwa uruchomienia detekcji nie dostają tej samej listy obrazów.
+
+\section{Kierunki dalszych prac}
+
+Podział wsadu na więcej niż jedno urządzenie CUDA wymaga kodu, którego nie ma: drugi kontekst i jawny podział tensora między karty. Powtórzenie tej samej listy obrazów w parze detekcji wymaga ziarna albo zapisu podziału, a \api{split\_dataset} ich nie trzyma. Inna rodzina detektora niż YOLOv1 wymaga nowego modelu i innej straty, bo w drzewie jest tylko siatka \(7\times 7\) i \api{YOLOLoss}.

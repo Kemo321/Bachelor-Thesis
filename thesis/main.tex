@@ -1,0 +1,102 @@
+% Kompilacja (dwa przebiegi, żeby powstał spis treści i zakładki PDF):
+%   cd thesis
+%   pdflatex -interaction=nonstopmode main.tex
+%   pdflatex -interaction=nonstopmode main.tex
+\documentclass[12pt,a4paper,oneside]{report}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[polish]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{geometry}
+\usepackage{setspace}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage[nottoc]{tocbibind}
+
+\geometry{
+  a4paper,
+  top=2.5cm,
+  bottom=2.5cm,
+  left=3cm,
+  right=2.5cm
+}
+
+\onehalfspacing
+\setcounter{tocdepth}{3}
+\setcounter{secnumdepth}{3}
+
+\addto\captionspolish{%
+  \renewcommand{\appendixname}{Załącznik}%
+}
+
+\DeclareRobustCommand{\api}[1]{\texttt{#1}}
+
+\usepackage[unicode,hidelinks]{hyperref}
+\pdfstringdefDisableCommands{%
+  \def\texttt#1{#1}%
+  \def\api#1{#1}%
+}
+
+% Ścieżki działają przy kompilacji z katalogu thesis/ oraz z katalogu repozytorium.
+\IfFileExists{chapters/01_wstep.tex}{%
+  \newcommand{\thesisinput}[1]{\input{#1}}%
+}{%
+  \newcommand{\thesisinput}[1]{\input{thesis/#1}}%
+}
+
+\hypersetup{
+  pdftitle={Implementacja modularnego frameworka głębokiego uczenia w C++ z akceleracją GPU},
+  pdfauthor={Tomasz Okoń},
+  pdflang={pl}
+}
+
+\newcommand{\tytulpracy}{Implementacja modularnego frameworka głębokiego uczenia w~C++ z~akceleracją GPU na potrzeby klasyfikacji i~detekcji obiektów YOLO}
+\newcommand{\uczelnia}{Politechnika Warszawska}
+\newcommand{\wydzial}{Wydział Elektroniki i Technik Informacyjnych}
+\newcommand{\kierunek}{Informatyka, specjalizacja sztuczna inteligencja}
+\newcommand{\autorpracy}{Tomasz Okoń}
+\newcommand{\promotorpracy}{prof. dr hab. inż. Robert Marek Nowak}
+
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  {\large\uczelnia\par}
+  \vspace{0.35cm}
+  {\large\wydzial\par}
+  \vspace{0.25cm}
+  {\large\kierunek\par}
+  \vspace{2.2cm}
+  {\Large Praca inżynierska\par}
+  \vspace{1.8cm}
+  {\LARGE\bfseries \tytulpracy\par}
+  \vspace{2cm}
+  \begin{tabular}{@{}ll@{}}
+    Autor: & \autorpracy \\[0.7em]
+    Promotor: & \promotorpracy \\
+  \end{tabular}
+  \vfill
+  {\large 2026\par}
+\end{titlepage}
+
+\tableofcontents
+\clearpage
+
+\thesisinput{front/wykaz_skrotow}
+
+\thesisinput{chapters/01_wstep}
+\thesisinput{chapters/02_podstawy_teoretyczne}
+\thesisinput{chapters/03_architektura_i_implementacja}
+\thesisinput{chapters/04_metodologia_i_benchmarki}
+\thesisinput{chapters/05_wnioski}
+
+\thesisinput{back/bibliografia}
+
+\listoftables
+
+\thesisinput{back/zalaczniki}
+
+\end{document}

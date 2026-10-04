@@ -50,6 +50,18 @@ __pycache__/
 .ipynb_checkpoints/
 node_modules/
 
+# Thesis auxiliaries (sources under thesis/ stay tracked)
+thesis/*.aux
+thesis/*.log
+thesis/*.out
+thesis/*.toc
+thesis/*.lof
+thesis/*.lot
+thesis/*.fls
+thesis/*.fdb_latexmk
+thesis/*.synctex.gz
+thesis/*.pdf
+
 # IDE / editor
 .vscode/
 .cursor/

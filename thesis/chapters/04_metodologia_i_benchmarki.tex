@@ -1,0 +1,323 @@
+% !TeX root = ../main.tex
+\chapter{Metodologia eksperymentów i wyniki}
+
+\section{Środowisko, konfiguracja i protokół porównawczy}
+
+Każdy zbiór ma parę programów: jeden linkuje rdzeń własny, drugi powstaje tylko wtedy, gdy konfiguracja CMake znajdzie LibTorch. Oba czytają blok JSON o tych samych polach. Ścieżka pliku jest zmienna \api{EXPERIMENTS_JSON}, a gdy jej nie ma, program szuka \api{config/experiments.json}. Pary detekcji mają dwa bloki, \api{voc\_custom} z \api{voc\_torch}, i analogicznie BCCD oraz zbiór syntetyczny. W odczytanym pliku te pary mają te same wartości. CIFAR-10 i MNIST mają po jednym bloku, \api{cifar10\_classification} i \api{mnist\_classification}, czytanym przez oba programy. Iris i Wisconsin wybiera argument programu tabelarycznego.
+
+Porównanie z dalszych podrozdziałów stoi na wspólnym protokole. Stanowisko to karta NVIDIA GeForce RTX 5080, procesor AMD Ryzen 7 9800X3D i 64~GB pamięci DDR5-6000. Binaria z tego rozdziału zbudował CMake w kontenerze i znalazł CUDAToolkit 13.2.51. Na hoście Windows \texttt{nvcc --version} zwraca wydanie 13.3, V13.3.33. To nie jest zestaw tych przebiegów. Wsad, liczba epok, pęd \(0{,}9\), rozkład wag \(0{,}0005\) i próg obcięcia równy zero są w JSON. Przechowywanie na GPU jest FP32. Gdy blok ma listę \api{lr\_schedule}, oba programy pary używają tej listy. Reguła z równania~\eqref{eq:schedule} działa dopiero wtedy, gdy listy nie ma. Tak jest przy Iris, Wisconsin i przeuczeniu VOC.
+
+Klucz \api{dataloader\_workers} czyta tylko program z LibTorch. Własny loader bierze \api{parallel\_worker\_count} i tego klucza nie używa. Ciągła integracja buduje binaria własne na maszynie bez karty NVIDIA. Zielone sprawdzenie oznacza, że drzewo się linkuje. Czas epoki i zajętość pamięci pochodzą z uruchomienia na tej karcie.
+
+Plik \api{config/sanity.json} ma ten sam układ pól. We wszystkich blokach \api{epochs} wynosi \(2\). Służy do krótkiego przejścia programu po kompilacji. Wiersze z tego pliku nie wchodzą do tabel wyników. \api{short\_voc\_*} czyta blok \api{voc\_custom} albo \api{voc\_torch}, a liczbę epok ma wpisaną w kodzie jako \(3\). Każda pętla detekcji zapisuje ten sam nagłówek: \api{Epoch}, \api{TrainLoss}, \api{TestLoss}, \api{Time(s)}, \api{VRAM\_MiB}, \api{mAP@0.5}. Przeuczenie liczy stratę testową i mAP na tych samych ośmiu obrazach, po kroku, w trybie \api{eval}.
+
+\section{Zbiory danych i podział na część uczącą, walidacyjną i testową}
+
+Detekcja używa układu katalogów VOC: \api{JPEGImages} oraz \api{Annotations}. \api{split\_dataset} zamienia adnotacje na pliki tekstowe, gdy pary jeszcze nie ma, potem tasuje listę par generatorem z \api{std::random\_device}. Udziały domyślne to \(0{,}7\), \(0{,}15\) i reszta. Koniec części uczącej to część całkowita z \(0{,}7N\). Koniec walidacji to ten indeks plus część całkowita z \(0{,}15N\). Reszta jest testem, więc test bywa dłuższy niż \(0{,}15N\). Dwa uruchomienia nie dostają tej samej listy, bo ziarno nie jest stałe. Programy uczące biorą część uczącą z augmentacją i część testową bez niej. Lista walidacyjna powstaje i nie jest podawana do loadera.
+
+PASCAL VOC to podkatalog \api{VOC2012}, \(20\) klas i bok \(448\). Wsad wynosi \(16\), epok jest \(130\), a bazowy współczynnik uczenia \(0{,}00002\). Próg ufności to \(0{,}25\), próg NMS to \(0{,}5\). BCCD ma klasy RBC, WBC i Platelets, wsad \(16\), \(450\) epok, współczynnik \(0{,}0001\), próg ufności \(0{,}15\) i NMS \(0{,}6\). Zbiór syntetyczny ma klasy square, circle i triangle, wsad \(16\), \(350\) epok, ten sam współczynnik, próg ufności \(0{,}1\) i NMS \(0{,}45\).
+
+CIFAR-10 nie przechodzi przez \api{split\_dataset}. \api{ClassificationLoader} czyta \api{data/cifar10/train} i \api{data/cifar10/test}. Katalog klasy jest indeksem jedynki. Bok z JSON wynosi \(32\), klas jest \(10\), wsad \(128\), epok \(40\). Lista współczynnika trzyma \(0{,}01\) do epoki \(28\), potem \(0{,}001\) do epoki \(36\) i \(0{,}0001\) do epoki \(40\).
+
+MNIST to dwa pliki \api{DLIMG001}: \api{train.bin} i \api{test.bin}. Liczbę klas, bok i liczbę kanałów program bierze z nagłówka pliku uczącego i sprawdza zgodność z plikiem testowym. Pola \api{image\_size} i \api{in\_channels} w JSON nie są czytane. Wsad wynosi \(128\), epok jest \(12\). Lista współczynnika trzyma \(0{,}01\) do epoki \(8\), \(0{,}001\) do epoki \(11\) i \(0{,}0001\) w epoce \(12\).
+
+Iris i Wisconsin są plikami CSV. Ostatnia kolumna jest etykietą, wcześniejsze są cechami. Nagłówek jest pomijany. JSON zapisuje dla Iris \(4\) cechy, \(3\) klasy i warstwę ukrytą \(16\), a dla Wisconsin \(30\) cech, \(2\) klasy i warstwę ukrytą \(32\). Szerokość użyta w sieci jest szerokością wczytanej tabeli, nie osobnym polem obok pliku. Nie ma części testowej. Każda epoka tasuje wszystkie wiersze generatorem o ziarnie \(42\) i liczy dokładność na tych samych wierszach. Iris ma wsad \(16\) i \(100\) epok, Wisconsin wsad \(32\) i \(80\) epok. Współczynnik bazowy wynosi \(0{,}05\). Te bloki nie mają listy \api{lr\_schedule}, więc spadek następuje według równania~\eqref{eq:schedule}.
+
+\section{Definicja metryk oraz rozdzielenie czasu epoki od czasu jądra}
+
+Kolumna \api{Time(s)} jest czasem \api{std::chrono::steady\_clock} od początku epoki do zapisu wiersza, obciętym do pełnych sekund. W tym odcinku jest przejście uczące, przejście testowe i, dla VOC, liczenie mAP. To nie jest czas jądra. CIFAR-10 i MNIST dodatkowo wołają \api{Profiler::start} oraz \api{stop}. Zwrócone milisekundy idą tylko do logu debugowania. Do CSV wchodzi czas ze ściany.
+
+Czas operatora mierzy \api{bench\_micro\_ops}. Pętla Google Benchmark woła \api{Profiler} i ustawia czas iteracji z \api{stop}. Plik obejmuje wysyłkę i odbiór, splot w przód i wstecz, warstwę gęstą oraz \api{YOLOLoss}. Wsad w tych próbach wynosi \(16\), bok obrazu \(448\), splot idzie z \(64\) do \(192\) kanałów na mapie o boku \(112\), a warstwa gęsta z \(7\cdot 7\cdot 1024\) do \(4096\). Przed pomiarem jest pięć rozgrzań. Te czasy nie są kolumną \api{Time(s)}.
+
+\api{VRAM\_MiB} woła \api{Profiler::get\_vram\_usage\_mb} po epoce. Odczyt jest różnicą pamięci całkowitej i wolnej z \api{cudaMemGetInfo}, w MiB. To zajętość urządzenia w chwili odczytu, nie licznik jednego procesu.
+
+Strata w CSV jest średnią strat wsadów. Każdy wsad waży tyle samo, także gdy ostatni jest krótszy. Dla obrazów dokładność jest średnią dokładności wsadów. W programie własnym klasa przewidywana i klasa wzorcowa biorą się z argmax wiersza. Remis zostawia mniejszy indeks, bo porównanie jest ostre. Program CIFAR z LibTorch bierze \api{argmax} logitów i średnią zgodności we wsadzie, a potem też średnią po wsadach. W tabeli kolumny nazywają się \api{TrainAcc} i \api{TestAcc}. Iris i Wisconsin nie mają podziału testowego. Program zapisuje \api{TrainLoss} i \api{TrainAcc}. Skopiowany plik ma jeszcze nagłówek \api{Loss} i \api{Acc}. \api{TestLoss} oraz \api{TestAcc} w tym zadaniu nie powstają.
+
+mAP woła \api{mean\_average\_precision} z progiem IoU \(0{,}5\). Próg jest wpisany w wywołaniu. Ramki przewidywane przechodzą przez próg ufności z JSON i przez NMS. Ramki wzorcowe są dekodowane z progiem \(0{,}5\) i bez NMS. To samo wywołanie jest w VOC, BCCD, zbiorze syntetycznym, krótkim VOC i przeuczeniu, po obu stronach. Skopiowane pliki BCCD, zbioru syntetycznego, krótkiego VOC, przeuczenia i \api{results/voc/metrics\_torch.csv} tej kolumny nie mają. Do komórki nie wpisuje się liczby, której plik nie zawiera.
+
+\section{Weryfikacja poprawności}
+
+\subsection{Testy jednostkowe warstw, strat i loaderów}
+
+Cel \api{dllib\_tests} linkuje \api{DeepLearnLib}, \api{DeepLearnModels} i GoogleTest. Nie jest parą treningową i nie zapisuje \api{metrics\_*.csv}. Testy tensora sprawdzają kształt, widok, mnożenie macierzy i odrzucenie operandu CPU. Testy warstw sprawdzają kształt wyjścia, skończony gradient, krok wag i błąd przy złym rzędzie albo braku przebiegu w przód. \api{test\_loss.cpp} sprawdza układ siatki YOLOv1, pustą siatkę i tensor CPU. \api{test\_network.cpp} sprawdza zapis i odczyt wag oraz jeden krok \api{fit} na wyjściu o kształcie detektora.
+
+Loadery mają osobne pliki. \api{PackedImageLoader} sprawdza magię \api{DLIMG001}, piksele w skali \([0,1]\) i cel one-hot. \api{CSVLoader} sprawdza podział na cechy i kolumny celu. Gdy jest OpenCV, dochodzi \api{ClassificationLoader}: odkrycie klas, brak nakładania próbek w epoce i stała szerokość one-hot, gdy w teście brakuje katalogu. \api{test\_profiler\_map.cpp} sprawdza, że identyczne ramki dają mAP równe jeden, rozłączne dają zero, a \api{Profiler::stop} zwraca nieujemne milisekundy.
+
+\subsection{Zgodność numeryczna operatorów z implementacją referencyjną}
+
+Plik \api{test\_torch\_equivalence.cpp} wchodzi do \api{dllib\_tests} tylko wtedy, gdy CMake znalazł LibTorch. Próg porównania to \(10^{-3}\). Testowane są przebieg w przód i wstecz dla \api{Conv2d}, \api{MaxPool2d}, \api{FullyConnected} i \api{BatchNorm2d} w uczeniu. \api{FusedCBR2d} jest porównany z sekwencją splot, normalizacja wsadowa, Leaky ReLU tylko w ewaluacji i tylko w przód. \api{YOLOLoss} porównuje skalar i gradient z implementacją referencyjną. Brak tego pliku przy konfiguracji bez LibTorch nie wyłącza pozostałych testów rdzenia.
+
+\subsection{Test przeuczenia na krótkim wycinku VOC}
+
+\api{overfit\_voc\_custom} czyta blok \api{overfit\_voc\_custom}. Po \api{split\_dataset} bierze pierwsze \api{batch\_size} obrazów z listy uczącej. W JSON wsad wynosi \(8\), więc wycinek ma co najwyżej osiem obrazów. Loader dostaje flagę uczenia równą fałsz. Augmentacji na tym wycinku nie ma. Epok jest \(300\). Listy \api{lr\_schedule} blok nie ma, więc działa równanie~\eqref{eq:schedule}. CSV ma nagłówek detekcji, łącznie ze stratą testową i mAP na tym samym wycinku. Skopiowany plik ma tylko \api{Epoch}, \api{Loss}, \api{Time(s)} i \api{VRAM\_MiB}. Po pętli program zapisuje wagi, przełącza warstwy w \api{eval}, dekoduje ramki progami \(0{,}1\) i \(0{,}45\) i rysuje je na tych samych obrazach. Sprawdzenie polega na tym, czy strata na stałym, krótkim wycinku maleje. Para z LibTorch czyta bliźniaczy blok \api{overfit\_voc\_torch}. Wycinek zależy od tasowania, więc dwa uruchomienia nie muszą dostać tych samych ośmiu plików.
+
+\section{Mikrobenchmarki operatorów}
+
+Katalog \api{results/} nie zawiera pliku JSON tych prób. \api{scripts/freeze\_measurements.py} kopiuje ostatni wiersz CSV i wydruku Google Benchmark nie czyta. Liczby poniżej są kolumną Time z konsoli uruchomionej 4 października 2026, pozycja 31 menu, z argumentem \texttt{--benchmark\_min\_time=0.5s}. Ta kolumna jest czasem ręcznym: pętla bierze milisekundy z \api{Profiler::stop} i woła \api{SetIterationTime}. Bez CUDA próba jest pomijana. Rozgrzanie warstwy ma pięć przejść, a pełnego modelu dwa. Krótkie jądra mają w wydruku tysiące iteracji. Krok YOLOv1 ma ich dziesięć. Kolumna VRAM w tym samym wydruku rośnie od 1387~MiB do 13387~MiB w jednym procesie, więc nie jest rozmiarem jednego operatora i do tabeli nie wchodzi.
+
+\subsection{Jądra elementowe, GEMM głowicy oraz splot}
+
+Wysyłka i odbiór dotyczą tensora \([16, 3, 448, 448]\). Własna strona mierzy \api{from\_host} oraz powtórne kopiowanie do istniejącego bufora. Strona LibTorch mierzy przeniesienie na CUDA i kopiowanie do istniejącego tensora. Osobno jest odbiór na host.
+
+Dodawanie i mnożenie elementowe idą na kształcie \([16, 512, 28, 28]\). Obcięcie, suma, Leaky ReLU, dropout, spłaszczenie i softmax są w tym samym pliku, każdy w parze własnej i LibTorch, o ile dana strona ma odpowiednik. Transpozycja i pierwsza warstwa gęsta głowicy używają szerokości \(7\cdot 7\cdot 1024\). Gradient tej warstwy jest mnożeniem \([50176, 16]\) przez \([16, 4096]\). Druga warstwa gęsta idzie z \(4096\) do \(1470\), czyli \(7\cdot 7\cdot 30\). Splot w \api{bench\_micro\_ops.cpp} ma wsad \(16\), \(64\) kanały wejściowe, \(192\) wyjściowe, jądro \(3\) i mapę o boku \(112\), w przód i wstecz. Czasy są w tabeli~\ref{tab:mikro}.
+
+\begin{table}[ht]
+\centering
+\caption{Czas z kolumny Time wydruku \api{bench\_micro\_ops}, 4 października 2026. Myślnik oznacza, że ta próba nie jest zarejestrowana po danej stronie.}
+\label{tab:mikro}
+\footnotesize
+\begin{tabular}{lrr}
+\toprule
+Próba & Własny (ms) & LibTorch (ms) \\
+\midrule
+Wysyłka \api{from\_host} & 3{,}40 & 2{,}95 \\
+Wysyłka do istniejącego bufora & 1{,}35 & 3{,}16 \\
+Odbiór na host & 9{,}67 & 9{,}31 \\
+Splot, przód & 1{,}33 & 1{,}74 \\
+Splot, wstecz & 3{,}68 & 3{,}43 \\
+Warstwa gęsta, przód & 1{,}07 & 1{,}56 \\
+Warstwa gęsta, wstecz & 2{,}06 & 2{,}42 \\
+\api{YOLOLoss}, przód & 0{,}029 & 1{,}52 \\
+\api{YOLOLoss}, wstecz & 0{,}036 & 6{,}20 \\
+Dodawanie & 1{,}08 & 0{,}204 \\
+Mnożenie & 1{,}07 & 0{,}173 \\
+GEMM gradientu głowicy & 14{,}1 & 1{,}13 \\
+GEMM głowicy & 0{,}106 & 0{,}110 \\
+Transpozycja & 0{,}600 & 0{,}080 \\
+Suma & 0{,}108 & 0{,}092 \\
+Obcięcie & 0{,}641 & 0{,}067 \\
+Normalizacja wsadowa, przód & 0{,}624 & 0{,}737 \\
+Normalizacja wsadowa, wstecz & 0{,}930 & 1{,}81 \\
+Max pooling, przód & 0{,}233 & 0{,}410 \\
+Max pooling, wstecz & 0{,}596 & 1{,}59 \\
+Leaky ReLU, przód & 0{,}401 & 0{,}565 \\
+Leaky ReLU, wstecz & 0{,}587 & 1{,}58 \\
+Dropout, przód & 0{,}030 & 0{,}068 \\
+Dropout, wstecz & 0{,}023 & 0{,}249 \\
+Spłaszczenie, przód & 0{,}021 & 0{,}043 \\
+Spłaszczenie, wstecz & 0{,}022 & -- \\
+Softmax, przód & 0{,}017 & 0{,}056 \\
+Softmax, wstecz & 0{,}027 & 0{,}233 \\
+\api{FusedCBR2d}, przód & 1{,}93 & 2{,}88 \\
+\api{FusedCBR2d}, wstecz & 5{,}42 & 5{,}20 \\
+Blok początkowy, przód & 1{,}82 & 2{,}96 \\
+Głowa \(4096 \to 1470\), przód & 0{,}065 & 0{,}108 \\
+Głowa \(4096 \to 1470\), wstecz & 0{,}104 & 0{,}349 \\
+MSE, przód & 0{,}255 & 0{,}063 \\
+MSE, wstecz & 0{,}057 & -- \\
+Entropia krzyżowa, przód & 0{,}348 & 0{,}114 \\
+Entropia krzyżowa, wstecz & 0{,}092 & -- \\
+Obcięcie gradientu & 0{,}024 & 0{,}055 \\
+\api{YOLO::forward} & 19{,}7 & 22{,}4 \\
+Krok uczący YOLOv1 & 72{,}5 & 72{,}0 \\
+\api{SimpleCNN}, przód & 0{,}150 & 0{,}157 \\
+Loader VOC & 51{,}4 & 277 \\
+Loader CIFAR-10 & 15{,}2 & -- \\
+Loader CSV & 2{,}29 & -- \\
+Dekodowanie i NMS & 0{,}074 & -- \\
+mAP na stałych ramkach & 0{,}110 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Dodawanie i mnożenie oraz GEMM gradientu głowicy są wolniejsze po stronie własnej: \(1{,}08\)~ms wobec \(0{,}204\)~ms, \(1{,}07\)~ms wobec \(0{,}173\)~ms i \(14{,}1\)~ms wobec \(1{,}13\)~ms. GEMM samej głowicy jest bliski, \(0{,}106\)~ms i \(0{,}110\)~ms. Splot w przód jest krótszy po stronie własnej, \(1{,}33\)~ms wobec \(1{,}74\)~ms. Wstecz splotu jest krótszy po stronie LibTorch, \(3{,}43\)~ms wobec \(3{,}68\)~ms.
+
+\subsection{Normalizacja wsadowa i blok \api{FusedCBR2d}}
+
+\api{BatchNorm2d} i \api{MaxPool2d} o oknie \(2\) dostają tensor \([16, 192, 112, 112]\), w przód i wstecz. \api{FusedCBR2d} na tym samym boku mapy składa splot \(64\) do \(192\), jądro \(3\), krok \(1\), dopełnienie \(1\) i nachylenie \(0{,}1\). Blok początkowy to splot \(3\) do \(64\), jądro \(7\), krok \(2\), dopełnienie \(3\), na obrazie \([16, 3, 448, 448]\). Po stronie LibTorch ten sam blok jest sekwencją osobnych modułów: splot, normalizacja wsadowa, Leaky ReLU. Próba jest w uczeniu. W przód blok łączony ma \(1{,}93\)~ms, sekwencja LibTorch \(2{,}88\)~ms. Wstecz jest odwrotnie: \(5{,}42\)~ms wobec \(5{,}20\)~ms. Sam przebieg w przód bloku początkowego ma \(1{,}82\)~ms i \(2{,}96\)~ms. Fuzja skraca przebieg w przód tego bloku. Nie skraca przebiegu wstecz.
+
+\subsection{Koszt \api{YOLOLoss} względem pełnego kroku sieci}
+
+\api{bench\_micro\_ops.cpp} mierzy osobno \api{YOLOLoss} w przód i wstecz na siatce \([16, 7, 7, 30]\). \api{bench\_micro\_more.cpp} mierzy sam \api{YOLO::forward} w ewaluacji oraz cały krok uczący: przebieg w przód, strata, pochodna, obcięcie gradientu straty, \api{backward} i \api{step}. Ten krok ma współczynnik \(10^{-4}\) i próg obcięcia \(10\), wpisane w pliku benchmarku, nie w \api{experiments.json}. Cel jest tensorem zer. Osobno jest przebieg w przód \api{SimpleCNN} na \([16, 3, 32, 32]\) oraz próby loadera VOC, CIFAR-10 i CSV, dekodowania z NMS i mAP na stałych ramkach hosta. \api{YOLOLoss} w przód ma \(0{,}029\)~ms wobec \(1{,}52\)~ms. Wstecz ma \(0{,}036\)~ms wobec \(6{,}20\)~ms. Cały krok uczący ma \(72{,}5\)~ms i \(72{,}0\)~ms. Sam \api{YOLO::forward} ma \(19{,}7\)~ms i \(22{,}4\)~ms. Strata jest tu małym ułamkiem kroku. Przebieg w przód \api{SimpleCNN} ma \(0{,}150\)~ms i \(0{,}157\)~ms. Loader VOC ma \(51{,}4\)~ms i \(277\)~ms. W kodzie nie ma pary LibTorch dla loadera CIFAR-10, loadera CSV, dekodowania z NMS, mAP, wstecz \api{Flatten}, wstecz MSE i wstecz entropii krzyżowej.
+
+\subsection{Jedna epoka VOC w \api{bench\_voc\_custom} i \api{bench\_voc\_torch}}
+
+To nie jest wiersz CSV z tabel~\ref{tab:voc-krotki} i~\ref{tab:voc}. Współczynnik w obu plikach benchmarku wynosi \(10^{-4}\), nie \(2\cdot 10^{-5}\) z JSON. Nie ma przejścia testowego ani mAP. \api{bench\_voc\_custom} owija pętlę, razem z \api{get\_batch}, parą zdarzeń CUDA i zapisuje licznik \api{GPU\_ms}. Loader dostaje flagę uczenia równą fałsz. \api{bench\_voc\_torch} mierzy czas rzeczywisty, z optymalizatorem Adam i czterema wątkami, bez \api{Profiler}, więc nie ma \api{GPU\_ms} ani VRAM. Wydruk jest z 4 października 2026, pozycje 29 i 30 menu, argument \texttt{--benchmark\_min\_time=0.1s}. Każdy wiersz ma jedną iterację, bo epoka jest dłuższa niż ten próg. \api{split\_dataset} znowu tasuje listę, więc to nie jest ta sama lista plików co w treningu 130 epok.
+
+\begin{table}[ht]
+\centering
+\caption{Jedno przejście uczące VOC2012, 11987 obrazów. Czas to kolumna Time wydruku, przeliczona z nanosekund na sekundy.}
+\label{tab:bench-voc}
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+Stos & Wsad & Czas (s) & GPU (ms) & Obrazy/s & VRAM \\
+\midrule
+własny & 8 & 67{,}417 & 67412{,}4 & 177{,}803 & 5883 \\
+LibTorch & 8 & 106{,}87 & -- & 112{,}166 & -- \\
+własny & 16 & 56{,}837 & 56800{,}9 & 210{,}902 & 6885 \\
+LibTorch & 16 & 76{,}556 & -- & 156{,}578 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Przy wsadzie \(16\) przejście własne trwa \(56{,}837\)~s, LibTorch \(76{,}556\)~s. Licznik \api{GPU\_ms} przy tym wsadzie to \(56800{,}9\)~ms i leży obok czasu ściennego. VRAM odczytany po stronie własnej to 5883~MiB przy wsadzie \(8\) i 6885~MiB przy wsadzie \(16\).
+
+\section{Eksperymenty klasyfikacyjne}
+
+Liczby w tabeli~\ref{tab:klasyfikacja} są ostatnimi wierszami plików \api{results/mnist/metrics\_*.csv}, \api{results/cifar10/metrics\_*.csv}, \api{results/tabular\_iris/metrics\_*.csv} i \api{results/tabular\_wisconsin/metrics\_*.csv}. Skrypt \api{scripts/freeze\_measurements.py} kopiuje ten sam ostatni wiersz do \api{docs/usage/measurements.md} i nie dopisuje biegów, których pliku nie ma. Pomiary powstały na karcie NVIDIA GeForce RTX 5080.
+
+\subsection{\api{SimpleCNN} na MNIST}
+
+Oba programy czytają blok \api{mnist\_classification}: wsad \(128\), \(12\) epok, ta sama lista współczynnika. Bok i liczba kanałów biorą się z nagłówka \api{train.bin}. Program własny liczy \api{CrossEntropyLoss} na celach one-hot i dokładność przez argmax wiersza. Program LibTorch zamienia one-hot na indeks klasy i woła entropię krzyżową tej biblioteki. CSV ma stratę i dokładność osobno dla części uczącej i testowej.
+
+\subsection{\api{SimpleCNN} na CIFAR-10}
+
+Oba programy czytają jeden blok \api{cifar10\_classification}: wsad \(128\), bok \(32\), \(10\) klas, \(40\) epok. Katalogi to \api{train} i \api{test}. Uśrednienie dokładności jest średnią dokładności wsadów, tak jak w podrozdziale~4.3. Ostatnia epoka zapisuje też macierz pomyłek. Do tabeli wchodzą tylko kolumny strat, dokładności, czasu i VRAM.
+
+\subsection{MLP na zbiorach tabelarycznych Iris i Wisconsin}
+
+Oba programy składają dwie warstwy gęste i Leaky ReLU o nachyleniu \(0{,}1\). Iris ma warstwę ukrytą \(16\), Wisconsin \(32\). Generator wierszy ma ziarno \(42\). Nie ma części testowej, więc CSV ma jedną stratę i jedną dokładność, liczone na wierszach użytych w kroku. Czas \(0\) oznacza epokę krótszą niż jedna sekunda, bo kolumna jest obcięta do pełnych sekund.
+
+\subsection{Porównanie straty, dokładności, czasu epoki i VRAM}
+
+\begin{table}[ht]
+\centering
+\caption{Ostatnia epoka klasyfikacji. Strata i dokładność Iris oraz Wisconsin dotyczą tych samych wierszy, na których wykonano krok. Źródło: \api{docs/usage/measurements.md}.}
+\label{tab:klasyfikacja}
+\small
+\begin{tabular}{llrrrrrrr}
+\toprule
+Zbiór & Stos & Epoka & $L_{\mathrm{ucz}}$ & $L_{\mathrm{test}}$ & Dokł. ucz. & Dokł. test. & Czas (s) & VRAM \\
+\midrule
+MNIST & własny & 12 & 2{,}79275 & 5{,}50321 & 0{,}990261 & 0{,}986353 & 1 & 1515 \\
+MNIST & LibTorch & 12 & 0{,}0327417 & 0{,}0368073 & 0{,}990422 & 0{,}987935 & 1 & 1601 \\
+\midrule
+CIFAR-10 & własny & 40 & 2{,}41182 & 1{,}39182 & 0{,}732577 & 0{,}656052 & 53 & 1521 \\
+CIFAR-10 & LibTorch & 40 & 0{,}575592 & 0{,}900853 & 0{,}807101 & 0{,}700455 & 53 & 1601 \\
+\midrule
+Iris & własny & 100 & 0{,}0451643 & -- & 0{,}986667 & -- & 0 & 1481 \\
+Iris & LibTorch & 100 & 0{,}048417 & -- & 0{,}98 & -- & 0 & 1553 \\
+\midrule
+Wisconsin & własny & 80 & 0{,}00633334 & -- & 1 & -- & 0 & 1481 \\
+Wisconsin & LibTorch & 80 & 0{,}00702566 & -- & 1 & -- & 0 & 1553 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Na MNIST dokładność ostatniej epoki różni się dopiero na trzecim miejscu po przecinku, zapisane straty nie leżą na jednej skali, a czas obu stosów wynosi \(1\)~s, więc kolumna nie rozstrzyga, który przebieg był krótszy. Na CIFAR-10 stos LibTorch ma niższą stratę i wyższą dokładność, przy tym samym czasie \(53\)~s. Iris i Wisconsin kończą przy dokładności co najmniej \(0{,}98\), Wisconsin przy \(1\) po obu stronach, a czas \(0\)~s znaczy tylko tyle, że epoka nie domknęła pełnej sekundy. Odczyt VRAM jest niższy po stronie własnej o \(86\), \(80\), \(72\) i \(72\)~MiB i jest zajętością urządzenia w chwili zapisu, więc z tych wierszy nie wynika, że stos własny jest szybszy.
+
+\section{Trening detektora YOLO}
+
+Wiersze poniżej są ostatnimi wierszami plików \api{results/**/metrics\_*.csv}. Czas w kolumnie \api{Time(s)} jest czasem epoki ze ściany, obciętym do pełnych sekund. Każda tabela detekcji ma te same kolumny. Pole, którego skopiowany plik nie zawiera, zostaje [BRAK POMIARU].
+
+\begin{table}[ht]
+\centering
+\caption{Ostatnia epoka przeuczenia VOC. Skopiowany plik nie ma straty testowej ani mAP.}
+\label{tab:overfit}
+\small
+\begin{tabular}{lrrrrrl}
+\toprule
+Stos & Epoka & \(L_{\mathrm{ucz}}\) & \(L_{\mathrm{test}}\) & Czas (s) & VRAM & mAP@0,5 \\
+\midrule
+własny & 300 & 0{,}870204 & [BRAK POMIARU] & 0 & 8273 & [BRAK POMIARU] \\
+LibTorch & 300 & 0{,}420846 & [BRAK POMIARU] & 0 & 7795 & [BRAK POMIARU] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Plik \api{results/overfit/metrics\_custom.csv} ma 300 wierszy. Epoka 1 ma stratę \(17{,}9617\), epoka 300 ma \(0{,}870204\), a najniższa wartość w pliku to \(0{,}820469\) w epoce 242. Po stronie LibTorch epoka 1 ma \(12{,}1602\), epoka 300 ma \(0{,}420846\), a minimum to \(0{,}413992\) w epoce 286. Czas w kolumnie wynosi \(0\)~s, więc epoka była krótsza niż sekunda. VRAM w epoce 300 to \(8273\)~MiB i \(7795\)~MiB, o \(478\)~MiB więcej po stronie własnej.
+
+\subsection{Zbiór syntetyczny i BCCD jako obciążenia pośrednie}
+
+Oba programy pary zapisują nagłówek detekcji, łącznie z mAP. Skopiowane pliki mają \api{TrainLoss}, \api{TestLoss}, \api{Time(s)} i \api{VRAM\_MiB}. Kolumny mAP w tych plikach nie ma.
+
+\begin{table}[ht]
+\centering
+\caption{Ostatnia epoka zbioru syntetycznego, \(350\) epok, trzy klasy.}
+\label{tab:synthetic}
+\small
+\begin{tabular}{lrrrrrl}
+\toprule
+Stos & Epoka & \(L_{\mathrm{ucz}}\) & \(L_{\mathrm{test}}\) & Czas (s) & VRAM & mAP@0,5 \\
+\midrule
+własny & 350 & 2{,}94468 & 3{,}74764 & 1 & 11347 & [BRAK POMIARU] \\
+LibTorch & 350 & 1{,}94937 & 1{,}48965 & 1 & 8857 & [BRAK POMIARU] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Na zbiorze syntetycznym obie straty są niższe po stronie LibTorch. Czas wynosi \(1\)~s po obu stronach. VRAM jest wyższy po stronie własnej o \(2490\)~MiB.
+
+\begin{table}[ht]
+\centering
+\caption{Ostatnia epoka BCCD, \(450\) epok, klasy RBC, WBC i Platelets.}
+\label{tab:bccd}
+\small
+\begin{tabular}{lrrrrrl}
+\toprule
+Stos & Epoka & \(L_{\mathrm{ucz}}\) & \(L_{\mathrm{test}}\) & Czas (s) & VRAM & mAP@0,5 \\
+\midrule
+własny & 450 & 12{,}8365 & 12{,}0268 & 1 & 11009 & [BRAK POMIARU] \\
+LibTorch & 450 & 15{,}2028 & 15{,}2057 & 2 & 8927 & [BRAK POMIARU] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Na BCCD obie straty są niższe po stronie własnej. Czas \(1\)~s wobec \(2\)~s mieści się w rozdzielczości pełnej sekundy. VRAM jest wyższy po stronie własnej o \(2082\)~MiB. mAP w skopiowanych plikach nie występuje.
+
+\subsection{Skrócony przebieg VOC}
+
+\api{short\_voc\_*} czyta blok pełnego VOC, ale liczba epok w kodzie wynosi \(3\). Program zapisuje nagłówek detekcji, łącznie ze stratą testową i mAP. Skopiowany plik ma \api{Epoch}, \api{Loss}, \api{Time(s)} i \api{VRAM\_MiB}. Loader własny dostaje flagę uczenia równą fałsz, więc na części uczącej nie ma augmentacji.
+
+\begin{table}[ht]
+\centering
+\caption{Ostatnia epoka krótkiego VOC. Skopiowany plik nie ma straty testowej ani mAP.}
+\label{tab:voc-krotki}
+\small
+\begin{tabular}{lrrrrrl}
+\toprule
+Stos & Epoka & \(L_{\mathrm{ucz}}\) & \(L_{\mathrm{test}}\) & Czas (s) & VRAM & mAP@0,5 \\
+\midrule
+własny & 3 & 7{,}33802 & [BRAK POMIARU] & 61 & 6885 & [BRAK POMIARU] \\
+LibTorch & 3 & 7{,}28702 & [BRAK POMIARU] & 97 & 7403 & [BRAK POMIARU] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Straty uczące różnią się o \(0{,}051\). Czas epoki jest krótszy po stronie własnej: \(61\)~s wobec \(97\)~s. VRAM jest niższy po stronie własnej o \(518\)~MiB. Te sekundy nie obejmują testu ani mAP: skopiowany plik ich nie liczył.
+
+\subsection{Pełny trening na PASCAL VOC}
+
+Program własny zapisuje sześć pól, łącznie z mAP przy progu IoU \(0{,}5\). Skopiowany wiersz LibTorch ma pięć pól i nie ma mAP.
+
+\begin{table}[ht]
+\centering
+\caption{Ostatnia epoka pełnego VOC, \(130\) epok, \(20\) klas. mAP LibTorch w skopiowanym wierszu nie występuje.}
+\label{tab:voc}
+\small
+\begin{tabular}{lrrrrrl}
+\toprule
+Stos & Epoka & \(L_{\mathrm{ucz}}\) & \(L_{\mathrm{test}}\) & Czas (s) & VRAM & mAP@0,5 \\
+\midrule
+własny & 130 & 3{,}4634 & 296{,}158 & 74 & 8903 & 0{,}115149 \\
+LibTorch & 130 & 2{,}86758 & 12{,}6827 & 79 & 8633 & [BRAK POMIARU] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Strata ucząca jest tego samego rzędu. Strata testowa nie jest: \(296{,}158\) wobec \(12{,}6827\). mAP własnego stosu wynosi \(0{,}115149\). Bez drugiej wartości nie ma porównania średniej precyzji. Czas epoki wynosi \(74\)~s i \(79\)~s. VRAM różni się o \(270\)~MiB.
+
+\subsection{Strata, mAP@0,5, czas epoki i zajętość pamięci względem stosu referencyjnego}
+
+Jakość nie układa się w jedną stronę. Na zbiorze syntetycznym niższa jest strata LibTorch, na BCCD niższa jest strata własna, na krótkim VOC straty są bliskie, a na pełnym VOC zgodna jest tylko strata ucząca. Jedyna zapisana mAP to \(0{,}115149\) po stronie własnej. Czas epoki na pełnym VOC różni się o \(5\)~s. Na krótkim VOC różnica wynosi \(36\)~s. Na BCCD i na zbiorze syntetycznym kolumna ma \(1\)~s albo \(2\)~s. Zajętość urządzenia na trzech długich treningach detekcji jest wyższa po stronie własnej, na krótkim VOC jest niższa. Odczyt pozostaje różnicą z \api{cudaMemGetInfo}.
+
+\section{Dyskusja wyników}
+
+\subsection{Zgodność jakości uczenia między silnikami}
+
+Dokładność MNIST w tabeli~\ref{tab:klasyfikacja} jest zgodna do trzeciego miejsca po przecinku, a zapisane straty tej pary nie są. CIFAR-10 kończy wyższą dokładnością i niższą stratą po stronie LibTorch. Iris i Wisconsin kończą przy dokładności co najmniej \(0{,}98\) po obu stronach. W detekcji pary nie dzielą zablokowanego podziału obrazów, bo \api{split\_dataset} tasuje listę przy każdym uruchomieniu. Przy stratach z tabel~\ref{tab:synthetic}--\ref{tab:voc} zgodny rząd widać w stracie uczącej pełnego VOC i w stracie krótkiego VOC. Strata testowa pełnego VOC rozjeżdża się o rząd wielkości. mAP, czyli metryka detekcji z tezy, jest zapisana tylko po stronie własnej.
+
+\subsection{Koszt obliczeniowy i charakterystyka alokacji pamięci}
+
+Kolumna \api{Time(s)} jest czasem epoki. Liczy ją \api{steady\_clock} od początku epoki do zapisu wiersza i obcina do pełnych sekund. W środku jest przejście uczące, a tam gdzie program je ma, także przejście testowe i liczenie mAP. To nie jest czas jądra.
+
+Czas jednego operatora jest w tabeli~\ref{tab:mikro}. Jedno przejście uczące VOC, osobno od CSV, jest w tabeli~\ref{tab:bench-voc}. \api{bench\_voc\_custom} zapisuje \api{GPU\_ms} dla całej pętli wsadów, razem z \api{get\_batch}. Przy wsadzie \(16\) ten licznik wynosi \(56800{,}9\)~ms, a czas ścienny \(56{,}837\)~s. \api{bench\_voc\_torch} tego licznika nie ma.
+
+Na pełnym VOC rząd czasu epoki jest ten sam. Na MNIST i CIFAR-10 czasy w tabeli~\ref{tab:klasyfikacja} są równe co do sekundy. Krótki VOC jest jedynym zapisanym przebiegiem detekcji, w którym różnica czasu przekracza pół minuty. VRAM na długim treningu detektora jest wyższy po stronie własnej o \(2490\), \(2082\) i \(270\)~MiB. Na klasyfikacji obrazu różnica szła w drugą stronę i miała kilkadziesiąt MiB. Powtórzenie tej samej liczby \(1481\) na Iris i Wisconsin pasuje do odczytu całego urządzenia, nie do rozmiaru dwóch małych perceptronów.
+
+\subsection{Wpływ fuzji bloku splotowego oraz transferu wsadu na czas kroku}
+
+Blok \api{FusedCBR2d} w przód ma \(1{,}93\)~ms, sekwencja LibTorch \(2{,}88\)~ms. Wstecz sekwencja jest krótsza: \(5{,}20\)~ms wobec \(5{,}42\)~ms. Wysyłka \api{from\_host} tensora \([16, 3, 448, 448]\) ma \(3{,}40\)~ms wobec \(2{,}95\)~ms. Powtórne kopiowanie do istniejącego bufora ma \(1{,}35\)~ms wobec \(3{,}16\)~ms. Odbiór na host ma \(9{,}67\)~ms i \(9{,}31\)~ms. Krok uczący YOLOv1 w tej samej tabeli ma \(72{,}5\)~ms i \(72{,}0\)~ms, więc różnica fuzji jednego bloku nie składa się na różnicę całego kroku. Czas epoki z tabel detekcji nadal obejmuje dekodowanie obrazu, krok sieci i, na pełnym VOC, mAP na hoście. Z \(74\)~s i z \(61\)~s nie odczytuje się czasu samego splotu.
+
+Teza z rozdziału~1 utrzymuje się o tyle, że rdzeń CUDA, cuBLAS i cuDNN bez LibTorch uczy \api{SimpleCNN}, dwuwarstwowy perceptron i YOLOv1. Czas epoki pełnego VOC leży w jednym rzędzie, \(74\)~s i \(79\)~s. Dokładność MNIST oraz Iris i Wisconsin jest bliska po obu stronach. Teza ogranicza się tam, gdzie metryka zadania nie jest zgodna. Na CIFAR-10 dokładność i strata są lepsze po stronie LibTorch, przy czasie \(53\)~s. Strata testowa VOC wynosi \(296{,}158\) wobec \(12{,}6827\). mAP przy progu IoU \(0{,}5\) wynosi \(0{,}115149\) po stronie własnej, a w skopiowanym wierszu LibTorch nie występuje. Podział obrazów detekcji nie jest wspólną listą plików. Czas operatora jest w tabeli~\ref{tab:mikro}. Krok uczący YOLOv1 trwa tam \(72{,}5\)~ms i \(72{,}0\)~ms.
