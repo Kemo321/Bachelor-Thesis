@@ -18,12 +18,14 @@
 
 namespace fs = std::filesystem;
 
+// Synthetic-dataset class indices in the last dimension of the YOLO grid.
 const std::vector<std::string> SYNTH_CLASSES = { "square", "circle", "triangle" };
 
 int main()
 {
     const nlohmann::json config = load_pipeline_config("synthetic_custom");
     const int num_classes = config.value("num_classes", 3);
+    // The confidence threshold drops weak boxes at decode time; the NMS threshold is the maximum IoU of overlapping boxes.
     const float conf_threshold = config.value("conf_threshold", 0.10F);
     const float nms_threshold = config.value("nms_threshold", 0.45F);
     const fs::path data_root = resolve_from_source(config.value("dataset_root", "data/Synthetic3/train"));
@@ -38,6 +40,7 @@ int main()
         return 1;
     }
 
+    // Load weights into the YOLO layers and switch them to GPU eval mode.
     YOLO custom_model(num_classes);
     Network custom_net(custom_model.get_all_layers(), 0.0F);
     custom_net.load(model_path.string());
@@ -64,19 +67,22 @@ int main()
     std::size_t saved = 0;
     for (const auto& img_path : sample_images)
     {
-        cv::Mat img = cv::imread(img_path);
-        if (img.empty())
+        cv::Mat image = cv::imread(img_path);
+        if (image.empty())
         {
             continue;
         }
-        auto prepared = prepare_yolo_input(img, 448);
+        auto prepared = prepare_yolo_input(image, 448);
         const dl::Tensor input = dl::Tensor::from_host({ 1, 3, 448, 448 }, prepared.second, dl::Device::GPU);
         const std::vector<float> output = custom_model.forward(input).to_host();
-        auto raw = decode_yolo_tensor(output, conf_threshold, img.cols, img.rows, num_classes);
-        auto final_det = apply_nms(raw, nms_threshold);
-        draw_detections(img, final_det, SYNTH_CLASSES, cv::Scalar(0, 0, 255));
+        auto raw_detections = decode_yolo_tensor(output, conf_threshold, image.cols, image.rows, num_classes);
+        // NMS keeps boxes whose IoU does not exceed the threshold.
+        auto kept_detections = apply_nms(raw_detections, nms_threshold);
+        // Draw only after the confidence threshold and NMS. This path does not compute mAP.
+        draw_detections(image, kept_detections, SYNTH_CLASSES, cv::Scalar(0, 0, 255));
         const std::string filename = fs::path(img_path).filename().string();
-        cv::imwrite((out_dir / ("custom_" + filename)).string(), img);
+        // Save the image with red boxes as custom_<file>.
+        cv::imwrite((out_dir / ("custom_" + filename)).string(), image);
         ++saved;
     }
     log_inference_done("Synth Custom Infer", saved, out_dir.string());

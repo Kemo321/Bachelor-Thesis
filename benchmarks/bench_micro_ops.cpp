@@ -17,6 +17,9 @@
 #include <utility>
 #include <vector>
 
+// YOLOv1 image transfers, the 64→192 convolution, the first head FC layer, and the 7×7 grid loss. Manual time is the Profiler GPU interval, not the Google Benchmark wall clock; the unit is milliseconds.
+// Shapes at batch 16: image 3×448, map 112×112, FC 7×7×1024→4096, cell depth 10+20.
+
 namespace
 {
 
@@ -34,6 +37,7 @@ constexpr int kYoloClasses = 20;
 constexpr int kYoloDepth = 10 + kYoloClasses;
 constexpr int kWarmup = 5;
 
+// Skips the case when the process cannot see CUDA.
 auto require_cuda(benchmark::State& state) -> bool
 {
     if (!torch::cuda::is_available())
@@ -44,6 +48,7 @@ auto require_cuda(benchmark::State& state) -> bool
     return true;
 }
 
+// Element count of a tensor with the given shape.
 auto numel(const std::vector<int>& shape) -> std::size_t
 {
     std::size_t count = 1;
@@ -54,11 +59,13 @@ auto numel(const std::vector<int>& shape) -> std::size_t
     return count;
 }
 
+// Host buffer filled with a constant, for upload to the GPU.
 auto host_filled(const std::vector<int>& shape, float value) -> std::vector<float>
 {
     return std::vector<float>(numel(shape), value);
 }
 
+// Google Benchmark loop: manual time from the Profiler, a byte counter, and occupied VRAM.
 template <typename Body>
 auto run_gpu_loop(benchmark::State& state, std::size_t bytes, Body&& body) -> void
 {
@@ -68,12 +75,14 @@ auto run_gpu_loop(benchmark::State& state, std::size_t bytes, Body&& body) -> vo
         profiler.start();
         body();
         const float milliseconds = profiler.stop();
+        // Iteration time is the Profiler GPU interval, not the Google Benchmark wall clock.
         state.SetIterationTime(static_cast<double>(milliseconds) / 1000.0);
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) * static_cast<int64_t>(bytes));
     state.counters["VRAM_MiB"] = static_cast<double>(Profiler::get_vram_usage_mb());
 }
 
+// A few Conv2d passes before measurement, then a device synchronization.
 auto warmup_custom_conv(Conv2d& conv, const dl::Tensor& input) -> dl::Tensor
 {
     dl::Tensor output;
@@ -87,6 +96,7 @@ auto warmup_custom_conv(Conv2d& conv, const dl::Tensor& input) -> dl::Tensor
 
 } // namespace
 
+// BM_H2D_Custom_FromHost / BM_H2D_Torch_To: upload of the image [16, 3, 448, 448] including allocation; Custom uses Tensor::from_host, LibTorch uses to(CUDA).
 static void BM_H2D_Custom_FromHost(benchmark::State& state)
 {
     if (!require_cuda(state))
@@ -132,6 +142,7 @@ static void BM_H2D_Torch_To(benchmark::State& state)
         });
 }
 
+// BM_H2D_Custom_ReuseMemcpy / BM_H2D_Torch_CopyInto: the same 16×3×448 image into an existing buffer; Custom uses cudaMemcpyAsync from pinned memory, LibTorch uses copy_.
 static void BM_H2D_Custom_ReuseMemcpy(benchmark::State& state)
 {
     if (!require_cuda(state))
@@ -175,6 +186,7 @@ static void BM_H2D_Torch_CopyInto(benchmark::State& state)
         });
 }
 
+// BM_D2H_Custom_ToHost / BM_D2H_Torch_Cpu: read of the image [16, 3, 448, 448] from GPU to host; Custom uses to_host, LibTorch uses cpu().
 static void BM_D2H_Custom_ToHost(benchmark::State& state)
 {
     if (!require_cuda(state))
@@ -215,12 +227,14 @@ static void BM_D2H_Torch_Cpu(benchmark::State& state)
         });
 }
 
+// BM_Conv2d_Fwd_Custom / BM_Conv2d_Fwd_Torch: convolution 64→192, 3×3 kernel, padding 1, map [16, 64, 112, 112] (second YOLOv1 block).
 static void BM_Conv2d_Fwd_Custom(benchmark::State& state)
 {
     if (!require_cuda(state))
     {
         return;
     }
+    // Conv shape: batch 16, 64→192, kernel 3, spatial 112.
     Conv2d conv(kConvIn, kConvOut, kKernel, 1, 1);
     conv.to(dl::Device::GPU);
     const std::vector<int> shape { kBatch, kConvIn, kSpatial, kSpatial };
@@ -242,6 +256,7 @@ static void BM_Conv2d_Fwd_Torch(benchmark::State& state)
         return;
     }
     at::globalContext().setBenchmarkCuDNN(true);
+    // Conv shape: batch 16, 64→192, kernel 3, spatial 112.
     torch::nn::Conv2d conv(torch::nn::Conv2dOptions(kConvIn, kConvOut, kKernel).padding(1));
     conv->to(torch::kCUDA);
     conv->eval();
@@ -266,12 +281,14 @@ static void BM_Conv2d_Fwd_Torch(benchmark::State& state)
         });
 }
 
+// BM_Conv2d_Bwd_Custom / BM_Conv2d_Bwd_Torch: gradient of the same 64→192 convolution; Custom measures backward alone, LibTorch also zeroes the gradient.
 static void BM_Conv2d_Bwd_Custom(benchmark::State& state)
 {
     if (!require_cuda(state))
     {
         return;
     }
+    // Conv shape: batch 16, 64→192, kernel 3, spatial 112.
     Conv2d conv(kConvIn, kConvOut, kKernel, 1, 1);
     conv.to(dl::Device::GPU);
     const std::vector<int> in_shape { kBatch, kConvIn, kSpatial, kSpatial };
@@ -291,6 +308,7 @@ static void BM_Conv2d_Bwd_Custom(benchmark::State& state)
         profiler.start();
         grad_in = conv.backward(grad_out);
         const float milliseconds = profiler.stop();
+        // Iteration time is the Profiler GPU interval, not the Google Benchmark wall clock.
         state.SetIterationTime(static_cast<double>(milliseconds) / 1000.0);
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) * static_cast<int64_t>(bytes));
@@ -304,6 +322,7 @@ static void BM_Conv2d_Bwd_Torch(benchmark::State& state)
         return;
     }
     at::globalContext().setBenchmarkCuDNN(true);
+    // Conv shape: batch 16, 64→192, kernel 3, spatial 112.
     torch::nn::Conv2d conv(torch::nn::Conv2dOptions(kConvIn, kConvOut, kKernel).padding(1));
     conv->to(torch::kCUDA);
     conv->train();
@@ -338,12 +357,14 @@ static void BM_Conv2d_Bwd_Torch(benchmark::State& state)
         });
 }
 
+// BM_FC_Fwd_Custom / BM_FC_Fwd_Torch: layer 7*7*1024 → 4096, input [16, 50176] (first linear layer of the head).
 static void BM_FC_Fwd_Custom(benchmark::State& state)
 {
     if (!require_cuda(state))
     {
         return;
     }
+    // Head GEMM shape: 50176 x 16 x 4096 (7*7*1024, batch, 4096).
     FullyConnected fc(kFcIn, kFcOut);
     fc.to(dl::Device::GPU);
     const std::vector<int> shape { kBatch, kFcIn };
@@ -369,6 +390,7 @@ static void BM_FC_Fwd_Torch(benchmark::State& state)
     {
         return;
     }
+    // Head GEMM shape: 50176 x 16 x 4096 (7*7*1024, batch, 4096).
     torch::nn::Linear fc(kFcIn, kFcOut);
     fc->to(torch::kCUDA);
     fc->eval();
@@ -393,12 +415,14 @@ static void BM_FC_Fwd_Torch(benchmark::State& state)
         });
 }
 
+// BM_FC_Bwd_Custom / BM_FC_Bwd_Torch: gradient of the 50176→4096 layer; Custom measures backward alone, with that iteration's forward outside the timer.
 static void BM_FC_Bwd_Custom(benchmark::State& state)
 {
     if (!require_cuda(state))
     {
         return;
     }
+    // Head GEMM shape: 50176 x 16 x 4096 (7*7*1024, batch, 4096).
     FullyConnected fc(kFcIn, kFcOut);
     fc.to(dl::Device::GPU);
     const std::vector<int> in_shape { kBatch, kFcIn };
@@ -422,6 +446,7 @@ static void BM_FC_Bwd_Custom(benchmark::State& state)
         profiler.start();
         grad_in = fc.backward(grad_out);
         const float milliseconds = profiler.stop();
+        // Iteration time is the Profiler GPU interval, not the Google Benchmark wall clock.
         state.SetIterationTime(static_cast<double>(milliseconds) / 1000.0);
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) * static_cast<int64_t>(bytes));
@@ -434,6 +459,7 @@ static void BM_FC_Bwd_Torch(benchmark::State& state)
     {
         return;
     }
+    // Head GEMM shape: 50176 x 16 x 4096 (7*7*1024, batch, 4096).
     torch::nn::Linear fc(kFcIn, kFcOut);
     fc->to(torch::kCUDA);
     fc->train();
@@ -468,6 +494,7 @@ static void BM_FC_Bwd_Torch(benchmark::State& state)
         });
 }
 
+// BM_YOLOLoss_Fwd_Custom: YOLOv1 loss on the tensor [16, 7, 7, 30] with one object in cell (3, 3) and class 0.
 static void BM_YOLOLoss_Fwd_Custom(benchmark::State& state)
 {
     if (!require_cuda(state))
@@ -503,6 +530,7 @@ static void BM_YOLOLoss_Fwd_Custom(benchmark::State& state)
         });
 }
 
+// BM_YOLOLoss_Bwd_Custom: derivative of the same YOLOv1 loss with respect to the prediction [16, 7, 7, 30].
 static void BM_YOLOLoss_Bwd_Custom(benchmark::State& state)
 {
     if (!require_cuda(state))
@@ -538,6 +566,7 @@ static void BM_YOLOLoss_Bwd_Custom(benchmark::State& state)
         });
 }
 
+// LibTorch prediction and target with an object in cell (3, 3), the same layout as the Custom variant.
 static auto make_torch_yolo_tensors() -> std::pair<torch::Tensor, torch::Tensor>
 {
     auto prediction = torch::full({ kBatch, kGrid, kGrid, kYoloDepth }, 0.2F,
@@ -552,6 +581,7 @@ static auto make_torch_yolo_tensors() -> std::pair<torch::Tensor, torch::Tensor>
     return { prediction, target };
 }
 
+// BM_YOLOLoss_Fwd_Torch: YOLOv1 loss in LibTorch for the grid [16, 7, 7, 30] with an object in cell (3, 3).
 static void BM_YOLOLoss_Fwd_Torch(benchmark::State& state)
 {
     if (!require_cuda(state))
@@ -580,6 +610,7 @@ static void BM_YOLOLoss_Fwd_Torch(benchmark::State& state)
         });
 }
 
+// BM_YOLOLoss_Bwd_Torch: YOLOv1 loss backward in LibTorch, with the graph retained and the prediction gradient zeroed.
 static void BM_YOLOLoss_Bwd_Torch(benchmark::State& state)
 {
     if (!require_cuda(state))

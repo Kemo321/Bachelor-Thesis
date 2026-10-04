@@ -9,6 +9,7 @@
 
 namespace fs = std::filesystem;
 
+// One YOLOv1 training epoch in LibTorch (20 classes by default, Adam, batch 8 or 16, 4 loader threads, augmentation off); images per second of real time are counted.
 static void BM_YOLOv1_SingleEpochTraining(benchmark::State& state)
 {
     const int batch_size = state.range(0);
@@ -65,6 +66,7 @@ static void BM_YOLOv1_SingleEpochTraining(benchmark::State& state)
         benchmark::DoNotOptimize(epoch_loss);
     }
 
+    // Save the weights after the measurement, outside the timed loop.
     fs::create_directories(results_dir);
     torch::save(model, results_dir + "/yolov1_bench_epoch.pt");
 

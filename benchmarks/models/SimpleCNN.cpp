@@ -12,11 +12,13 @@
 namespace
 {
 
+// Spatial size after one layer: (input + 2 * padding - kernel) / stride + 1.
 auto conv_out(int size, int kernel, int stride, int padding) -> int
 {
     return ((size + (2 * padding) - kernel) / stride) + 1;
 }
 
+// Feature count after two 3×3 convolutions with padding 1 and two 2×2 poolings, with 32 channels on the last map.
 auto flatten_features(int image_size) -> int
 {
     int spatial = conv_out(image_size, 3, 1, 1);
@@ -47,6 +49,7 @@ SimpleCNN::SimpleCNN(int num_classes, int image_size, int in_channels)
         throw std::runtime_error("SimpleCNN requires a positive input channel count");
     }
 
+    // Two blocks: 3×3 convolution, LeakyReLU(0.1), 2×2 pooling (16 channels, then 32), then Flatten and an FC onto the classes.
     layers_.push_back(std::make_shared<Conv2d>(in_channels_, 16, 3, 1, 1));
     layers_.push_back(std::make_shared<LeakyReLU>(0.1F));
     layers_.push_back(std::make_shared<MaxPool2d>(2, 2));
@@ -59,6 +62,7 @@ SimpleCNN::SimpleCNN(int num_classes, int image_size, int in_channels)
         image_size_, in_channels_, flatten_features(image_size_), layers_.size());
 }
 
+// Logits: layers_ in order, without Softmax. view keeps the shape between layers.
 auto SimpleCNN::forward_logits(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
     const dl::StreamGuard stream_guard(stream);
@@ -72,11 +76,13 @@ auto SimpleCNN::forward_logits(const dl::Tensor& input_tensor, cudaStream_t stre
     return current;
 }
 
+// Class probabilities: Softmax on the forward_logits result. Softmax is not part of get_all_layers.
 auto SimpleCNN::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
     return softmax_->forward(forward_logits(input_tensor, stream), stream);
 }
 
+// Trainable layers, in forward_logits order. Softmax stays off this list.
 auto SimpleCNN::get_all_layers() -> std::vector<std::shared_ptr<Layer>>
 {
     return layers_;

@@ -68,6 +68,7 @@ inline auto micro_gpu_loop(benchmark::State& state, std::size_t bytes, Body&& bo
         profiler.start();
         body();
         const float milliseconds = profiler.stop();
+        // Iteration time is the Profiler GPU interval, not the Google Benchmark wall clock.
         state.SetIterationTime(static_cast<double>(milliseconds) / 1000.0);
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) * static_cast<int64_t>(bytes));

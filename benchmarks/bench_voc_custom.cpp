@@ -9,6 +9,7 @@
 #include <cuda_runtime.h>
 #include <filesystem>
 
+// One epoch of manual YOLOv1 training (20 classes by default) on VOC2012, batch 8 or 16, augmentation off; images, Img/Sec, VRAM, and the GPU time of the last iteration are recorded.
 static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
 {
     const int batch_size = static_cast<int>(state.range(0));
@@ -40,6 +41,7 @@ static void BM_CustomYOLO_ManualTraining(benchmark::State& state)
     for (auto _ : state)
     {
         train_loader.reset();
+        // The timed batch loop includes CustomDataLoader::get_batch (decode and upload), not only the train step.
         profiler.start();
         while (train_loader.has_next())
         {
