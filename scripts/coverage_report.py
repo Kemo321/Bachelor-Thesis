@@ -147,7 +147,8 @@ def main() -> int:
         "drivers": driver_rows,
     }
 
-    output = args.output
+    output = args.output if args.output.is_absolute() else ROOT / args.output
+    output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     json_path = output.with_suffix(".json")
     json_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
@@ -186,7 +187,11 @@ def main() -> int:
         lines.append(f"- `{row['path']}` — {note}")
     lines.append("")
     output.write_text("\n".join(lines), encoding="utf-8", newline="\n")
-    print(f"Wrote {output.relative_to(ROOT).as_posix()} ({covered}/{total} files)")
+    try:
+        shown = output.relative_to(ROOT).as_posix()
+    except ValueError:
+        shown = str(output)
+    print(f"Wrote {shown} ({covered}/{total} files)")
     return 0
 
 
