@@ -1,0 +1,26 @@
+#pragma once
+
+#include "DeepLearnLib/core/Layer.hpp"
+#include "DeepLearnLib/core/Tensor.hpp"
+
+#include <optional>
+
+/**
+ * LeakyReLU activation implemented with Thrust on the GPU.
+ */
+class LeakyReLU : public Layer
+{
+public:
+    explicit LeakyReLU(float slope_val = 0.1F);
+
+    [[nodiscard]] auto forward(const dl::Tensor& input_tensor, cudaStream_t stream = 0) -> dl::Tensor override;
+    [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative, cudaStream_t stream = 0)
+        -> dl::Tensor override;
+
+private:
+    std::optional<dl::Tensor> input_cache_;
+    std::optional<dl::Tensor> output_cache_;
+    std::optional<dl::Tensor> grad_input_cache_;
+    bool input_cache_ready_ { false };
+    float slope_;
+};

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DeepLearnLib/Tensor.hpp"
+#include "DeepLearnLib/core/Tensor.hpp"
 
 #include <cmath>
 #include <cuda_runtime.h>

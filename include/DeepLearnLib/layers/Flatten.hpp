@@ -1,0 +1,22 @@
+#pragma once
+
+#include "DeepLearnLib/core/Layer.hpp"
+#include "DeepLearnLib/core/Tensor.hpp"
+
+#include <vector>
+
+/**
+ * Collapses all non-batch dimensions: forward [N, ...] -> [N, F], backward restores the cached shape.
+ */
+class Flatten : public Layer
+{
+public:
+    Flatten() = default;
+
+    [[nodiscard]] auto forward(const dl::Tensor& input_tensor, cudaStream_t stream = 0) -> dl::Tensor override;
+    [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative, cudaStream_t stream = 0)
+        -> dl::Tensor override;
+
+private:
+    std::vector<int> input_shape_cache_;
+};

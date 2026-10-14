@@ -1,21 +1,20 @@
 # Overview
 
-DeepLearnLib is a C++17 / CUDA library. It allocates device memory, runs convolution, pooling, and batch-norm through cuDNN, runs dense products through cuBLAS, and implements elementwise work and the detection loss as its own kernels.
+DeepLearnLib is a C++17 / CUDA library. It allocates device memory, runs convolution, pooling, and batch-norm through cuDNN, runs dense products through cuBLAS, and implements elementwise work and the classification losses as its own kernels.
 
-It does not build a computation graph. Each operation is a class with `forward` and `backward`. It does not contain a detector or a classifier topology. Those are assembled by applications from the layer types below.
+It does not build a computation graph. Each operation is a class with `forward` and `backward`. Classifier and sequence programs are assembled by applications from the layer types below. `Gru` is a reusable cuDNN layer in `layers/`.
 
 ## What is in the library
 
 | Area | Headers | Role |
 | --- | --- | --- |
-| Storage | `Tensor.hpp`, `Precision.hpp`, `SafeMath.hpp` | Dense FP32 arrays, numeric guards |
-| Layers | `Layer.hpp`, `Conv2d.hpp`, `BatchNorm2d.hpp`, `FusedCBR2d.hpp`, `MaxPool2d.hpp`, `FullyConnected.hpp`, `LeakyReLU.hpp`, `Dropout.hpp`, `Flatten.hpp`, `Softmax.hpp` | Trainable and activation blocks |
-| Losses | `YOLOLoss.hpp`, `Losses.hpp` | Scalar loss and `dL/dpred` on the device |
-| Loaders | `dataset.hpp`, `ClassificationLoader.hpp`, `PackedImageLoader.hpp`, `CSVLoader.hpp` | Host samples to a GPU `Batch` |
-| Glue | `Network.hpp` | Ordered layers, gradient clip, parameter file |
-| Measurement and I/O helpers | `Profiler.hpp`, `mAP.hpp`, `utils.hpp`, `Logger.hpp`, `Nvtx.hpp` | Timers, detection scores, NMS, logs |
+| `core/` | `Tensor.hpp`, `Precision.hpp`, `Layer.hpp`, `Network.hpp`, `Batch.hpp` | Storage, the layer contract, the stack, a batch |
+| `layers/` | `Conv2d.hpp`, `BatchNorm2d.hpp`, `FusedCBR2d.hpp`, `MaxPool2d.hpp`, `FullyConnected.hpp`, `Gru.hpp`, `LeakyReLU.hpp`, `Dropout.hpp`, `Flatten.hpp`, `Softmax.hpp` | Trainable and activation blocks |
+| `losses/` | `Losses.hpp` | `CrossEntropyLoss` and `MSELoss` |
+| `loaders/` | `ClassificationLoader.hpp`, `PackedImageLoader.hpp`, `CSVLoader.hpp`, `Ecg200Loader.hpp` | Host samples to a GPU batch |
+| `utils/` | `SafeMath.hpp`, `Profiler.hpp`, `Logger.hpp`, `Nvtx.hpp`, `ParallelFor.hpp` | Numeric guards, timers, logs |
 
-cuBLAS and cuDNN are used as the GEMM and convolution implementations. The library's own code is buffer ownership, descriptor setup, fusion, and the kernels NVIDIA does not ship for this loss.
+cuBLAS and cuDNN are used as the GEMM and convolution implementations. The library's own code is buffer ownership, descriptor setup, fusion, and the kernels that sit beside cuDNN and cuBLAS.
 
 ## Class diagram
 
@@ -46,7 +45,6 @@ classDiagram
 
     class Network {
         forward()
-        fit()
         save()
         load()
     }

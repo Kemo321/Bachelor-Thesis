@@ -1,15 +1,15 @@
 # DeepLearnLib
 
-Public API of the core library (`include/DeepLearnLib/`, `src/`). This manual stops at the types you call. Epoch loops, dataset schedules, and Custom-vs-Torch binaries are in [Usage](../usage/README.md).
+Public API of the library (`include/DeepLearnLib/`, `src/`). Both trees use `core/`, `layers/`, `losses/`, `loaders/`, and `utils/`. This manual stops at the types you call. Epoch loops, dataset schedules, and Custom-vs-Torch binaries are in [Usage](../usage/README.md).
 
 | Page | Subject |
 | --- | --- |
 | [Overview](overview.md) | What the library owns, and the class diagram |
 | [Tensor](tensor.md) | Storage, views, `ensure`, GEMM |
 | [Layers](layers.md) | `Layer` and every subclass |
-| [Losses](losses.md) | `YOLOLoss`, `CrossEntropyLoss`, `MSELoss` |
+| [Losses](losses.md) | `CrossEntropyLoss`, `MSELoss` |
 | [Loaders](loaders.md) | How a `Batch` is produced |
-| [Utilities](utilities.md) | `Network`, precision, profiler, mAP, logging |
+| [Utilities](utilities.md) | `Network`, precision, profiler, logging |
 | [Extending](extending.md) | Adding a layer |
 | [Build](build.md) | Configuring and compiling the library |
 | [Conventions](conventions.md) | Names and the exceptions |
@@ -36,4 +36,4 @@ flowchart TB
     layer --> vendor
 ```
 
-`YOLO` and `SimpleCNN` are not in this diagram. They live in `DeepLearnModels` and are documented under Usage.
+`SimpleCNN` is not in this diagram. It lives in `DeepLearnModels` and is documented under Usage. The tabular MLP and the GRU head are local to their training programs.

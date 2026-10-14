@@ -4,7 +4,7 @@ A new layer belongs in DeepLearnLib when it speaks `dl::Tensor`, does not name a
 
 ## Files
 
-Declare the class in `include/DeepLearnLib/MyLayer.hpp`. Implement it in `src/MyLayer.cpp`. Add the `.cpp` to `DEEPLEARN_SOURCES` in `src/CMakeLists.txt`. If the file contains a `__global__` kernel, also add it to `DEEPLEARN_CUDA_SOURCES` so CMake compiles it as CUDA.
+Declare the class in `include/DeepLearnLib/layers/MyLayer.hpp`. Implement it in `src/layers/MyLayer.cpp`. Add the `.cpp` to `DEEPLEARN_SOURCES` in `src/CMakeLists.txt`. If the file contains a `__global__` kernel, also add it to `DEEPLEARN_CUDA_SOURCES` so CMake compiles it as CUDA.
 
 Implement `forward` and `backward`. With parameters, also implement `step`, `clip_gradients`, `get_parameters`, and `set_parameters`. Parameter names in the map are stable strings: `"weight"`, `"bias"`. `Network::save` and `load` round-trip that map.
 
@@ -43,7 +43,7 @@ An elementwise op that always follows another op belongs in one kernel, or in a 
 
 ## Tests
 
-Add `tests/test_mylayer.cpp` to `dllib_tests`. Cover the output shape, a numeric check of `backward`, and `train()` versus `eval()` when they differ.
+Add `tests/layers/test_mylayer.cpp` to `dllib_tests`. Cover the output shape, a numeric check of `backward`, and `train()` versus `eval()` when they differ.
 
 ## Naming
 

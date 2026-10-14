@@ -7,7 +7,7 @@ This page is how to compile `DeepLearnLib` and `dllib_tests`. Running training b
 - NVIDIA GPU and a driver that can load the cubin you compile
 - CMake 3.18 or newer, Ninja, a C++17 compiler
 - CUDA toolkit with nvcc, cuBLAS, and cuDNN
-- OpenCV and pugixml for the loaders in `dataset.cpp`, `utils.cpp`, and `ClassificationLoader.cpp`
+- OpenCV for `src/loaders/ClassificationLoader.cpp`
 
 Without OpenCV, CMake still builds the core sources that do not decode images. `benchmarks/` is skipped. Unit tests that only need `dl::Tensor` still build.
 
@@ -42,4 +42,4 @@ GCC and Clang host code uses AVX2 and FMA. That affects CPU decode, not device S
 | `USE_SANITIZERS` | ASan and UBSan on host code for Debug, non-MSVC. Kernels are not instrumented |
 | `USE_CUDA=ON` | required |
 
-`dllib_tests` checks tensor math, layer shapes, and small numeric gradients. A change to `YOLOLoss` or a loader still needs an application-level run; that is outside this page.
+`dllib_tests` checks tensor math, layer shapes, and small numeric gradients. A change to a loader still needs an application-level run; that is outside this page.

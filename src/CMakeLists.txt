@@ -1,27 +1,27 @@
 set(DEEPLEARN_SOURCES
-    Tensor.cpp
-    Conv2d.cpp
-    MaxPool2d.cpp
-    BatchNorm2d.cpp
-    LeakyReLU.cpp
-    Dropout.cpp
-    FullyConnected.cpp
-    Flatten.cpp
-    Network.cpp
-    YOLOLoss.cpp
-    Profiler.cpp
-    mAP.cpp
-    Losses.cpp
-    Softmax.cpp
-    CSVLoader.cpp
-    PackedImageLoader.cpp
-    Logger.cpp
-    Precision.cpp
-    FusedCBR2d.cpp
+    core/Tensor.cpp
+    layers/Conv2d.cpp
+    layers/MaxPool2d.cpp
+    layers/BatchNorm2d.cpp
+    layers/LeakyReLU.cpp
+    layers/Dropout.cpp
+    layers/FullyConnected.cpp
+    layers/Gru.cpp
+    layers/Flatten.cpp
+    core/Network.cpp
+    utils/Profiler.cpp
+    losses/Losses.cpp
+    layers/Softmax.cpp
+    loaders/CSVLoader.cpp
+    loaders/Ecg200Loader.cpp
+    loaders/PackedImageLoader.cpp
+    utils/Logger.cpp
+    core/Precision.cpp
+    layers/FusedCBR2d.cpp
 )
 
 if(OpenCV_FOUND)
-  list(APPEND DEEPLEARN_SOURCES dataset.cpp utils.cpp ClassificationLoader.cpp)
+  list(APPEND DEEPLEARN_SOURCES loaders/ClassificationLoader.cpp)
 endif()
 
 add_library(DeepLearnLib ${DEEPLEARN_SOURCES})
@@ -32,18 +32,18 @@ if(DEBUG_NUMERICS)
 endif()
 
 set(DEEPLEARN_CUDA_SOURCES
-    Tensor.cpp
-    Conv2d.cpp
-    BatchNorm2d.cpp
-    LeakyReLU.cpp
-    Dropout.cpp
-    FullyConnected.cpp
-    Network.cpp
-    YOLOLoss.cpp
-    Profiler.cpp
-    Losses.cpp
-    Softmax.cpp
-    FusedCBR2d.cpp
+    core/Tensor.cpp
+    layers/Conv2d.cpp
+    layers/BatchNorm2d.cpp
+    layers/LeakyReLU.cpp
+    layers/Dropout.cpp
+    layers/FullyConnected.cpp
+    layers/Gru.cpp
+    core/Network.cpp
+    utils/Profiler.cpp
+    losses/Losses.cpp
+    layers/Softmax.cpp
+    layers/FusedCBR2d.cpp
 )
 
 foreach(_cuda_src IN LISTS DEEPLEARN_CUDA_SOURCES)
@@ -93,6 +93,25 @@ target_link_libraries(
          spdlog::spdlog
          Threads::Threads)
 
+# GRU lives in cuDNN's adv library. The main cudnn import does not always export it.
+foreach(_cudnn_adv_name cudnn_adv cudnn_adv_train cudnn_adv_infer)
+  string(TOUPPER "${_cudnn_adv_name}" _cudnn_adv_var)
+  find_library(
+    CUDNN_${_cudnn_adv_var}_LIBRARY
+    NAMES ${_cudnn_adv_name}
+    HINTS ${CUDNN_ROOT}
+          ${CUDNN_LIBRARY_DIR}
+          $ENV{CUDNN_ROOT}
+          $ENV{CUDA_PATH}
+          /usr/lib/x86_64-linux-gnu
+          /usr/local/cuda/lib64
+    PATH_SUFFIXES lib lib/x64 lib64)
+  if(CUDNN_${_cudnn_adv_var}_LIBRARY)
+    target_link_libraries(DeepLearnLib PUBLIC ${CUDNN_${_cudnn_adv_var}_LIBRARY})
+    message(STATUS "Linking ${_cudnn_adv_name}: ${CUDNN_${_cudnn_adv_var}_LIBRARY}")
+  endif()
+endforeach()
+
 if(TARGET TBB::tbb)
   target_link_libraries(DeepLearnLib PUBLIC TBB::tbb)
 endif()
@@ -104,5 +123,5 @@ elseif(TARGET CUDA::nvToolsExt)
 endif()
 
 if(OpenCV_FOUND)
-  target_link_libraries(DeepLearnLib PUBLIC ${OpenCV_LIBS} pugixml)
+  target_link_libraries(DeepLearnLib PUBLIC ${OpenCV_LIBS})
 endif()
