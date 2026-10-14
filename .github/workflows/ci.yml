@@ -50,7 +50,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            git cmake g++ ninja-build ca-certificates lcov libtbb-dev
+            git cmake g++ ninja-build ca-certificates lcov python3 libtbb-dev
 
       - name: Checkout Code
         uses: actions/checkout@v4
