@@ -1,7 +1,7 @@
 #pragma once
 
-#include "DeepLearnLib/utils/Profiler.hpp"
 #include "DeepLearnLib/core/Tensor.hpp"
+#include "DeepLearnLib/utils/Profiler.hpp"
 
 #include <benchmark/benchmark.h>
 #include <cuda_runtime.h>

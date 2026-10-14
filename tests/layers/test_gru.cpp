@@ -1,8 +1,8 @@
 #include "test_helpers.hpp"
 
-#include "DeepLearnLib/loaders/Ecg200Loader.hpp"
-#include "DeepLearnLib/layers/Gru.hpp"
 #include "DeepLearnLib/core/Tensor.hpp"
+#include "DeepLearnLib/layers/Gru.hpp"
+#include "DeepLearnLib/loaders/Ecg200Loader.hpp"
 
 #include <cmath>
 #include <filesystem>
@@ -127,7 +127,8 @@ TEST_F(GruGpuTest, FinalStateShapeAndWeightGradient)
     }
     ASSERT_GT(std::fabs(pivot_grad), 1.0e-6F);
 
-    auto loss_of = [&](const std::vector<float>& weights) {
+    auto loss_of = [&](const std::vector<float>& weights)
+    {
         std::map<std::string, Tensor> params;
         set_named_parameter(params, "weight_space", { static_cast<int>(weights.size()) }, weights);
         gru.set_parameters(params);

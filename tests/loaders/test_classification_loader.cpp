@@ -1,8 +1,8 @@
 #include "test_helpers.hpp"
 
+#include "DeepLearnLib/core/Tensor.hpp"
 #include "DeepLearnLib/loaders/ClassificationLoader.hpp"
 #include "DeepLearnLib/utils/ParallelFor.hpp"
-#include "DeepLearnLib/core/Tensor.hpp"
 
 #include <atomic>
 #include <chrono>

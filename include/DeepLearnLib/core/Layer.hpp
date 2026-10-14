@@ -1,7 +1,7 @@
 #pragma once
 
-#include "DeepLearnLib/utils/SafeMath.hpp"
 #include "DeepLearnLib/core/Tensor.hpp"
+#include "DeepLearnLib/utils/SafeMath.hpp"
 
 #include <cmath>
 #include <map>

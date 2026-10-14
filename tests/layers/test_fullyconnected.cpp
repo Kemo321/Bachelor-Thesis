@@ -1,7 +1,7 @@
 #include "test_helpers.hpp"
 
-#include "DeepLearnLib/layers/FullyConnected.hpp"
 #include "DeepLearnLib/core/Tensor.hpp"
+#include "DeepLearnLib/layers/FullyConnected.hpp"
 
 #include <map>
 #include <string>

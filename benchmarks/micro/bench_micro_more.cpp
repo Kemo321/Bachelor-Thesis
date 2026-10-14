@@ -1,18 +1,18 @@
 #include "bench_micro_common.hpp"
 
+#include "DeepLearnLib/core/Batch.hpp"
+#include "DeepLearnLib/core/Network.hpp"
 #include "DeepLearnLib/layers/BatchNorm2d.hpp"
-#include "DeepLearnLib/loaders/CSVLoader.hpp"
-#include "DeepLearnLib/loaders/ClassificationLoader.hpp"
 #include "DeepLearnLib/layers/Dropout.hpp"
 #include "DeepLearnLib/layers/Flatten.hpp"
 #include "DeepLearnLib/layers/FullyConnected.hpp"
 #include "DeepLearnLib/layers/FusedCBR2d.hpp"
 #include "DeepLearnLib/layers/LeakyReLU.hpp"
-#include "DeepLearnLib/losses/Losses.hpp"
 #include "DeepLearnLib/layers/MaxPool2d.hpp"
-#include "DeepLearnLib/core/Network.hpp"
 #include "DeepLearnLib/layers/Softmax.hpp"
-#include "DeepLearnLib/core/Batch.hpp"
+#include "DeepLearnLib/loaders/CSVLoader.hpp"
+#include "DeepLearnLib/loaders/ClassificationLoader.hpp"
+#include "DeepLearnLib/losses/Losses.hpp"
 #include "models/SimpleCNN.hpp"
 
 #include <exception>

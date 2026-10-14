@@ -93,7 +93,6 @@ namespace
 
 #if DEEPLEARNLIB_ENABLE_CUDA
 
-
     // Block count for element-wise kernels: 256 threads per block.
     auto conversion_launch(int count) -> dim3
     {
@@ -113,7 +112,6 @@ namespace
         }
     }
 
-
     // dst *= scalar, one thread per element.
     __global__ void mul_inplace_f32_kernel(float* dst, float scalar, int count)
     {
@@ -124,7 +122,6 @@ namespace
         }
     }
 
-
     // out = lhs * rhs. The result goes to a separate buffer; the operands stay.
     __global__ void mul_into_f32_kernel(const float* lhs, const float* rhs, float* out, int count)
     {
@@ -134,7 +131,6 @@ namespace
             out[index] = lhs[index] * rhs[index];
         }
     }
-
 
     // Clamps each element to [lo, hi].
     __global__ void clamp_inplace_f32_kernel(float* dst, float lo, float hi, int count)
@@ -147,7 +143,6 @@ namespace
         }
     }
 
-
     // dst += scale * src. A negative scale subtracts without a second kernel.
     __global__ void add_scaled_inplace_f32_kernel(float* dst, const float* src, float scale, int count)
     {
@@ -157,7 +152,6 @@ namespace
             dst[index] += scale * src[index];
         }
     }
-
 
     // SGD: weight -= lr * clip(grad + decay * weight). clip <= 0 disables the clamp.
     __global__ void sgd_update_f32_kernel(float* weights, const float* grad, float lr, float decay, float clip,
@@ -176,7 +170,6 @@ namespace
         }
         weights[index] -= lr * update;
     }
-
 
     // SGD with momentum: velocity = momentum * velocity + update, then weight -= lr * velocity.
     __global__ void sgd_momentum_update_f32_kernel(float* weights, const float* grad, float* velocity, float lr,
@@ -221,7 +214,6 @@ namespace
         weights[index] -= lr * corrected_moment / (sqrtf(corrected_second) + epsilon);
     }
 
-
     // Adds the bias to every sample: element i receives bias[i % features].
     __global__ void add_row_f32_kernel(float* dst, const float* bias, int count, int features)
     {
@@ -232,7 +224,6 @@ namespace
             dst[index] += bias[index % features];
         }
     }
-
 
     // Sums a column across rows and adds beta times the value already in dst.
     __global__ void add_sum_rows_f32_kernel(float* dst, const float* src, int batch, int cols, float beta)
@@ -251,7 +242,6 @@ namespace
         dst[col] = (beta * dst[col]) + acc;
     }
 
-
     // dst += scalar, one thread per element.
     __global__ void add_scalar_f32_kernel(float* dst, float scalar, int count)
     {
@@ -261,7 +251,6 @@ namespace
             dst[index] += scalar;
         }
     }
-
 
     // 2D transpose into a new buffer: output[column, row] = input[row, column].
     __global__ void transpose_2d_f32_kernel(const float* input, float* output, int rows, int cols, int count)
@@ -274,7 +263,6 @@ namespace
             output[(col * rows) + row] = input[index];
         }
     }
-
 
     constexpr int kReduceThreads = 256;
 
@@ -517,7 +505,6 @@ auto Tensor::data() const -> const float*
 
 #if DEEPLEARNLIB_ENABLE_CUDA
 
-
 // Returns a view when the dtype matches. Another type is not implemented, so this throws.
 auto Tensor::to_dtype(Dtype dtype, cudaStream_t stream) const -> Tensor
 {
@@ -700,7 +687,6 @@ namespace
         CHECK_CUBLAS(cublasGemmEx(get_cublas_handle(), plan.trans_a, plan.trans_b, plan.N, plan.M, plan.K, &alpha,
             b.data(), CUDA_R_32F, plan.lda, a.data(), CUDA_R_32F, plan.ldb, &beta, c.data(), CUDA_R_32F, plan.ldc,
             CUBLAS_COMPUTE_32F_FAST_TF32, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
-
     }
 
 } // namespace
@@ -863,7 +849,7 @@ auto Tensor::operator+(float scalar) const -> Tensor
     }
     CHECK_CUDA(cudaMemcpyAsync(result.data(), data(), nbytes(), cudaMemcpyDeviceToDevice, current_stream()));
     const int count = static_cast<int>(size_);
-        add_scalar_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+    add_scalar_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
         result.data(), scalar, count);
 
     CHECK_CUDA(cudaGetLastError());
@@ -884,7 +870,7 @@ auto Tensor::add_(const Tensor& other) -> Tensor&
     }
 
     const int count = static_cast<int>(size_);
-        add_inplace_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+    add_inplace_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
         data(), other.data(), count);
 
     CHECK_CUDA(cudaGetLastError());
@@ -909,7 +895,7 @@ auto Tensor::mul_(float scalar) -> Tensor&
     }
 
     const int count = static_cast<int>(size_);
-        mul_inplace_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+    mul_inplace_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
         data(), scalar, count);
 
     CHECK_CUDA(cudaGetLastError());
@@ -938,7 +924,7 @@ auto Tensor::mul_into(const Tensor& other, Tensor& out) const -> Tensor&
     }
 
     const int count = static_cast<int>(size_);
-        mul_into_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+    mul_into_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
         data(), other.data(), out.data(), count);
 
     CHECK_CUDA(cudaGetLastError());
@@ -959,7 +945,7 @@ auto Tensor::add_scaled_(const Tensor& other, float scale) -> Tensor&
     }
 
     const int count = static_cast<int>(size_);
-        add_scaled_inplace_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+    add_scaled_inplace_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
         data(), other.data(), scale, count);
 
     CHECK_CUDA(cudaGetLastError());
@@ -980,7 +966,7 @@ auto Tensor::sgd_update_(const Tensor& grad, float lr, float decay, float clip) 
     }
 
     const int count = static_cast<int>(size_);
-        sgd_update_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+    sgd_update_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
         data(), grad.data(), lr, decay, clip, count);
 
     CHECK_CUDA(cudaGetLastError());
@@ -1003,7 +989,7 @@ auto Tensor::sgd_momentum_update_(const Tensor& grad, Tensor& velocity, float lr
     }
 
     const int count = static_cast<int>(size_);
-        sgd_momentum_update_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+    sgd_momentum_update_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
         data(), grad.data(), velocity.data(), lr, momentum, decay, clip, count);
 
     CHECK_CUDA(cudaGetLastError());
@@ -1071,7 +1057,7 @@ auto Tensor::add_row_(const Tensor& bias) -> Tensor&
     }
 
     const int count = static_cast<int>(size_);
-        add_row_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+    add_row_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
         data(), bias.data(), count, features);
 
     CHECK_CUDA(cudaGetLastError());
@@ -1110,7 +1096,7 @@ auto Tensor::add_sum_rows_(const Tensor& matrix, float beta) -> Tensor&
         return *this;
     }
 
-        add_sum_rows_f32_kernel<<<conversion_launch(cols), kInplaceThreads, 0, current_stream()>>>(
+    add_sum_rows_f32_kernel<<<conversion_launch(cols), kInplaceThreads, 0, current_stream()>>>(
         data(), matrix.data(), batch, cols, beta);
 
     CHECK_CUDA(cudaGetLastError());
@@ -1166,7 +1152,7 @@ auto Tensor::clamp_(float lo, float hi) -> Tensor&
     }
 
     const int count = static_cast<int>(size_);
-        clamp_inplace_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+    clamp_inplace_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
         data(), lo, hi, count);
 
     CHECK_CUDA(cudaGetLastError());
@@ -1304,7 +1290,7 @@ auto Tensor::transpose() const -> Tensor
     }
 
     const int count = static_cast<int>(size_);
-        transpose_2d_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
+    transpose_2d_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
         data(), result.data(), rows, cols, count);
 
     CHECK_CUDA(cudaGetLastError());
@@ -1418,7 +1404,7 @@ namespace
 // Host copy. From the GPU it goes through the pinned pool; the synchronize waits until that memcpy finishes.
 auto Tensor::to_host(cudaStream_t stream) const -> std::vector<float>
 {
-        std::vector<float> host(size_);
+    std::vector<float> host(size_);
     if (size_ == 0)
     {
         return host;
@@ -1489,12 +1475,12 @@ auto Tensor::from_host(const std::vector<int>& shape, const float* host_data, De
         // Async H2D through the pinned pool. record keeps the slot until the copy finishes; the host is not synchronized here.
         CHECK_CUDA(cudaMemcpyAsync(result.data(), pinned, bytes, cudaMemcpyHostToDevice, stream));
         pinned_pool().record(pinned, stream);
-                return result;
+        return result;
     }
 #endif
     (void)stream;
     std::copy(host_data, host_data + static_cast<std::ptrdiff_t>(result.size_), result.data());
-        return result;
+    return result;
 }
 
 } // namespace dl

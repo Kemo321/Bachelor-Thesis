@@ -1,7 +1,7 @@
 #include "test_helpers.hpp"
 
-#include "DeepLearnLib/layers/Flatten.hpp"
 #include "DeepLearnLib/core/Tensor.hpp"
+#include "DeepLearnLib/layers/Flatten.hpp"
 
 #include <vector>
 

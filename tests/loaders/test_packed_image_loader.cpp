@@ -1,7 +1,7 @@
 #include "test_helpers.hpp"
 
-#include "DeepLearnLib/loaders/PackedImageLoader.hpp"
 #include "DeepLearnLib/core/Tensor.hpp"
+#include "DeepLearnLib/loaders/PackedImageLoader.hpp"
 
 #include <array>
 #include <chrono>

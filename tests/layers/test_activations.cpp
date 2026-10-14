@@ -1,8 +1,8 @@
 #include "test_helpers.hpp"
 
+#include "DeepLearnLib/core/Tensor.hpp"
 #include "DeepLearnLib/layers/Dropout.hpp"
 #include "DeepLearnLib/layers/LeakyReLU.hpp"
-#include "DeepLearnLib/core/Tensor.hpp"
 
 #include <cmath>
 #include <vector>

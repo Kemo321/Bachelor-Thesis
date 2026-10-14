@@ -1,10 +1,10 @@
 #include "test_helpers.hpp"
 
+#include "DeepLearnLib/core/Tensor.hpp"
 #include "DeepLearnLib/layers/BatchNorm2d.hpp"
 #include "DeepLearnLib/layers/Conv2d.hpp"
 #include "DeepLearnLib/layers/FusedCBR2d.hpp"
 #include "DeepLearnLib/layers/LeakyReLU.hpp"
-#include "DeepLearnLib/core/Tensor.hpp"
 
 #include <cmath>
 #include <map>

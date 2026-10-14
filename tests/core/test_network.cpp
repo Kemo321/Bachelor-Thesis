@@ -1,9 +1,9 @@
 #include "test_helpers.hpp"
 
-#include "DeepLearnLib/layers/Flatten.hpp"
-#include "DeepLearnLib/layers/FullyConnected.hpp"
 #include "DeepLearnLib/core/Network.hpp"
 #include "DeepLearnLib/core/Tensor.hpp"
+#include "DeepLearnLib/layers/Flatten.hpp"
+#include "DeepLearnLib/layers/FullyConnected.hpp"
 
 #include <cstdio>
 #include <memory>

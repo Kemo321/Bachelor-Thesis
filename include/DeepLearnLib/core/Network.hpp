@@ -1,8 +1,8 @@
 #pragma once
 
 #include "DeepLearnLib/core/Layer.hpp"
-#include "DeepLearnLib/utils/SafeMath.hpp"
 #include "DeepLearnLib/core/Tensor.hpp"
+#include "DeepLearnLib/utils/SafeMath.hpp"
 
 #include <memory>
 #include <optional>

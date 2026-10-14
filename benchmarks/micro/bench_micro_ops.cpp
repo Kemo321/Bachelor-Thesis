@@ -1,7 +1,7 @@
+#include "DeepLearnLib/core/Tensor.hpp"
 #include "DeepLearnLib/layers/Conv2d.hpp"
 #include "DeepLearnLib/layers/FullyConnected.hpp"
 #include "DeepLearnLib/utils/Profiler.hpp"
-#include "DeepLearnLib/core/Tensor.hpp"
 
 #include <benchmark/benchmark.h>
 #include <cuda_runtime.h>

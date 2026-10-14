@@ -1,10 +1,10 @@
 #include "test_helpers.hpp"
 
+#include "DeepLearnLib/core/Network.hpp"
+#include "DeepLearnLib/core/Tensor.hpp"
 #include "DeepLearnLib/layers/FullyConnected.hpp"
 #include "DeepLearnLib/losses/Losses.hpp"
-#include "DeepLearnLib/core/Network.hpp"
 #include "DeepLearnLib/utils/SafeMath.hpp"
-#include "DeepLearnLib/core/Tensor.hpp"
 
 #include <cmath>
 #include <limits>

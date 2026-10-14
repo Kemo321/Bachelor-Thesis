@@ -1,8 +1,8 @@
 #pragma once
 
-#include "DeepLearnLib/layers/Conv2d.hpp"
 #include "DeepLearnLib/core/Layer.hpp"
 #include "DeepLearnLib/core/Tensor.hpp"
+#include "DeepLearnLib/layers/Conv2d.hpp"
 
 #include <map>
 #include <optional>

@@ -1,9 +1,9 @@
 #include "test_helpers.hpp"
 
+#include "DeepLearnLib/core/Tensor.hpp"
+#include "DeepLearnLib/layers/Softmax.hpp"
 #include "DeepLearnLib/loaders/CSVLoader.hpp"
 #include "DeepLearnLib/losses/Losses.hpp"
-#include "DeepLearnLib/layers/Softmax.hpp"
-#include "DeepLearnLib/core/Tensor.hpp"
 
 #include <chrono>
 #include <cmath>
