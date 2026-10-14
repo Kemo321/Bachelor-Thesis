@@ -1,34 +1,14 @@
 #include "SimpleCNN.hpp"
 
-#include "DeepLearnLib/Conv2d.hpp"
-#include "DeepLearnLib/Flatten.hpp"
-#include "DeepLearnLib/FullyConnected.hpp"
-#include "DeepLearnLib/LeakyReLU.hpp"
-#include "DeepLearnLib/Logger.hpp"
-#include "DeepLearnLib/MaxPool2d.hpp"
+#include "cnn_shapes.hpp"
+
+#include "DeepLearnLib/layers/Conv2d.hpp"
+#include "DeepLearnLib/layers/Flatten.hpp"
+#include "DeepLearnLib/layers/FullyConnected.hpp"
+#include "DeepLearnLib/layers/LeakyReLU.hpp"
+#include "DeepLearnLib/layers/MaxPool2d.hpp"
 
 #include <stdexcept>
-
-namespace
-{
-
-// Spatial size after one layer: (input + 2 * padding - kernel) / stride + 1.
-auto conv_out(int size, int kernel, int stride, int padding) -> int
-{
-    return ((size + (2 * padding) - kernel) / stride) + 1;
-}
-
-// Feature count after two 3×3 convolutions with padding 1 and two 2×2 poolings, with 32 channels on the last map.
-auto flatten_features(int image_size) -> int
-{
-    int spatial = conv_out(image_size, 3, 1, 1);
-    spatial = conv_out(spatial, 2, 2, 0);
-    spatial = conv_out(spatial, 3, 1, 1);
-    spatial = conv_out(spatial, 2, 2, 0);
-    return 32 * spatial * spatial;
-}
-
-} // namespace
 
 SimpleCNN::SimpleCNN(int num_classes, int image_size, int in_channels)
     : num_classes_(num_classes)
@@ -57,9 +37,7 @@ SimpleCNN::SimpleCNN(int num_classes, int image_size, int in_channels)
     layers_.push_back(std::make_shared<LeakyReLU>(0.1F));
     layers_.push_back(std::make_shared<MaxPool2d>(2, 2));
     layers_.push_back(std::make_shared<Flatten>());
-    layers_.push_back(std::make_shared<FullyConnected>(flatten_features(image_size_), num_classes_));
-    LOG_DEBUG("SimpleCNN classes={} image_size={} in_channels={} flatten_features={} layers={}", num_classes_,
-        image_size_, in_channels_, flatten_features(image_size_), layers_.size());
+    layers_.push_back(std::make_shared<FullyConnected>(pooled_cnn_features(image_size_), num_classes_));
 }
 
 // Logits: layers_ in order, without Softmax. view keeps the shape between layers.

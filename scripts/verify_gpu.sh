@@ -46,36 +46,3 @@ fi
 
 echo "Running $test_bin"
 "$test_bin"
-
-if [[ "$run_short" -eq 0 ]]; then
-  exit 0
-fi
-
-voc_root="$root/data/VOCdevkit/VOC2012"
-if [[ ! -d "$voc_root" ]]; then
-  echo "Skipping short_voc_custom: $voc_root is not present."
-  exit 0
-fi
-
-short_bin=""
-for candidate in \
-  build/benchmarks/short_voc_custom \
-  build/benchmarks/short_voc_custom.exe \
-  build_release/benchmarks/short_voc_custom \
-  build_release/benchmarks/short_voc_custom.exe \
-  build_debug/benchmarks/short_voc_custom \
-  build_debug/benchmarks/short_voc_custom.exe
-do
-  if [[ -f "$candidate" ]]; then
-    short_bin="$candidate"
-    break
-  fi
-done
-
-if [[ -z "$short_bin" ]]; then
-  echo "short_voc_custom was not built. Tests passed; the short run was skipped."
-  exit 0
-fi
-
-echo "Running $short_bin (3 epochs)"
-"$short_bin"

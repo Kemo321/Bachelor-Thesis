@@ -78,7 +78,7 @@ cmake "${CMAKE_ARGS[@]}"
 
 echo "[dev.sh] Building dllib_tests with Ninja"
 # Default matches CI Debug: unit tests only. Torch baseline binaries still
-# compile against at::Tensor + YOLOLoss(dl::Tensor) and are not part of this script.
+# compile against at::Tensor and are not part of this script.
 NINJA_TARGETS="${NINJA_TARGETS:-dllib_tests}"
 # shellcheck disable=SC2086
 if command -v ninja >/dev/null 2>&1; then

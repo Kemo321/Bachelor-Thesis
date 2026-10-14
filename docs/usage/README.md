@@ -1,40 +1,41 @@
 # Using DeepLearnLib
 
-Applications live in `benchmarks/` and `torch_baseline/`. They construct layers, run epoch loops, and write metrics. The types they call are documented in the [library manual](../library/README.md). This manual does not repeat kernel contracts.
+Applications live in `benchmarks/`. They construct layers, run epoch loops, and write metrics. The types they call are documented in the [library manual](../library/README.md). This manual does not repeat kernel contracts.
 
 | Page | Subject |
 | --- | --- |
-| [Models](models.md) | `YOLO`, `SimpleCNN`, and the tabular MLP, with shapes |
+| [Models](models.md) | `SimpleCNN`, the tabular MLP, and the ECG GRU |
 | [Training](training.md) | What a binary does each step, and where the two CUDA streams are |
 | [Experiments](experiments.md) | Pipelines, CSV columns, micro-benchmarks |
 | [Measurements](measurements.md) | Thesis table copied from a local GPU run |
 | [Running](running.md) | Docker, the menu, plots |
 
-`DeepLearnModels` is a static library of `benchmarks/models/YOLO.cpp` and `SimpleCNN.cpp`. Training binaries link it plus `DeepLearnLib`. The tabular MLP is local to `train_tabular_custom.cpp` and does not go through `DeepLearnModels`.
+`DeepLearnModels` is a static library of the application models (`SimpleCNN`, `TabularMLP`, `GruClassifier`, `FusedCbrCNN`). Training binaries link it plus `DeepLearnLib`. The LibTorch twins live in `benchmarks/models/torch/` and are compiled only into the `*_torch` programs.
 
-Optional `*_torch` binaries link `TorchBaseline` (`torch_baseline/`). They are the timing baseline. They are not part of `DeepLearnLib`.
+Optional `*_torch` binaries link LibTorch directly. They are the timing baseline. They are not part of `DeepLearnLib`.
 
 ```mermaid
 flowchart TB
     subgraph apps [benchmarks]
         train["train_*_custom"]
-        infer["inference_*_custom"]
-        bench["bench_*"]
+        bench["bench_micro_ops"]
     end
     subgraph models [DeepLearnModels]
-        yolo[YOLO]
         cnn[SimpleCNN]
+        mlp[TabularMLP]
+        gru[GruClassifier]
+        fused[FusedCbrCNN]
     end
     lib[DeepLearnLib]
     torch["*_torch and TorchBaseline"]
 
-    train --> yolo
     train --> cnn
+    train --> mlp
+    train --> gru
+    train --> fused
     train --> lib
-    infer --> yolo
-    infer --> cnn
     bench --> lib
     torch -.-> train
 ```
 
-Binary names are `{role}_{dataset}_{stack}`: roles `train`, `inference`, `bench`, `short`, `overfit`; stack `custom` or `torch`. The matching JSON key is in `config/experiments.json`.
+Binary names are `{role}_{dataset}_{stack}`: roles `train` and `bench`; stack `custom` or `torch`. The matching JSON key is in `config/experiments.json`.

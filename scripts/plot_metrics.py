@@ -2,9 +2,9 @@
 """Generate thesis-quality PNG figures from pipeline metrics CSVs.
 
 Looks for ``metrics_custom.csv`` and ``metrics_torch.csv`` under each experiment
-directory (VOC, BCCD, synthetic, CIFAR-10, MNIST, tabular variants, overfit).
+directory (CIFAR-10, MNIST, tabular variants, ECG200).
 Also plots accuracy, confusion matrices, and classification sample grids when
-those artifacts are present. Missing Torch files or mAP columns are skipped
+those artifacts are present. Missing Torch files are skipped
 with a warning rather than aborting.
 """
 
@@ -29,24 +29,20 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit(1) from exc
 
 EXPERIMENT_DIRS = (
-    "voc",
-    "bccd",
-    "synthetic",
     "cifar10",
+    "cifar10_fused",
     "mnist",
     "tabular",
     "tabular_iris",
     "tabular_wisconsin",
-    "overfit",
-    "voc_short",
+    "ecg200",
+    "forward",
 )
 
 CUSTOM_TRAIN = "#1B4F72"
 CUSTOM_TEST = "#5DADE2"
 TORCH_TRAIN = "#922B21"
 TORCH_TEST = "#E59866"
-CUSTOM_MAP = "#117A65"
-TORCH_MAP = "#B9770E"
 CUSTOM_TIME = "#1F618D"
 TORCH_TIME = "#A04000"
 
@@ -96,8 +92,6 @@ def _normalize_columns(frame: pd.DataFrame) -> pd.DataFrame:
             rename[column] = "TrainLoss"
         elif key in {"testloss", "valloss"} or (("test" in key or "val" in key) and "loss" in key):
             rename[column] = "TestLoss"
-        elif "map" in key:
-            rename[column] = "mAP@0.5"
         elif "time" in key:
             rename[column] = "Time(s)"
         elif "vram" in key:
@@ -113,10 +107,11 @@ def load_metrics(path: Path) -> pd.DataFrame | None:
         if frame.shape[1] == 1:
             frame = pd.read_csv(path)
         frame = _normalize_columns(frame)
-        if "Epoch" not in frame.columns:
-            print(f"[plot] Skipping {path}: no Epoch column", file=sys.stderr)
+        if frame.empty:
+            print(f"[plot] Skipping {path}: empty table", file=sys.stderr)
             return None
-        frame = frame.sort_values("Epoch")
+        if "Epoch" in frame.columns:
+            frame = frame.sort_values("Epoch")
         return frame
     except (OSError, pd.errors.ParserError, ValueError) as exc:
         print(f"[plot] Failed to parse {path}: {exc}", file=sys.stderr)
@@ -152,28 +147,6 @@ def plot_train_vs_test_loss(
     ax.set_title(f"{title}: Train vs Test Loss")
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Loss")
-    ax.legend(loc="best")
-    _save(fig, destination)
-
-
-def plot_map(
-    custom: pd.DataFrame | None, torch_df: pd.DataFrame | None, title: str, destination: Path
-) -> None:
-    series: list[tuple[str, pd.DataFrame, str]] = []
-    if custom is not None and "mAP@0.5" in custom.columns:
-        series.append(("Custom mAP@0.5", custom, CUSTOM_MAP))
-    if torch_df is not None and "mAP@0.5" in torch_df.columns:
-        series.append(("Torch mAP@0.5", torch_df, TORCH_MAP))
-    if not series:
-        print(f"[plot] No mAP@0.5 column for {title}; skipping mAP figure.")
-        return
-    fig, ax = plt.subplots(figsize=(7.4, 4.6))
-    for label, frame, color in series:
-        ax.plot(frame["Epoch"], frame["mAP@0.5"], color=color, lw=1.9, marker="o", ms=3.2, markevery=max(1, len(frame) // 20), label=label)
-    ax.set_title(f"{title}: mAP@0.5 over Epochs")
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("mAP@0.5")
-    ax.set_ylim(bottom=0.0)
     ax.legend(loc="best")
     _save(fig, destination)
 
@@ -308,16 +281,14 @@ def plot_sample_grid(directory: Path, title: str, destination: Path) -> None:
 
 def experiment_title(name: str) -> str:
     mapping = {
-        "voc": "PASCAL VOC",
-        "bccd": "BCCD",
-        "synthetic": "Synthetic",
         "cifar10": "CIFAR-10",
+        "cifar10_fused": "CIFAR-10 fused CBR",
         "mnist": "MNIST",
         "tabular": "Tabular demo",
         "tabular_iris": "Iris",
         "tabular_wisconsin": "Wisconsin WDBC",
-        "overfit": "VOC Overfit",
-        "voc_short": "VOC Short",
+        "ecg200": "ECG200",
+        "forward": "Forward latency",
     }
     return mapping.get(name.lower(), name.replace("_", " ").title())
 
@@ -343,6 +314,41 @@ def discover_experiments(results_root: Path) -> list[Path]:
     return found
 
 
+def plot_forward_throughput(
+    custom: pd.DataFrame | None, torch_df: pd.DataFrame | None, title: str, destination: Path
+) -> None:
+    frames = []
+    if custom is not None and {"Model", "SamplesPerSec"}.issubset(custom.columns):
+        copied = custom[["Model", "SamplesPerSec"]].copy()
+        copied["Stack"] = "Custom"
+        frames.append(copied)
+    if torch_df is not None and {"Model", "SamplesPerSec"}.issubset(torch_df.columns):
+        copied = torch_df[["Model", "SamplesPerSec"]].copy()
+        copied["Stack"] = "Torch"
+        frames.append(copied)
+    if not frames:
+        return
+    combined = pd.concat(frames, ignore_index=True)
+    models = list(dict.fromkeys(combined["Model"].astype(str)))
+    fig, ax = plt.subplots(figsize=(8.2, 4.8))
+    positions = list(range(len(models)))
+    width = 0.36
+    for offset, stack, color in ((-width / 2, "Custom", CUSTOM_TIME), (width / 2, "Torch", TORCH_TIME)):
+        subset = combined[combined["Stack"] == stack]
+        heights = []
+        for name in models:
+            match = subset[subset["Model"].astype(str) == name]
+            heights.append(float(match["SamplesPerSec"].iloc[0]) if not match.empty else 0.0)
+        ax.bar([position + offset for position in positions], heights, width=width, color=color, label=stack)
+    ax.set_xticks(positions)
+    ax.set_xticklabels(models, rotation=25, ha="right")
+    ax.set_ylabel("Samples / s")
+    ax.set_title(f"{title}: Forward Throughput")
+    ax.set_ylim(bottom=0.0)
+    ax.legend(loc="best")
+    _save(fig, destination)
+
+
 def process_experiment(experiment_dir: Path, gallery_dir: Path) -> int:
     custom = load_metrics(experiment_dir / "metrics_custom.csv")
     torch_df = load_metrics(experiment_dir / "metrics_torch.csv")
@@ -355,10 +361,21 @@ def process_experiment(experiment_dir: Path, gallery_dir: Path) -> int:
     title = experiment_title(experiment_dir.name)
     plot_dir = experiment_dir / "plots"
     written = 0
+    if (custom is not None and "Epoch" not in custom.columns) or (
+        torch_df is not None and "Epoch" not in torch_df.columns and (custom is None or "Epoch" not in custom.columns)
+    ):
+        dest = plot_dir / "forward_throughput.png"
+        plot_forward_throughput(custom, torch_df, title, dest)
+        if dest.is_file():
+            gallery = gallery_dir / f"{experiment_dir.name}_forward_throughput.png"
+            gallery.parent.mkdir(parents=True, exist_ok=True)
+            gallery.write_bytes(dest.read_bytes())
+            written += 1
+        return written
+
     outputs = [
         ("train_vs_test_loss.png", plot_train_vs_test_loss),
         ("accuracy.png", plot_accuracy),
-        ("map50.png", plot_map),
         ("epoch_duration.png", plot_epoch_duration),
         ("vram.png", plot_vram),
     ]
@@ -403,7 +420,7 @@ def parse_args() -> argparse.Namespace:
         "--results-root",
         type=Path,
         default=None,
-        help="Directory containing voc/, bccd/, synthetic/, cifar10/, and tabular/ result folders.",
+        help="Directory containing cifar10/, mnist/, tabular/, and ecg200/ result folders.",
     )
     return parser.parse_args()
 

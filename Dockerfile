@@ -21,7 +21,6 @@ RUN apt-get update \
         pkg-config \
         python3 \
         python3-pip \
-        libpugixml-dev \
         libopencv-dev \
         libtbb-dev \
         clang-tidy \

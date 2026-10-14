@@ -8,19 +8,9 @@ python scripts/freeze_measurements.py
 
 GitHub-hosted runners have no NVIDIA GPU. CI compiles the training binaries and does not execute them, so this table stays empty until a machine with a GPU has written `results/**/metrics_*.csv`. The script copies the last row of each file. It does not fill in missing runs.
 
+Each table keeps the header of that CSV. Current training runs use `Epoch;LR;TrainLoss;TestLoss;TrainAcc;TestAcc;Time(s);VRAM_MiB`, and `Time(s)` has six digits after the decimal. Forward runs use `Model;Batch;Repeats;Time(s);SamplesPerSec;VRAM_MiB`. Rows already on this page stay as they were until those binaries are run again.
+
 ## Recorded runs
-
-### `results/bccd/metrics_custom.csv`
-
-| File | Epoch | TrainLoss | TestLoss | Time(s) | VRAM_MiB |
-| --- | --- | --- | --- | --- | --- |
-| results/bccd/metrics_custom.csv | 450 | 12.8365 | 12.0268 | 1 | 11009 |
-
-### `results/bccd/metrics_torch.csv`
-
-| File | Epoch | TrainLoss | TestLoss | Time(s) | VRAM_MiB |
-| --- | --- | --- | --- | --- | --- |
-| results/bccd/metrics_torch.csv | 450 | 15.2028 | 15.2057 | 2 | 8927 |
 
 ### `results/cifar10/metrics_custom.csv`
 
@@ -45,30 +35,6 @@ GitHub-hosted runners have no NVIDIA GPU. CI compiles the training binaries and 
 | File | Epoch | TrainLoss | TestLoss | Time(s) | VRAM_MiB | TrainAcc | TestAcc |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | results/mnist/metrics_torch.csv | 12 | 0.0327417 | 0.0368073 | 1 | 1601 | 0.990422 | 0.987935 |
-
-### `results/overfit/metrics_custom.csv`
-
-| File | Epoch | Loss | Time(s) | VRAM_MiB |
-| --- | --- | --- | --- | --- |
-| results/overfit/metrics_custom.csv | 300 | 0.870204 | 0 | 8273 |
-
-### `results/overfit/metrics_torch.csv`
-
-| File | Epoch | Loss | Time(s) | VRAM_MiB |
-| --- | --- | --- | --- | --- |
-| results/overfit/metrics_torch.csv | 300 | 0.420846 | 0 | 7795 |
-
-### `results/synthetic/metrics_custom.csv`
-
-| File | Epoch | TrainLoss | TestLoss | Time(s) | VRAM_MiB |
-| --- | --- | --- | --- | --- | --- |
-| results/synthetic/metrics_custom.csv | 350 | 2.94468 | 3.74764 | 1 | 11347 |
-
-### `results/synthetic/metrics_torch.csv`
-
-| File | Epoch | TrainLoss | TestLoss | Time(s) | VRAM_MiB |
-| --- | --- | --- | --- | --- | --- |
-| results/synthetic/metrics_torch.csv | 350 | 1.94937 | 1.48965 | 1 | 8857 |
 
 ### `results/tabular/metrics_custom.csv`
 
@@ -105,26 +71,3 @@ GitHub-hosted runners have no NVIDIA GPU. CI compiles the training binaries and 
 | File | Epoch | Loss | Time(s) | VRAM_MiB | Acc |
 | --- | --- | --- | --- | --- | --- |
 | results/tabular_wisconsin/metrics_torch.csv | 80 | 0.00702566 | 0 | 1553 | 1 |
-
-### `results/voc/metrics_custom.csv`
-
-| File | Epoch | TrainLoss | TestLoss | Time(s) | VRAM_MiB | mAP@0.5 |
-| --- | --- | --- | --- | --- | --- | --- |
-| results/voc/metrics_custom.csv | 130 | 3.4634 | 296.158 | 74 | 8903 | 0.115149 |
-
-### `results/voc/metrics_torch.csv`
-
-The file has a header and no data row.
-
-### `results/voc_short/metrics_custom.csv`
-
-| File | Epoch | Loss | Time(s) | VRAM_MiB |
-| --- | --- | --- | --- | --- |
-| results/voc_short/metrics_custom.csv | 3 | 7.33802 | 61 | 6885 |
-
-### `results/voc_short/metrics_torch.csv`
-
-| File | Epoch | Loss | Time(s) | VRAM_MiB |
-| --- | --- | --- | --- | --- |
-| results/voc_short/metrics_torch.csv | 3 | 7.28702 | 97 | 7403 |
-

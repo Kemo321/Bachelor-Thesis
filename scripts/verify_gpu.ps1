@@ -40,34 +40,4 @@ if (-not $testBin) {
 
 Write-Host "Running $testBin"
 & $testBin
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-if (-not $Short) {
-    exit 0
-}
-
-$vocRoot = Join-Path $root "data\VOCdevkit\VOC2012"
-if (-not (Test-Path $vocRoot)) {
-    Write-Host "Skipping short_voc_custom: $vocRoot is not present."
-    exit 0
-}
-
-$shortCandidates = @(
-    "build\benchmarks\short_voc_custom.exe",
-    "build\benchmarks\short_voc_custom",
-    "build_release\benchmarks\short_voc_custom.exe",
-    "build_release\benchmarks\short_voc_custom",
-    "build_debug\benchmarks\short_voc_custom.exe",
-    "build_debug\benchmarks\short_voc_custom"
-)
-$shortBin = $shortCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $shortBin) {
-    Write-Host "short_voc_custom was not built. Tests passed; the short run was skipped."
-    exit 0
-}
-
-Write-Host "Running $shortBin (3 epochs)"
-& $shortBin
 exit $LASTEXITCODE

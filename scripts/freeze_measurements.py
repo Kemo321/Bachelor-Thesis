@@ -58,6 +58,8 @@ python scripts/freeze_measurements.py
 ```
 
 GitHub-hosted runners have no NVIDIA GPU. CI compiles the training binaries and does not execute them, so this table stays empty until a machine with a GPU has written `results/**/metrics_*.csv`. The script copies the last row of each file. It does not fill in missing runs.
+
+Each table keeps the header of that CSV. Current training runs use `Epoch;LR;TrainLoss;TestLoss;TrainAcc;TestAcc;Time(s);VRAM_MiB`, and `Time(s)` has six digits after the decimal. Forward runs use `Model;Batch;Repeats;Time(s);SamplesPerSec;VRAM_MiB`. Rows already on this page stay as they were until those binaries are run again.
 """
     if not files:
         body = """

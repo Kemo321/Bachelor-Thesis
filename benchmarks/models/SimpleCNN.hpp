@@ -1,8 +1,8 @@
 #pragma once
 
-#include "DeepLearnLib/Layer.hpp"
-#include "DeepLearnLib/Softmax.hpp"
-#include "DeepLearnLib/Tensor.hpp"
+#include "DeepLearnLib/core/Layer.hpp"
+#include "DeepLearnLib/core/Tensor.hpp"
+#include "DeepLearnLib/layers/Softmax.hpp"
 
 #include <memory>
 #include <vector>

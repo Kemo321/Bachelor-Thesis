@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Download and generate datasets for DeepLearnLib (VOC, BCCD, Synthetic3, CIFAR-10, MNIST, tabular).
+"""Download and generate datasets for DeepLearnLib (CIFAR-10, MNIST, tabular, ECG200).
 
-Existing target directories with data are skipped. Requires the Python standard
-library plus Pillow or OpenCV to write JPEG images for Synthetic3.
+Existing target directories with data are skipped.
 """
 
 from __future__ import annotations
@@ -23,15 +22,8 @@ import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Callable, Iterable
-from xml.etree.ElementTree import Element, ElementTree, SubElement
 
 USER_AGENT = "DeepLearnLib-setup/1.0"
-VOC_URLS = (
-    "https://pjreddie.com/media/files/VOCtrainval_11-May-2012.tar",
-    "http://host.robots.ox.ac.uk/pascal/VOC/voc2012/VOCtrainval_11-May-2012.tar",
-)
-BCCD_ZIP_URL = "https://github.com/Shenggan/BCCD_Dataset/archive/refs/heads/master.zip"
-BCCD_GIT_URL = "https://github.com/Shenggan/BCCD_Dataset.git"
 CIFAR10_URL = "https://s3.amazonaws.com/fast-ai-imageclas/cifar10.tgz"
 CIFAR10_MIN_TRAIN_IMAGES = 50_000
 CIFAR10_MIN_TEST_IMAGES = 10_000
@@ -63,10 +55,6 @@ IRIS_LABELS = {
     "iris-virginica": 2,
     "virginica": 2,
 }
-
-SYNTH_CLASSES = ("square", "circle", "triangle")
-SYNTH_IMAGE_SIZE = 448
-SYNTH_COUNT = 180
 
 
 def repo_root() -> Path:
@@ -321,177 +309,6 @@ def count_class_dirs(path: Path) -> int:
     return sum(1 for child in path.iterdir() if child.is_dir())
 
 
-def _try_cv2():
-    try:
-        import cv2  # type: ignore
-        import numpy as np  # type: ignore
-
-        return cv2, np
-    except ImportError:
-        return None, None
-
-
-def _try_pil():
-    try:
-        from PIL import Image, ImageDraw  # type: ignore
-
-        return Image, ImageDraw
-    except ImportError:
-        return None, None
-
-
-def make_canvas(size: int, rng: random.Random):
-    bg = tuple(rng.randint(20, 60) for _ in range(3))
-    cv2, np = _try_cv2()
-    if np is not None:
-        return np.full((size, size, 3), bg[::-1], dtype=np.uint8)
-
-    Image, _ = _try_pil()
-    if Image is None:
-        raise RuntimeError("Synthetic3 needs OpenCV (cv2) or Pillow")
-    return Image.new("RGB", (size, size), bg)
-
-
-def draw_shape(canvas, name: str, box: tuple[int, int, int, int], color: tuple[int, int, int]) -> None:
-    xmin, ymin, xmax, ymax = box
-    cv2, np = _try_cv2()
-    if cv2 is not None and np is not None:
-        bgr = color[::-1]
-        if name == "square":
-            cv2.rectangle(canvas, (xmin, ymin), (xmax, ymax), bgr, thickness=-1)
-        elif name == "circle":
-            cx = (xmin + xmax) // 2
-            cy = (ymin + ymax) // 2
-            radius = max(1, min(xmax - xmin, ymax - ymin) // 2)
-            cv2.circle(canvas, (cx, cy), radius, bgr, thickness=-1)
-        else:
-            pts = np.array(
-                [[[(xmin + xmax) // 2, ymin], [xmin, ymax], [xmax, ymax]]],
-                dtype=np.int32,
-            )
-            cv2.fillPoly(canvas, pts, bgr)
-        return
-
-    ImageDraw = _try_pil()[1]
-    draw = ImageDraw.Draw(canvas)
-    if name == "square":
-        draw.rectangle([xmin, ymin, xmax, ymax], fill=color)
-    elif name == "circle":
-        draw.ellipse([xmin, ymin, xmax, ymax], fill=color)
-    else:
-        draw.polygon([((xmin + xmax) // 2, ymin), (xmin, ymax), (xmax, ymax)], fill=color)
-
-
-def write_canvas(path: Path, canvas) -> None:
-    cv2, np = _try_cv2()
-    if cv2 is not None and np is not None:
-        if not cv2.imwrite(str(path), canvas):
-            raise RuntimeError(f"cv2.imwrite failed: {path}")
-        return
-    canvas.save(path, format="JPEG", quality=92)
-
-
-def write_voc_xml(path: Path, filename: str, size: int, objects: list[tuple[str, tuple[int, int, int, int]]]) -> None:
-    root = Element("annotation")
-    SubElement(root, "folder").text = "JPEGImages"
-    SubElement(root, "filename").text = filename
-    size_node = SubElement(root, "size")
-    SubElement(size_node, "width").text = str(size)
-    SubElement(size_node, "height").text = str(size)
-    SubElement(size_node, "depth").text = "3"
-    for name, (xmin, ymin, xmax, ymax) in objects:
-        obj = SubElement(root, "object")
-        SubElement(obj, "name").text = name
-        SubElement(obj, "pose").text = "Unspecified"
-        SubElement(obj, "truncated").text = "0"
-        SubElement(obj, "difficult").text = "0"
-        box = SubElement(obj, "bndbox")
-        SubElement(box, "xmin").text = str(xmin)
-        SubElement(box, "ymin").text = str(ymin)
-        SubElement(box, "xmax").text = str(xmax)
-        SubElement(box, "ymax").text = str(ymax)
-    ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
-
-
-def setup_voc(data_root: Path) -> None:
-    jpeg = data_root / "VOCdevkit" / "VOC2012" / "JPEGImages"
-    if dir_has_files(jpeg, (".jpg", ".jpeg", ".png")):
-        log("VOC 2012 already present; skipping download")
-        return
-    archive = data_root / "_downloads" / "VOCtrainval_11-May-2012.tar"
-    download_file(VOC_URLS, archive)
-    extract_archive(archive, data_root)
-    if not dir_has_files(jpeg, (".jpg", ".jpeg", ".png")):
-        raise RuntimeError(f"VOC extract did not produce {jpeg}")
-    log(f"VOC 2012 ready at {data_root / 'VOCdevkit'}")
-
-
-def setup_bccd(data_root: Path) -> None:
-    jpeg = data_root / "BCCD_Dataset" / "BCCD" / "JPEGImages"
-    if dir_has_files(jpeg, (".jpg", ".jpeg", ".png")):
-        log("BCCD already present; skipping download")
-        return
-
-    dest = data_root / "BCCD_Dataset"
-    archive = data_root / "_downloads" / "BCCD_Dataset.zip"
-    try:
-        download_file((BCCD_ZIP_URL,), archive)
-        extract_dir = data_root / "_downloads" / "bccd_extract"
-        if extract_dir.exists():
-            shutil.rmtree(extract_dir)
-        extract_archive(archive, extract_dir)
-        candidates = list(extract_dir.glob("BCCD_Dataset-*"))
-        source = candidates[0] if candidates else extract_dir
-        if dest.exists():
-            shutil.rmtree(dest)
-        shutil.move(str(source), str(dest))
-    except Exception as exc:
-        log(f"Zip download failed ({exc}); trying git clone")
-        if dest.exists():
-            shutil.rmtree(dest)
-        subprocess.run(["git", "clone", "--depth", "1", BCCD_GIT_URL, str(dest)], check=True)
-
-    if not dir_has_files(jpeg, (".jpg", ".jpeg", ".png")):
-        raise RuntimeError(f"BCCD extract did not produce {jpeg}")
-    log(f"BCCD ready at {dest}")
-
-
-def setup_synthetic3(data_root: Path) -> None:
-    train_root = data_root / "Synthetic3" / "train"
-    jpeg_dir = train_root / "JPEGImages"
-    annot_dir = train_root / "Annotations"
-    if dir_has_files(jpeg_dir, (".jpg", ".jpeg")):
-        log("Synthetic3 already present; skipping generation")
-        return
-    if _try_cv2()[0] is None and _try_pil()[0] is None:
-        raise RuntimeError("Synthetic3 generation requires Pillow or opencv-python")
-
-    jpeg_dir.mkdir(parents=True, exist_ok=True)
-    annot_dir.mkdir(parents=True, exist_ok=True)
-    rng = random.Random(42)
-    log(f"Generating {SYNTH_COUNT} Synthetic3 images ({SYNTH_IMAGE_SIZE}x{SYNTH_IMAGE_SIZE})")
-    bar = ProgressBar(SYNTH_COUNT, kind="count", unit="images")
-    for index in range(SYNTH_COUNT):
-        filename = f"{index:06d}.jpg"
-        canvas = make_canvas(SYNTH_IMAGE_SIZE, rng)
-        objects: list[tuple[str, tuple[int, int, int, int]]] = []
-        for _ in range(rng.randint(1, 3)):
-            name = rng.choice(SYNTH_CLASSES)
-            side = rng.randint(40, 140)
-            xmin = rng.randint(8, SYNTH_IMAGE_SIZE - side - 8)
-            ymin = rng.randint(8, SYNTH_IMAGE_SIZE - side - 8)
-            xmax = xmin + side
-            ymax = ymin + side
-            color = tuple(rng.randint(80, 255) for _ in range(3))
-            draw_shape(canvas, name, (xmin, ymin, xmax, ymax), color)
-            objects.append((name, (xmin, ymin, xmax, ymax)))
-        write_canvas(jpeg_dir / filename, canvas)
-        write_voc_xml(annot_dir / f"{index:06d}.xml", filename, SYNTH_IMAGE_SIZE, objects)
-        bar.update(index + 1)
-    bar.finish(SYNTH_COUNT)
-    log(f"Synthetic3 ready at {train_root}")
-
-
 def setup_cifar10(data_root: Path) -> None:
     train_dir = data_root / "cifar10" / "train"
     test_dir = data_root / "cifar10" / "test"
@@ -725,6 +542,36 @@ def setup_wisconsin(data_root: Path) -> None:
     log(f"Wisconsin WDBC ready at {dest} ({len(rows)} rows, z-scored features)")
 
 
+ECG200_URLS = (
+    "https://www.timeseriesclassification.com/aeon-toolkit/ECG200.zip",
+    "https://timeseriesclassification.com/aeon-toolkit/ECG200.zip",
+)
+
+
+def setup_ecg200(data_root: Path) -> None:
+    dest = data_root / "ecg200"
+    train = dest / "ECG200_TRAIN.txt"
+    test = dest / "ECG200_TEST.txt"
+    if train.is_file() and test.is_file():
+        log(f"ECG200 already present at {dest}")
+        return
+    zip_path = data_root / "_downloads" / "ECG200.zip"
+    download_file(ECG200_URLS, zip_path, min_bytes=10_000)
+    dest.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path) as archive:
+        for info in archive.infolist():
+            name = Path(info.filename).name
+            if info.is_dir() or not name.upper().startswith("ECG200_"):
+                continue
+            target = dest / name
+            with archive.open(info) as src, target.open("wb") as out:
+                shutil.copyfileobj(src, out)
+            log(f"ECG200 extracted {name}")
+    if not train.is_file() or not test.is_file():
+        raise RuntimeError(f"ECG200 zip did not contain the TRAIN and TEST text files in {dest}")
+    log(f"ECG200 ready at {dest}")
+
+
 def setup_tabular_demo(data_root: Path) -> None:
     dest = data_root / "tabular" / "demo.csv"
     if dest.is_file() and dest.stat().st_size > 200:
@@ -746,7 +593,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-root", type=Path, default=None, help="Dataset root (default: <repo>/data)")
     parser.add_argument(
         "--only",
-        choices=("voc", "bccd", "synthetic", "cifar10", "mnist", "iris", "wisconsin", "tabular"),
+        choices=("cifar10", "mnist", "iris", "wisconsin", "tabular", "ecg200"),
         action="append",
     )
     return parser.parse_args()
@@ -757,14 +604,12 @@ def main() -> int:
     data_root = (args.data_root or (repo_root() / "data")).resolve()
     data_root.mkdir(parents=True, exist_ok=True)
     jobs: list[tuple[str, Callable[[Path], None]]] = [
-        ("voc", setup_voc),
-        ("bccd", setup_bccd),
-        ("synthetic", setup_synthetic3),
         ("cifar10", setup_cifar10),
         ("mnist", setup_mnist),
         ("tabular", setup_tabular_demo),
         ("iris", setup_iris),
         ("wisconsin", setup_wisconsin),
+        ("ecg200", setup_ecg200),
     ]
     selected = set(args.only or [name for name, _ in jobs])
     try:

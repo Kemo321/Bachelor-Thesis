@@ -23,7 +23,7 @@ The sanity entry points `EXPERIMENTS_JSON` at `config/sanity.json` and runs the 
 
 ## Local GPU check
 
-`scripts/verify_gpu.sh` and `scripts/verify_gpu.ps1` run the built `dllib_tests` after `nvidia-smi` succeeds. `--short` also runs `short_voc_custom` (3 epochs) when `data/VOCdevkit/VOC2012` is present, and skips that binary when the data is absent. Both scripts exit immediately when `GITHUB_ACTIONS` is set. They are not wired into the workflow. Hosted runners have no NVIDIA GPU, so CI compiles and does not execute these binaries.
+`scripts/verify_gpu.sh` and `scripts/verify_gpu.ps1` run the built `dllib_tests` after `nvidia-smi` succeeds. Both scripts exit immediately when `GITHUB_ACTIONS` is set. They are not wired into the workflow. Hosted runners have no NVIDIA GPU, so CI compiles and does not execute these binaries.
 
 ## Plots
 

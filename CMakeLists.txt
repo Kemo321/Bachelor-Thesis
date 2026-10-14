@@ -224,11 +224,6 @@ set(BENCHMARK_ENABLE_ASSEMBLY_TESTS OFF CACHE BOOL "" FORCE)
 set(BENCHMARK_ENABLE_WERROR OFF CACHE BOOL "" FORCE)
 add_subdirectory(extern/benchmark EXCLUDE_FROM_ALL)
 
-find_package(pugixml QUIET)
-if(NOT pugixml_FOUND)
-  add_subdirectory(extern/pugixml EXCLUDE_FROM_ALL)
-endif()
-
 include(FetchContent)
 if(POLICY CMP0135)
   cmake_policy(SET CMP0135 NEW)
@@ -268,12 +263,11 @@ file(COPY "${CMAKE_SOURCE_DIR}/config" DESTINATION "${CMAKE_BINARY_DIR}")
 
 add_subdirectory(src)
 
-# Application models (YOLO, SimpleCNN) are not part of DeepLearnLib. They are
-# compiled here so tests and benchmarks can share one object without bloating
-# the core library.
 add_library(DeepLearnModels STATIC
-  benchmarks/models/YOLO.cpp
-  benchmarks/models/SimpleCNN.cpp)
+  benchmarks/models/SimpleCNN.cpp
+  benchmarks/models/TabularMLP.cpp
+  benchmarks/models/GruClassifier.cpp
+  benchmarks/models/FusedCbrCNN.cpp)
 target_include_directories(DeepLearnModels PUBLIC "${CMAKE_SOURCE_DIR}/benchmarks/models")
 target_link_libraries(DeepLearnModels PUBLIC DeepLearnLib)
 set_target_properties(DeepLearnModels PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
@@ -281,9 +275,6 @@ if(NOT MSVC)
   target_compile_definitions(DeepLearnModels PRIVATE _GLIBCXX_USE_CXX11_ABI=1)
 endif()
 
-if(Torch_FOUND)
-  add_subdirectory(torch_baseline)
-endif()
 add_subdirectory(tests)
 if(OpenCV_FOUND)
   add_subdirectory(benchmarks)
@@ -291,8 +282,8 @@ endif()
 
 # Tabular demo is non-vision: keep it available when OpenCV (and thus benchmarks/) is missing.
 if(NOT TARGET train_tabular_custom)
-  add_executable(train_tabular_custom benchmarks/train_tabular_custom.cpp)
-  target_link_libraries(train_tabular_custom PRIVATE DeepLearnLib nlohmann_json::nlohmann_json spdlog::spdlog)
+  add_executable(train_tabular_custom benchmarks/train/train_tabular_custom.cpp)
+  target_link_libraries(train_tabular_custom PRIVATE DeepLearnLib DeepLearnModels nlohmann_json::nlohmann_json spdlog::spdlog)
   target_include_directories(train_tabular_custom PRIVATE "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}/benchmarks")
   file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}" _deeplearn_source_dir)
   target_compile_definitions(train_tabular_custom PRIVATE DEEPLEARN_SOURCE_DIR="${_deeplearn_source_dir}")

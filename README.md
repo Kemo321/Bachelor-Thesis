@@ -2,7 +2,7 @@
 
 Custom C++/CUDA deep-learning library written from scratch for a Bachelor's thesis. The core (`DeepLearnLib`) does **not** depend on LibTorch: tensors, layers, and the optimiser are implemented on NVIDIA's stack (CUDA, cuBLAS, cuDNN, Thrust).
 
-The design is intentionally **lightweight**. Application networks (YOLOv1, a CIFAR-10 CNN) live outside the compiled core and are assembled from generic layers. The training path prefers **static VRAM caches** over per-step `cudaMalloc`, trading memory for LibTorch-like compute time.
+The design is intentionally **lightweight**. Application networks (`SimpleCNN`, a tabular MLP, a cuDNN GRU) live outside the compiled core and are assembled from generic layers. The training path prefers **static VRAM caches** over per-step `cudaMalloc`, trading memory for LibTorch-like compute time.
 
 ## Abstract
 
@@ -13,7 +13,7 @@ DeepLearnLib provides a dense `dl::Tensor` with GPU storage, in-place arithmetic
 ```
 ┌─────────────────────────────────────────────┐
 │  Applications (benchmarks/, tests/)         │
-│  YOLO, SimpleCNN, training/inference CLIs   │
+│  SimpleCNN, tabular MLP, GRU, training CLIs │
 └─────────────────────┬───────────────────────┘
                       │ compose layers
 ┌─────────────────────▼───────────────────────┐
@@ -23,8 +23,8 @@ DeepLearnLib provides a dense `dl::Tensor` with GPU storage, in-place arithmetic
 └─────────────────────────────────────────────┘
 ```
 
-- **Core library** — generic tensors, layers, loaders, and losses. No YOLO or CIFAR topology is linked into `libDeepLearnLib`.
-- **Models** — `benchmarks/models/YOLO.{hpp,cpp}` and `SimpleCNN.{hpp,cpp}` are compiled into `DeepLearnModels` and linked only by apps and tests.
+- **Core library** — generic tensors, layers, loaders, and losses. No classifier or sequence topology is linked into `libDeepLearnLib`, except the reusable `Gru` layer.
+- **Models** — `SimpleCNN`, `TabularMLP`, `GruClassifier`, and `FusedCbrCNN` are compiled into `DeepLearnModels` and linked only by apps and tests.
 - **Torch baselines** — optional LibTorch binaries (`*_torch`) for apples-to-apples timing. They are not part of the custom stack.
 
 Documentation is split in [docs/README.md](docs/README.md). The library API is [docs/library/](docs/library/README.md). Training binaries, models, and benchmarks are [docs/usage/](docs/usage/README.md).
@@ -36,7 +36,7 @@ Documentation is split in [docs/README.md](docs/README.md). The library API is [
   - CMake 3.18+
   - Ninja
   - CUDA 12+ (nvcc, cuBLAS, cuDNN)
-  - OpenCV, pugixml, a C++17 compiler
+  - OpenCV, a C++17 compiler
 
 LibTorch is optional and used only for baseline binaries.
 
@@ -73,7 +73,7 @@ On Windows use `scripts/dev.ps1` (loads MSVC + Git Bash) rather than WSL `bash.e
 ./scripts/menu.sh
 ```
 
-Options are grouped by dataset (VOC, BCCD, Synthetic, CIFAR-10, Tabular), then inference, Google Benchmark targets, and plots. Each Custom scenario has a matching Torch binary (`train_voc_custom` / `train_voc_torch`, …).
+Options are grouped by dataset (CIFAR-10, MNIST, tabular, ECG200), then micro-benchmarks and plots. Each Custom scenario has a matching Torch binary (`train_cifar_custom` / `train_cifar_torch`, …).
 
 ### Sanity check
 
@@ -93,15 +93,20 @@ Details: [docs/usage/experiments.md](docs/usage/experiments.md). Adding a layer:
 
 ```
 .
-├── include/DeepLearnLib/     # Public core API (Tensor, Layer, Conv2d, …)
-├── src/                      # Core library implementation (no YOLO/SimpleCNN)
+├── include/DeepLearnLib/     # Public headers, same folders as src/
+│   ├── core/                 # Tensor, Layer, Network, Batch, Precision
+│   ├── layers/               # Conv2d, Gru, FullyConnected, …
+│   ├── losses/               # CrossEntropyLoss, MSELoss
+│   ├── loaders/              # images, CSV, ECG200
+│   └── utils/                # Logger, Profiler, Nvtx, SafeMath
+├── src/                      # core/, layers/, losses/, loaders/, utils/
 ├── benchmarks/
-│   ├── models/               # Application networks: YOLO, SimpleCNN
-│   ├── train_*_custom.cpp    # Custom training CLIs
-│   ├── train_*_torch.cpp     # LibTorch baselines
-│   └── inference_*.cpp
-├── tests/                    # GoogleTest suite (dllib_tests)
-├── torch_baseline/           # Optional LibTorch YOLO / dataset
+│   ├── models/               # SimpleCNN, tabular MLP, GRU, fused CNN
+│   ├── train/                # custom and Torch training programs
+│   ├── forward/              # forward-latency programs
+│   ├── micro/                # operator micro-benchmarks
+│   └── common/               # shared config, metrics, and batch helpers
+├── tests/                    # core/, layers/, losses/, loaders/, models/
 ├── config/                   # experiments.json, sanity.json
 ├── scripts/                  # menu.sh, dev.sh, plot_metrics.py
 ├── docs/library/             # DeepLearnLib API only

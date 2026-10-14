@@ -1,128 +1,4 @@
 {
-  "voc_custom": {
-    "batch_size": 16,
-    "epochs": 130,
-    "learning_rate": 0.00002,
-    "momentum": 0.9,
-    "weight_decay": 0.0005,
-    "gradient_clip": 0.0,
-    "dataloader_workers": 8,
-    "dataset_root": "data/VOCdevkit",
-    "voc_subset": "VOC2012",
-    "results_dir": "results/voc",
-    "num_classes": 20,
-    "conf_threshold": 0.25,
-    "nms_threshold": 0.5,
-    "lr_schedule": [
-      { "until_epoch": 4, "learning_rate": 0.00001 },
-      { "until_epoch": 80, "learning_rate": 0.0001 },
-      { "until_epoch": 100, "learning_rate": 0.00001 },
-      { "until_epoch": 117, "learning_rate": 0.000001 },
-      { "until_epoch": 150, "learning_rate": 0.0000001 }
-    ]
-  },
-  "voc_torch": {
-    "batch_size": 16,
-    "epochs": 130,
-    "learning_rate": 0.00002,
-    "momentum": 0.9,
-    "weight_decay": 0.0005,
-    "gradient_clip": 0.0,
-    "dataloader_workers": 8,
-    "dataset_root": "data/VOCdevkit",
-    "voc_subset": "VOC2012",
-    "results_dir": "results/voc",
-    "num_classes": 20,
-    "conf_threshold": 0.25,
-    "nms_threshold": 0.5,
-    "lr_schedule": [
-      { "until_epoch": 4, "learning_rate": 0.00001 },
-      { "until_epoch": 80, "learning_rate": 0.0001 },
-      { "until_epoch": 100, "learning_rate": 0.00001 },
-      { "until_epoch": 117, "learning_rate": 0.000001 },
-      { "until_epoch": 150, "learning_rate": 0.0000001 }
-    ]
-  },
-  "bccd_custom": {
-    "batch_size": 16,
-    "epochs": 450,
-    "learning_rate": 0.0001,
-    "momentum": 0.9,
-    "weight_decay": 0.0005,
-    "gradient_clip": 0.0,
-    "dataloader_workers": 8,
-    "dataset_root": "data/BCCD_Dataset/BCCD",
-    "results_dir": "results/bccd",
-    "num_classes": 3,
-    "conf_threshold": 0.15,
-    "nms_threshold": 0.6,
-    "lr_schedule": [
-      { "until_epoch": 15, "learning_rate": 0.00001 },
-      { "until_epoch": 315, "learning_rate": 0.0001 },
-      { "until_epoch": 405, "learning_rate": 0.00001 },
-      { "until_epoch": 450, "learning_rate": 0.000001 }
-    ]
-  },
-  "bccd_torch": {
-    "batch_size": 16,
-    "epochs": 450,
-    "learning_rate": 0.0001,
-    "momentum": 0.9,
-    "weight_decay": 0.0005,
-    "gradient_clip": 0.0,
-    "dataloader_workers": 8,
-    "dataset_root": "data/BCCD_Dataset/BCCD",
-    "results_dir": "results/bccd",
-    "num_classes": 3,
-    "conf_threshold": 0.15,
-    "nms_threshold": 0.6,
-    "lr_schedule": [
-      { "until_epoch": 15, "learning_rate": 0.00001 },
-      { "until_epoch": 315, "learning_rate": 0.0001 },
-      { "until_epoch": 405, "learning_rate": 0.00001 },
-      { "until_epoch": 450, "learning_rate": 0.000001 }
-    ]
-  },
-  "synthetic_custom": {
-    "batch_size": 16,
-    "epochs": 350,
-    "learning_rate": 0.0001,
-    "momentum": 0.9,
-    "weight_decay": 0.0005,
-    "gradient_clip": 0.0,
-    "dataloader_workers": 8,
-    "dataset_root": "data/Synthetic3/train",
-    "results_dir": "results/synthetic",
-    "num_classes": 3,
-    "conf_threshold": 0.1,
-    "nms_threshold": 0.45,
-    "lr_schedule": [
-      { "until_epoch": 10, "learning_rate": 0.00001 },
-      { "until_epoch": 245, "learning_rate": 0.0001 },
-      { "until_epoch": 315, "learning_rate": 0.00001 },
-      { "until_epoch": 350, "learning_rate": 0.000001 }
-    ]
-  },
-  "synthetic_torch": {
-    "batch_size": 16,
-    "epochs": 350,
-    "learning_rate": 0.0001,
-    "momentum": 0.9,
-    "weight_decay": 0.0005,
-    "gradient_clip": 0.0,
-    "dataloader_workers": 8,
-    "dataset_root": "data/Synthetic3/train",
-    "results_dir": "results/synthetic",
-    "num_classes": 3,
-    "conf_threshold": 0.1,
-    "nms_threshold": 0.45,
-    "lr_schedule": [
-      { "until_epoch": 10, "learning_rate": 0.00001 },
-      { "until_epoch": 245, "learning_rate": 0.0001 },
-      { "until_epoch": 315, "learning_rate": 0.00001 },
-      { "until_epoch": 350, "learning_rate": 0.000001 }
-    ]
-  },
   "tabular_demo": {
     "batch_size": 32,
     "epochs": 40,
@@ -137,7 +13,8 @@
     "hidden_size": 16,
     "num_classes": 3,
     "num_samples": 96,
-    "skip_header": true
+    "skip_header": true,
+    "test_fraction": 0.2
   },
   "tabular_iris": {
     "batch_size": 16,
@@ -153,7 +30,12 @@
     "hidden_size": 16,
     "num_classes": 3,
     "skip_header": true,
-    "class_names": ["setosa", "versicolor", "virginica"]
+    "class_names": [
+      "setosa",
+      "versicolor",
+      "virginica"
+    ],
+    "test_fraction": 0.2
   },
   "tabular_wisconsin": {
     "batch_size": 32,
@@ -169,37 +51,11 @@
     "hidden_size": 32,
     "num_classes": 2,
     "skip_header": true,
-    "class_names": ["benign", "malignant"]
-  },
-  "overfit_voc_custom": {
-    "batch_size": 8,
-    "epochs": 300,
-    "learning_rate": 0.00002,
-    "momentum": 0.9,
-    "weight_decay": 0.0005,
-    "gradient_clip": 0.0,
-    "dataloader_workers": 0,
-    "dataset_root": "data/VOCdevkit",
-    "voc_subset": "VOC2012",
-    "results_dir": "results/overfit",
-    "num_classes": 20,
-    "conf_threshold": 0.1,
-    "nms_threshold": 0.45
-  },
-  "overfit_voc_torch": {
-    "batch_size": 8,
-    "epochs": 300,
-    "learning_rate": 0.00002,
-    "momentum": 0.9,
-    "weight_decay": 0.0005,
-    "gradient_clip": 0.0,
-    "dataloader_workers": 0,
-    "dataset_root": "data/VOCdevkit",
-    "voc_subset": "VOC2012",
-    "results_dir": "results/overfit",
-    "num_classes": 20,
-    "conf_threshold": 0.1,
-    "nms_threshold": 0.45
+    "class_names": [
+      "benign",
+      "malignant"
+    ],
+    "test_fraction": 0.2
   },
   "cifar10_classification": {
     "batch_size": 128,
@@ -215,9 +71,18 @@
     "num_classes": 10,
     "image_size": 32,
     "lr_schedule": [
-      { "until_epoch": 28, "learning_rate": 0.01 },
-      { "until_epoch": 36, "learning_rate": 0.001 },
-      { "until_epoch": 40, "learning_rate": 0.0001 }
+      {
+        "until_epoch": 28,
+        "learning_rate": 0.01
+      },
+      {
+        "until_epoch": 36,
+        "learning_rate": 0.001
+      },
+      {
+        "until_epoch": 40,
+        "learning_rate": 0.0001
+      }
     ]
   },
   "mnist_classification": {
@@ -233,9 +98,120 @@
     "image_size": 28,
     "in_channels": 1,
     "lr_schedule": [
-      { "until_epoch": 8, "learning_rate": 0.01 },
-      { "until_epoch": 11, "learning_rate": 0.001 },
-      { "until_epoch": 12, "learning_rate": 0.0001 }
+      {
+        "until_epoch": 8,
+        "learning_rate": 0.01
+      },
+      {
+        "until_epoch": 11,
+        "learning_rate": 0.001
+      },
+      {
+        "until_epoch": 12,
+        "learning_rate": 0.0001
+      }
+    ]
+  },
+  "ecg200": {
+    "batch_size": 16,
+    "epochs": 80,
+    "learning_rate": 0.001,
+    "momentum": 0.9,
+    "weight_decay": 0.0,
+    "gradient_clip": 1.0,
+    "hidden_size": 32,
+    "num_classes": 2,
+    "dataset_root": "data/ecg200",
+    "results_dir": "results/ecg200",
+    "class_names": [
+      "normal",
+      "infarction"
+    ],
+    "lr_schedule": [
+      {
+        "until_epoch": 80,
+        "learning_rate": 0.001
+      }
+    ]
+  },
+  "cifar10_fused": {
+    "batch_size": 128,
+    "epochs": 40,
+    "learning_rate": 0.01,
+    "momentum": 0.9,
+    "weight_decay": 0.0005,
+    "gradient_clip": 0.0,
+    "dataset_root": "data/cifar10",
+    "train_split": "train",
+    "test_split": "test",
+    "results_dir": "results/cifar10_fused",
+    "num_classes": 10,
+    "image_size": 32,
+    "lr_schedule": [
+      {
+        "until_epoch": 28,
+        "learning_rate": 0.01
+      },
+      {
+        "until_epoch": 36,
+        "learning_rate": 0.001
+      },
+      {
+        "until_epoch": 40,
+        "learning_rate": 0.0001
+      }
+    ]
+  },
+  "forward_latency": {
+    "results_dir": "results/forward",
+    "warmup": 10,
+    "cases": [
+      {
+        "name": "simplecnn_cifar",
+        "kind": "simplecnn",
+        "batch": 128,
+        "repeats": 30,
+        "image_size": 32,
+        "in_channels": 3,
+        "num_classes": 10
+      },
+      {
+        "name": "simplecnn_mnist",
+        "kind": "simplecnn",
+        "batch": 128,
+        "repeats": 30,
+        "image_size": 28,
+        "in_channels": 1,
+        "num_classes": 10
+      },
+      {
+        "name": "tabular_mlp",
+        "kind": "tabular",
+        "batch": 256,
+        "repeats": 50,
+        "num_features": 30,
+        "hidden_size": 32,
+        "num_classes": 2
+      },
+      {
+        "name": "gru_classifier",
+        "kind": "gru",
+        "batch": 32,
+        "repeats": 30,
+        "length": 96,
+        "input_size": 1,
+        "hidden_size": 32,
+        "num_classes": 2
+      },
+      {
+        "name": "fused_cbr_cnn",
+        "kind": "fused",
+        "batch": 64,
+        "repeats": 30,
+        "image_size": 32,
+        "in_channels": 3,
+        "num_classes": 10
+      }
     ]
   }
 }

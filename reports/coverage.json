@@ -1,0 +1,841 @@
+{
+  "file_coverage_percent": 78.67,
+  "files_covered": 59,
+  "files_total": 75,
+  "line_coverage_percent": null,
+  "lines_hit": null,
+  "lines_found": null,
+  "lcov": null,
+  "files": [
+    {
+      "path": "benchmarks/common/classification_eval.hpp",
+      "tested": true,
+      "tests": [
+        "tests/benchmarks/test_train_metrics.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/classification_vis.hpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/custom_step.hpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/experiment_config.hpp",
+      "tested": true,
+      "tests": [
+        "tests/benchmarks/test_train_metrics.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/forward_plan.hpp",
+      "tested": true,
+      "tests": [
+        "tests/benchmarks/test_train_metrics.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/image_train_custom.hpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/image_train_torch.hpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/indexed_train_custom.hpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/indexed_train_torch.hpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/prefetch_batch.hpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/row_batch.hpp",
+      "tested": true,
+      "tests": [
+        "tests/benchmarks/test_train_metrics.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/run_metrics.hpp",
+      "tested": true,
+      "tests": [
+        "tests/benchmarks/test_train_metrics.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/split_metrics.hpp",
+      "tested": true,
+      "tests": [
+        "tests/benchmarks/test_train_metrics.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/tabular_common.hpp",
+      "tested": true,
+      "tests": [
+        "tests/benchmarks/test_train_metrics.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/tabular_pipeline.hpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/torch_optim.hpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/common/train_loop.hpp",
+      "tested": true,
+      "tests": [
+        "tests/benchmarks/test_train_metrics.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/models/cnn_shapes.hpp",
+      "tested": true,
+      "tests": [
+        "tests/benchmarks/test_train_metrics.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/models/FusedCbrCNN.cpp",
+      "tested": true,
+      "tests": [
+        "tests/models/test_fused_cbr_cnn.cpp",
+        "tests/models/test_model_parity.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/models/FusedCbrCNN.hpp",
+      "tested": true,
+      "tests": [
+        "tests/models/test_fused_cbr_cnn.cpp",
+        "tests/models/test_model_parity.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/models/GruClassifier.cpp",
+      "tested": true,
+      "tests": [
+        "tests/models/test_gru_classifier.cpp",
+        "tests/models/test_model_parity.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/models/GruClassifier.hpp",
+      "tested": true,
+      "tests": [
+        "tests/models/test_gru_classifier.cpp",
+        "tests/models/test_model_parity.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/models/SimpleCNN.cpp",
+      "tested": true,
+      "tests": [
+        "tests/benchmarks/test_train_metrics.cpp",
+        "tests/models/test_model_parity.cpp",
+        "tests/models/test_simplecnn.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/models/SimpleCNN.hpp",
+      "tested": true,
+      "tests": [
+        "tests/benchmarks/test_train_metrics.cpp",
+        "tests/models/test_model_parity.cpp",
+        "tests/models/test_simplecnn.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/models/TabularMLP.cpp",
+      "tested": true,
+      "tests": [
+        "tests/models/test_model_parity.cpp",
+        "tests/models/test_tabular_mlp.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/models/TabularMLP.hpp",
+      "tested": true,
+      "tests": [
+        "tests/models/test_model_parity.cpp",
+        "tests/models/test_tabular_mlp.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/models/torch/TorchFusedCbrCNN.hpp",
+      "tested": true,
+      "tests": [
+        "tests/models/test_model_parity.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/models/torch/TorchGruClassifier.hpp",
+      "tested": true,
+      "tests": [
+        "tests/models/test_model_parity.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/models/torch/TorchSimpleCNN.hpp",
+      "tested": true,
+      "tests": [
+        "tests/models/test_model_parity.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "benchmarks/models/torch/TorchTabularMLP.hpp",
+      "tested": true,
+      "tests": [
+        "tests/models/test_model_parity.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/core/Batch.hpp",
+      "tested": true,
+      "tests": [
+        "tests/benchmarks/test_train_metrics.cpp",
+        "tests/core/test_tensor.cpp",
+        "tests/layers/test_batchnorm2d.cpp",
+        "tests/layers/test_flatten.cpp",
+        "tests/layers/test_fullyconnected.cpp",
+        "tests/layers/test_fused_cbr2d.cpp",
+        "tests/layers/test_gru.cpp",
+        "tests/layers/test_torch_equivalence.cpp",
+        "tests/loaders/test_classification_loader.cpp",
+        "tests/loaders/test_packed_image_loader.cpp",
+        "tests/losses/test_generic.cpp",
+        "tests/models/test_fused_cbr_cnn.cpp",
+        "tests/models/test_gru_classifier.cpp",
+        "tests/models/test_model_parity.cpp",
+        "tests/models/test_simplecnn.cpp",
+        "tests/models/test_tabular_mlp.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/core/Layer.hpp",
+      "tested": true,
+      "tests": [
+        "tests/core/test_network.cpp",
+        "tests/layers/test_activations.cpp",
+        "tests/layers/test_batchnorm2d.cpp",
+        "tests/layers/test_conv2d.cpp",
+        "tests/layers/test_flatten.cpp",
+        "tests/layers/test_fullyconnected.cpp",
+        "tests/layers/test_fused_cbr2d.cpp",
+        "tests/layers/test_gru.cpp",
+        "tests/layers/test_maxpool2d.cpp",
+        "tests/layers/test_torch_equivalence.cpp",
+        "tests/losses/test_generic.cpp",
+        "tests/losses/test_numerics.cpp",
+        "tests/models/test_fused_cbr_cnn.cpp",
+        "tests/models/test_gru_classifier.cpp",
+        "tests/models/test_model_parity.cpp",
+        "tests/models/test_simplecnn.cpp",
+        "tests/models/test_tabular_mlp.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/core/Network.hpp",
+      "tested": true,
+      "tests": [
+        "tests/core/test_network.cpp",
+        "tests/core/test_tensor.cpp",
+        "tests/losses/test_numerics.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/core/Precision.hpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/core/Tensor.hpp",
+      "tested": true,
+      "tests": [
+        "tests/core/test_network.cpp",
+        "tests/core/test_tensor.cpp",
+        "tests/layers/test_activations.cpp",
+        "tests/layers/test_batchnorm2d.cpp",
+        "tests/layers/test_conv2d.cpp",
+        "tests/layers/test_flatten.cpp",
+        "tests/layers/test_fullyconnected.cpp",
+        "tests/layers/test_fused_cbr2d.cpp",
+        "tests/layers/test_gru.cpp",
+        "tests/layers/test_maxpool2d.cpp",
+        "tests/layers/test_torch_equivalence.cpp",
+        "tests/loaders/test_classification_loader.cpp",
+        "tests/loaders/test_packed_image_loader.cpp",
+        "tests/losses/test_generic.cpp",
+        "tests/losses/test_numerics.cpp",
+        "tests/models/test_fused_cbr_cnn.cpp",
+        "tests/models/test_gru_classifier.cpp",
+        "tests/models/test_model_parity.cpp",
+        "tests/models/test_simplecnn.cpp",
+        "tests/models/test_tabular_mlp.cpp",
+        "tests/test_helpers.hpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/layers/BatchNorm2d.hpp",
+      "tested": true,
+      "tests": [
+        "tests/layers/test_batchnorm2d.cpp",
+        "tests/layers/test_fused_cbr2d.cpp",
+        "tests/layers/test_torch_equivalence.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/layers/Conv2d.hpp",
+      "tested": true,
+      "tests": [
+        "tests/layers/test_conv2d.cpp",
+        "tests/layers/test_fused_cbr2d.cpp",
+        "tests/layers/test_torch_equivalence.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/layers/Dropout.hpp",
+      "tested": true,
+      "tests": [
+        "tests/layers/test_activations.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/layers/Flatten.hpp",
+      "tested": true,
+      "tests": [
+        "tests/core/test_network.cpp",
+        "tests/core/test_tensor.cpp",
+        "tests/layers/test_flatten.cpp",
+        "tests/models/test_simplecnn.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/layers/FullyConnected.hpp",
+      "tested": true,
+      "tests": [
+        "tests/core/test_network.cpp",
+        "tests/layers/test_fullyconnected.cpp",
+        "tests/layers/test_torch_equivalence.cpp",
+        "tests/losses/test_numerics.cpp",
+        "tests/models/test_simplecnn.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/layers/FusedCBR2d.hpp",
+      "tested": true,
+      "tests": [
+        "tests/layers/test_fused_cbr2d.cpp",
+        "tests/layers/test_torch_equivalence.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/layers/Gru.hpp",
+      "tested": true,
+      "tests": [
+        "tests/benchmarks/test_train_metrics.cpp",
+        "tests/layers/test_gru.cpp",
+        "tests/models/test_gru_classifier.cpp",
+        "tests/models/test_model_parity.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/layers/LeakyReLU.hpp",
+      "tested": true,
+      "tests": [
+        "tests/layers/test_activations.cpp",
+        "tests/layers/test_fused_cbr2d.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/layers/MaxPool2d.hpp",
+      "tested": true,
+      "tests": [
+        "tests/layers/test_maxpool2d.cpp",
+        "tests/layers/test_torch_equivalence.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/layers/Softmax.hpp",
+      "tested": true,
+      "tests": [
+        "tests/losses/test_generic.cpp",
+        "tests/losses/test_numerics.cpp",
+        "tests/models/test_simplecnn.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/loaders/ClassificationLoader.hpp",
+      "tested": true,
+      "tests": [
+        "tests/loaders/test_classification_loader.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/loaders/CSVLoader.hpp",
+      "tested": true,
+      "tests": [
+        "tests/losses/test_generic.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/loaders/Ecg200Loader.hpp",
+      "tested": true,
+      "tests": [
+        "tests/layers/test_gru.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/loaders/PackedImageLoader.hpp",
+      "tested": true,
+      "tests": [
+        "tests/loaders/test_packed_image_loader.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/losses/Losses.hpp",
+      "tested": true,
+      "tests": [
+        "tests/losses/test_generic.cpp",
+        "tests/losses/test_numerics.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/utils/Logger.hpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/utils/Nvtx.hpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/utils/ParallelFor.hpp",
+      "tested": true,
+      "tests": [
+        "tests/loaders/test_classification_loader.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/utils/Profiler.hpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "include/DeepLearnLib/utils/SafeMath.hpp",
+      "tested": true,
+      "tests": [
+        "tests/losses/test_numerics.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/core/Network.cpp",
+      "tested": true,
+      "tests": [
+        "tests/core/test_network.cpp",
+        "tests/core/test_tensor.cpp",
+        "tests/losses/test_numerics.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/core/Precision.cpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/core/Tensor.cpp",
+      "tested": true,
+      "tests": [
+        "tests/core/test_network.cpp",
+        "tests/core/test_tensor.cpp",
+        "tests/layers/test_activations.cpp",
+        "tests/layers/test_batchnorm2d.cpp",
+        "tests/layers/test_conv2d.cpp",
+        "tests/layers/test_flatten.cpp",
+        "tests/layers/test_fullyconnected.cpp",
+        "tests/layers/test_fused_cbr2d.cpp",
+        "tests/layers/test_gru.cpp",
+        "tests/layers/test_maxpool2d.cpp",
+        "tests/layers/test_torch_equivalence.cpp",
+        "tests/loaders/test_classification_loader.cpp",
+        "tests/loaders/test_packed_image_loader.cpp",
+        "tests/losses/test_generic.cpp",
+        "tests/losses/test_numerics.cpp",
+        "tests/models/test_fused_cbr_cnn.cpp",
+        "tests/models/test_gru_classifier.cpp",
+        "tests/models/test_model_parity.cpp",
+        "tests/models/test_simplecnn.cpp",
+        "tests/models/test_tabular_mlp.cpp",
+        "tests/test_helpers.hpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/layers/BatchNorm2d.cpp",
+      "tested": true,
+      "tests": [
+        "tests/layers/test_batchnorm2d.cpp",
+        "tests/layers/test_fused_cbr2d.cpp",
+        "tests/layers/test_torch_equivalence.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/layers/Conv2d.cpp",
+      "tested": true,
+      "tests": [
+        "tests/layers/test_conv2d.cpp",
+        "tests/layers/test_fused_cbr2d.cpp",
+        "tests/layers/test_torch_equivalence.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/layers/Dropout.cpp",
+      "tested": true,
+      "tests": [
+        "tests/layers/test_activations.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/layers/Flatten.cpp",
+      "tested": true,
+      "tests": [
+        "tests/core/test_network.cpp",
+        "tests/core/test_tensor.cpp",
+        "tests/layers/test_flatten.cpp",
+        "tests/models/test_simplecnn.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/layers/FullyConnected.cpp",
+      "tested": true,
+      "tests": [
+        "tests/core/test_network.cpp",
+        "tests/layers/test_fullyconnected.cpp",
+        "tests/layers/test_torch_equivalence.cpp",
+        "tests/losses/test_numerics.cpp",
+        "tests/models/test_simplecnn.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/layers/FusedCBR2d.cpp",
+      "tested": true,
+      "tests": [
+        "tests/layers/test_fused_cbr2d.cpp",
+        "tests/layers/test_torch_equivalence.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/layers/Gru.cpp",
+      "tested": true,
+      "tests": [
+        "tests/benchmarks/test_train_metrics.cpp",
+        "tests/layers/test_gru.cpp",
+        "tests/models/test_gru_classifier.cpp",
+        "tests/models/test_model_parity.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/layers/LeakyReLU.cpp",
+      "tested": true,
+      "tests": [
+        "tests/layers/test_activations.cpp",
+        "tests/layers/test_fused_cbr2d.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/layers/MaxPool2d.cpp",
+      "tested": true,
+      "tests": [
+        "tests/layers/test_maxpool2d.cpp",
+        "tests/layers/test_torch_equivalence.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/layers/Softmax.cpp",
+      "tested": true,
+      "tests": [
+        "tests/losses/test_generic.cpp",
+        "tests/losses/test_numerics.cpp",
+        "tests/models/test_simplecnn.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/loaders/ClassificationLoader.cpp",
+      "tested": true,
+      "tests": [
+        "tests/loaders/test_classification_loader.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/loaders/CSVLoader.cpp",
+      "tested": true,
+      "tests": [
+        "tests/losses/test_generic.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/loaders/Ecg200Loader.cpp",
+      "tested": true,
+      "tests": [
+        "tests/layers/test_gru.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/loaders/PackedImageLoader.cpp",
+      "tested": true,
+      "tests": [
+        "tests/loaders/test_packed_image_loader.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/losses/Losses.cpp",
+      "tested": true,
+      "tests": [
+        "tests/losses/test_generic.cpp",
+        "tests/losses/test_numerics.cpp"
+      ],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/utils/Logger.cpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    },
+    {
+      "path": "src/utils/Profiler.cpp",
+      "tested": false,
+      "tests": [],
+      "lines_found": null,
+      "lines_hit": null
+    }
+  ],
+  "drivers": [
+    {
+      "path": "benchmarks/forward/bench_forward_custom.cpp",
+      "tests": []
+    },
+    {
+      "path": "benchmarks/forward/bench_forward_torch.cpp",
+      "tests": []
+    },
+    {
+      "path": "benchmarks/micro/bench_micro_common.hpp",
+      "tests": []
+    },
+    {
+      "path": "benchmarks/micro/bench_micro_more.cpp",
+      "tests": []
+    },
+    {
+      "path": "benchmarks/micro/bench_micro_ops.cpp",
+      "tests": []
+    },
+    {
+      "path": "benchmarks/train/train_cifar_custom.cpp",
+      "tests": []
+    },
+    {
+      "path": "benchmarks/train/train_cifar_torch.cpp",
+      "tests": []
+    },
+    {
+      "path": "benchmarks/train/train_fused_custom.cpp",
+      "tests": []
+    },
+    {
+      "path": "benchmarks/train/train_fused_torch.cpp",
+      "tests": []
+    },
+    {
+      "path": "benchmarks/train/train_gru_custom.cpp",
+      "tests": []
+    },
+    {
+      "path": "benchmarks/train/train_gru_torch.cpp",
+      "tests": []
+    },
+    {
+      "path": "benchmarks/train/train_mnist_custom.cpp",
+      "tests": []
+    },
+    {
+      "path": "benchmarks/train/train_mnist_torch.cpp",
+      "tests": []
+    },
+    {
+      "path": "benchmarks/train/train_tabular_custom.cpp",
+      "tests": []
+    },
+    {
+      "path": "benchmarks/train/train_tabular_torch.cpp",
+      "tests": []
+    }
+  ]
+}

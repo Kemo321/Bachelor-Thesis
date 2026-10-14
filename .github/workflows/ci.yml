@@ -61,7 +61,6 @@ jobs:
           git submodule update --init --depth 1 \
             extern/googletest \
             extern/benchmark \
-            extern/pugixml \
             extern/stb
 
       - name: Setup ccache
@@ -115,6 +114,7 @@ jobs:
           lcov --capture --directory build_debug --output-file coverage.info \
             --rc lcov_branch_coverage=1 --ignore-errors gcov,source
           lcov --extract coverage.info '*/src/*' '*/include/*' '*/tests/*' \
+            '*/benchmarks/models/*' '*/benchmarks/common/*' \
             --output-file coverage.filtered.info \
             --rc lcov_branch_coverage=1
           test -s coverage.filtered.info
@@ -122,6 +122,9 @@ jobs:
             --rc lcov_branch_coverage=1 --ignore-errors source \
             --title "DeepLearnLib coverage"
           cp coverage.info coverage.filtered.info coverage-html/
+          python3 scripts/coverage_report.py --lcov coverage.filtered.info --output reports/coverage.md
+          mkdir -p coverage-html/reports
+          cp reports/coverage.md reports/coverage.json coverage-html/reports/
           {
             echo "## Coverage (lcov 1.15, no GPU)"
             echo
@@ -158,7 +161,6 @@ jobs:
           git submodule update --init --depth 1 \
             extern/googletest \
             extern/benchmark \
-            extern/pugixml \
             extern/stb
 
       - name: Setup ccache
@@ -181,26 +183,22 @@ jobs:
         run: |
           cmake --build build_release \
             --target dllib_tests \
-            --target bench_voc_custom \
-            --target short_voc_custom \
-            --target overfit_voc_custom \
-            --target train_synthetic_custom \
-            --target train_tabular_custom \
             --target train_cifar_custom \
             --target train_mnist_custom \
-            --target train_voc_custom
+            --target train_tabular_custom \
+            --target train_gru_custom \
+            --target train_fused_custom \
+            --target bench_forward_custom
 
       - name: Verify benchmark binaries
         run: |
           test -x build_release/tests/dllib_tests
-          test -x build_release/benchmarks/bench_voc_custom
-          test -x build_release/benchmarks/short_voc_custom
-          test -x build_release/benchmarks/overfit_voc_custom
-          test -x build_release/benchmarks/train_synthetic_custom
           test -x build_release/benchmarks/train_tabular_custom
           test -x build_release/benchmarks/train_cifar_custom
           test -x build_release/benchmarks/train_mnist_custom
-          test -x build_release/benchmarks/train_voc_custom
+          test -x build_release/benchmarks/train_gru_custom
+          test -x build_release/benchmarks/train_fused_custom
+          test -x build_release/benchmarks/bench_forward_custom
           ls -l build_release/benchmarks/
           echo "::notice::Benchmark binaries compiled. Not executed: GitHub-hosted runners have no NVIDIA GPU."
           {
