@@ -48,7 +48,7 @@ From the repository root:
 
 ```bash
 docker compose up -d --build
-docker exec -it yolo_dev_container bash
+docker exec -it deeplearn_dev_container bash
 ./scripts/dev.sh          # configure (Ninja), build, run unit tests
 ./scripts/menu.sh         # interactive training / inference / plots
 ```

@@ -44,7 +44,6 @@ These are real. New parameters stay in `snake_case`.
 | `Tensor` | Metadata uses a `get_` prefix (`get_shape`, `get_device`, `get_dtype`). The pointer is both `data()` and `get_data()` (`get_data` is const-only). New code should call `data()`. |
 | Header file names | Layer types match the file. `Losses.hpp` is plural because it holds `MSELoss` and `CrossEntropyLoss`. `ParallelFor.hpp`, `Precision.hpp`, `SafeMath.hpp`, `Nvtx.hpp`, and `Logger.hpp` are `PascalCase` even though they are not a single class of that name. |
 | CMake project | `project(MiniC_DL ...)`. The target, the include directory, and the docs say `DeepLearnLib`. |
-| Container and image | `yolo_dev_container`, image `yolo-bachelor-thesis`. The library name does not appear. |
 
 Application names are `train_` or `bench_`, then the dataset, then `_custom` or `_torch`. Pipeline keys in `config/experiments.json` use the dataset name (`cifar10_classification`, `tabular_iris`, `ecg200`).
 

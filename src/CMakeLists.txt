@@ -60,8 +60,7 @@ set_target_properties(
 target_include_directories(
   DeepLearnLib
   PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
-         $<INSTALL_INTERFACE:include>
-         "${CMAKE_SOURCE_DIR}/extern/stb")
+         $<INSTALL_INTERFACE:include>)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(DeepLearnLib PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-mavx2 -mfma>)

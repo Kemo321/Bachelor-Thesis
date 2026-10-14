@@ -8,8 +8,7 @@ function(dllib_configure_bench_target target)
     ${target}
     PRIVATE "${CMAKE_SOURCE_DIR}/src"
             "${CMAKE_SOURCE_DIR}/include"
-            "${CMAKE_SOURCE_DIR}/benchmarks"
-            "${CMAKE_SOURCE_DIR}/extern/stb")
+            "${CMAKE_SOURCE_DIR}/benchmarks")
   if(NOT MSVC)
     target_compile_definitions(${target} PRIVATE _GLIBCXX_USE_CXX11_ABI=1)
   endif()

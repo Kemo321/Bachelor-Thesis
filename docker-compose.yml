@@ -1,10 +1,10 @@
 services:
-  yolo-app:
+  deeplearn:
     build:
       context: .
       dockerfile: Dockerfile
-    image: yolo-bachelor-thesis:latest
-    container_name: yolo_dev_container
+    image: deeplearn-bachelor-thesis:latest
+    container_name: deeplearn_dev_container
 
     shm_size: '32gb'
 

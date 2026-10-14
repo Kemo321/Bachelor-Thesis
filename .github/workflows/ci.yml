@@ -27,7 +27,7 @@ jobs:
       - name: Run clang-format
         run: |
           find . \( -name "*.cpp" -o -name "*.hpp" -o -name "*.cu" -o -name "*.cuh" -o -name "*.cc" \) \
-            -not -path "*/build/*" -not -path "*/extern/*" -not -path "*/torch_baseline/*" \
+            -not -path "*/build/*" -not -path "*/extern/*" \
             | xargs clang-format -style=file --dry-run --Werror
 
       - name: Run Cppcheck
@@ -60,8 +60,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git submodule update --init --depth 1 \
             extern/googletest \
-            extern/benchmark \
-            extern/stb
+            extern/benchmark
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -160,8 +159,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git submodule update --init --depth 1 \
             extern/googletest \
-            extern/benchmark \
-            extern/stb
+            extern/benchmark
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2

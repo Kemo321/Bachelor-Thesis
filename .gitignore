@@ -27,7 +27,6 @@ docs/html/
 docs/latex/
 dllib_test_network_*.bin
 compute_prof_log.txt
-combined.cpp
 
 # Runtime outputs and datasets
 results/

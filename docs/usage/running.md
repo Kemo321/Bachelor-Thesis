@@ -6,7 +6,7 @@ Compile flags, the Ninja generator, and SASS pinning are in [library build](../l
 
 ```bash
 docker compose up -d --build
-docker exec -it yolo_dev_container bash
+docker exec -it deeplearn_dev_container bash
 ./scripts/dev.sh
 ./scripts/menu.sh
 ```
