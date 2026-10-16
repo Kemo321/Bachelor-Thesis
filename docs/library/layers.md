@@ -21,9 +21,8 @@ With `momentum == 0` the update is vanilla SGD. `gradient_clip == 0` disables cl
 | --- | --- | --- | --- |
 | `Conv2d` | cuDNN convolution | weight, bias | same math |
 | `BatchNorm2d` | cuDNN spatial batch-norm | gamma, beta, running mean and variance | batch stats vs running stats |
-| `FusedCBR2d` | cuDNN conv+bias, then one kernel for the batch-norm affine and LeakyReLU | conv weight and bias, gamma, beta, running stats | same split as batch-norm |
 | `MaxPool2d` | cuDNN max pooling | none | same math |
-| `FullyConnected` | `matmul_into` | weight `[F_in, F_out]`, bias `[1, F_out]` | same math |
+| `FullyConnected` | small kernel or cuBLASLt, else `matmul_into` | weight `[F_in, F_out]`, bias `[1, F_out]` | same math |
 | `LeakyReLU` | device kernel | none | same math |
 | `Dropout` | device Bernoulli mask | none | mask while training, identity in eval |
 | `Flatten` | `Tensor::view` | none | same |
@@ -33,26 +32,13 @@ With `momentum == 0` the update is vanilla SGD. `gradient_clip == 0` disables cl
 
 NCHW in, NCHW out. Kernel, stride, and padding are fixed at construction. Tensor, filter, and convolution descriptors are rebuilt when the input shape changes. Forward and backward use the cuDNN convolution API. The workspace size reported by cuDNN is stored with `ensure`.
 
-Bias is a separate tensor. Standalone `Conv2d` adds it with cuDNN's tensor add. `FusedCBR2d` folds bias into `cudnnConvolutionBiasActivationForward` with an identity activation, so the following normalisation still sees a linear pre-activation.
+Bias is a separate tensor. `Conv2d` adds it with cuDNN's tensor add. The activation descriptor is identity, so the add stays linear.
 
 ## `BatchNorm2d`
 
 Spatial batch-norm over NCHW: one mean and variance per channel. Gamma and beta are `[1, C, 1, 1]`, matching `cudnnDeriveBNTensorDescriptor` for `CUDNN_BATCHNORM_SPATIAL`.
 
 In training the layer updates running mean and variance and keeps the batch mean and inverse variance for `backward`. In eval it uses the running statistics and does not update them. Epsilon defaults to `1e-5`. The batch-norm momentum defaults to `0.1`. That momentum is the running-stat blend. It is a different field from `Layer::momentum`, which is SGD.
-
-## `FusedCBR2d`
-
-Convolution, bias, batch-norm, and LeakyReLU as one layer.
-
-```mermaid
-flowchart LR
-    x["x  NCHW"] --> conv["cuDNN conv + bias, identity activation"]
-    conv --> fused["one kernel: batch-norm affine + LeakyReLU"]
-    fused --> y["y"]
-```
-
-Convolution stays in cuDNN. The custom kernel starts where a separate LeakyReLU would read the activation back from global memory. `backward` differentiates the leak, the normalisation, then `Conv2d`. `step` updates the convolution parameters and gamma and beta. Running statistics are included in `get_parameters`, so a checkpoint restores eval behaviour.
 
 ## `MaxPool2d`
 
@@ -65,7 +51,7 @@ Y = X W + b
 X is [N, F_in], W is [F_in, F_out], b is [1, F_out]
 ```
 
-Forward writes `X W` with `matmul_into`, then `add_row_(b)`.
+A narrow product (`batch * F_in * F_out` at most 524288) is one kernel that writes `X W + b`. Wider products use a cached cuBLASLt GEMM with a bias epilogue. If that path is unavailable, forward falls back to `matmul_into` and `add_row_(b)`.
 
 Backward uses logical transposes:
 

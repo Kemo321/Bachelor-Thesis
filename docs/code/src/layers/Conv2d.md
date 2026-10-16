@@ -2,17 +2,9 @@
 
 2D cuDNN convolution with bias, algorithm selection, and an SGD step.
 
-## UniformFill::operator()
-
-Maps an index onto a value in [low, high) by hashing. Weight initialisation does not call a host generator and does not synchronise the device.
-
-## uniform_fill_kernel
-
-Applies UniformFill across the tensor elements. The range and seed travel in the functor, so the kernel does not read extra buffers.
-
 ## fill_uniform
 
-Launches the uniform-initialisation kernel. An empty tensor is skipped so the launch does not use a grid of zero blocks.
+Fills the tensor on the host with `paired_uniform`, then copies once to the device. A device evaluation of the same formula is contracted by nvcc and is not bit-identical to the host values copied into LibTorch. An empty tensor is skipped.
 
 ## fill_zero
 
@@ -34,9 +26,17 @@ Copies weights device-to-device, converting on the current stream when the dtype
 
 Returns the cuDNN workspace budget. A reserve is left so the chosen algorithm does not take all free device memory and fail the next allocation.
 
-## pick_perf
+## supports_bias_activation
 
-Takes the first cuDNN algorithm that succeeded and fits the budget. v7 returns results fastest-first, so the first fit is the selection.
+True for the forward algorithms that can add bias inside `cudnnConvolutionBiasActivationForward`: implicit GEMM, implicit precomputed GEMM, and Winograd.
+
+## pick_fastest
+
+Returns the successful result with the lowest measured time that fits the workspace budget. Both `cudnnFind` and the v7 heuristic fill `time`.
+
+## pick_forward
+
+Starts from `pick_fastest`. When that algorithm cannot fuse the bias add, and a bias-capable algorithm is within `1.25 * fastest + 0.02` ms, that one is used instead.
 
 ## CudnnContext::CudnnContext()
 
@@ -180,7 +180,7 @@ Sets the input and output descriptors when the batch shape changes. The previous
 
 ## Conv2d::select_algorithms
 
-Selects forward, backward-data, and backward-filter algorithms that fit the budget. The workspace is the maximum of the three, because one buffer serves both directions.
+Times up to ten algorithms with `cudnnFind` for forward, backward-data, and backward-filter. A failed find, or an empty list, falls back to the v7 heuristic. Forward uses `pick_forward`; if that still returns nothing, v7 is queried once more. The other two directions use `pick_fastest`. One workspace is sized to the maximum of the three reported sizes.
 
 ## Conv2d::ensure_workspace
 

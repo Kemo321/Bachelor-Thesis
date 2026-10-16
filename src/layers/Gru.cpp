@@ -17,6 +17,55 @@ namespace
 
 constexpr int kFillThreads = 256;
 
+__global__ void batch_to_time_kernel(const float* batch_major, float* time_major, int batch, int time, int features)
+{
+    const int count = batch * time * features;
+    const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+    if (index >= count)
+    {
+        return;
+    }
+    const int feature = index % features;
+    const int step = (index / features) % time;
+    const int sample = index / (features * time);
+    time_major[(((step * batch) + sample) * features) + feature] = batch_major[index];
+}
+
+__global__ void time_to_batch_kernel(const float* time_major, float* batch_major, int batch, int time, int features)
+{
+    const int count = batch * time * features;
+    const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+    if (index >= count)
+    {
+        return;
+    }
+    const int feature = index % features;
+    const int step = (index / features) % time;
+    const int sample = index / (features * time);
+    batch_major[index] = time_major[(((step * batch) + sample) * features) + feature];
+}
+
+auto launch_transpose(const float* source, float* destination, int batch, int time, int features, bool to_time_major)
+    -> void
+{
+    const int count = batch * time * features;
+    if (count <= 0)
+    {
+        return;
+    }
+    const int threads = 256;
+    const int blocks = (count + threads - 1) / threads;
+    if (to_time_major)
+    {
+        batch_to_time_kernel<<<blocks, threads, 0, dl::current_stream()>>>(source, destination, batch, time, features);
+    }
+    else
+    {
+        time_to_batch_kernel<<<blocks, threads, 0, dl::current_stream()>>>(source, destination, batch, time, features);
+    }
+    CHECK_CUDA(cudaGetLastError());
+}
+
 __global__ void scatter_paired_kernel(float* base, const float* values, int rows, int cols, int row_stride, int col_stride)
 {
     const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
@@ -81,7 +130,7 @@ auto copy_same_size(dl::Tensor& destination, const dl::Tensor& source, const cha
     dl::memcpy_d2d_on_current(destination.data(), source.data(), source.nbytes());
 }
 
-} // namespace
+}
 
 struct Gru::Impl
 {
@@ -93,7 +142,10 @@ struct Gru::Impl
     int batch = 0;
     int time = 0;
     bool prepared = false;
+    bool prepared_training = false;
     bool forward_ready = false;
+
+    bool time_major = false;
     float padding_fill = 0.0F;
     std::vector<int> seq_lengths;
 
@@ -157,7 +209,6 @@ struct Gru::Impl
         }
     };
 
-    // States must outlive the dropout descriptor, so they are declared first.
     dl::Tensor dropout_states;
     Descriptor desc;
     dl::Tensor weights;
@@ -169,6 +220,7 @@ struct Gru::Impl
     std::optional<dl::Tensor> hy;
     std::optional<dl::Tensor> hx;
     std::optional<dl::Tensor> dx;
+    std::optional<dl::Tensor> dx_batch;
     std::optional<dl::Tensor> dy;
     std::optional<dl::Tensor> workspace;
     std::optional<dl::Tensor> reserve;
@@ -201,10 +253,27 @@ struct Gru::Impl
         cudnnRNNDescriptor_t rnn = nullptr;
         CHECK_CUDNN(cudnnCreateRNNDescriptor(&rnn));
         desc.rnn = rnn;
-        // Padded I/O is what allows the batch-major [N, T, F] layout.
-        CHECK_CUDNN(cudnnSetRNNDescriptor_v8(rnn, CUDNN_RNN_ALGO_STANDARD, CUDNN_GRU, CUDNN_RNN_DOUBLE_BIAS,
-            CUDNN_UNIDIRECTIONAL, CUDNN_LINEAR_INPUT, CUDNN_DATA_FLOAT, CUDNN_DATA_FLOAT, CUDNN_DEFAULT_MATH,
-            input_size, hidden_size, hidden_size, 1, dropout, CUDNN_RNN_PADDED_IO_ENABLED));
+
+        auto set_rnn = [&](cudnnRNNAlgo_t algo) -> cudnnStatus_t
+        {
+            return cudnnSetRNNDescriptor_v8(rnn, algo, CUDNN_GRU, CUDNN_RNN_DOUBLE_BIAS, CUDNN_UNIDIRECTIONAL,
+                CUDNN_LINEAR_INPUT, CUDNN_DATA_FLOAT, CUDNN_DATA_FLOAT, CUDNN_DEFAULT_MATH, input_size, hidden_size,
+                hidden_size, 1, dropout, CUDNN_RNN_PADDED_IO_ENABLED);
+        };
+        int device = 0;
+        cudaDeviceProp properties {};
+        CHECK_CUDA(cudaGetDevice(&device));
+        CHECK_CUDA(cudaGetDeviceProperties(&properties, device));
+        if (hidden_size <= 128 && properties.major >= 6
+            && set_rnn(CUDNN_RNN_ALGO_PERSIST_STATIC_SMALL_H) == CUDNN_STATUS_SUCCESS)
+        {
+            time_major = true;
+        }
+        else
+        {
+            CHECK_CUDNN(set_rnn(CUDNN_RNN_ALGO_STANDARD));
+            time_major = false;
+        }
 
         cudnnRNNDataDescriptor_t x_desc = nullptr;
         cudnnRNNDataDescriptor_t y_desc = nullptr;
@@ -216,7 +285,20 @@ struct Gru::Impl
         desc.y = y_desc;
         desc.hidden = h_desc;
 
-        CHECK_CUDNN(cudnnGetRNNWeightSpaceSize(handle, rnn, &weight_bytes));
+        allocate_weight_space(handle);
+        if (time_major && !input_gates_match(handle))
+        {
+
+            time_major = false;
+            CHECK_CUDNN(set_rnn(CUDNN_RNN_ALGO_STANDARD));
+            allocate_weight_space(handle);
+        }
+        initialize_weights(handle);
+    }
+
+    auto allocate_weight_space(cudnnHandle_t handle) -> void
+    {
+        CHECK_CUDNN(cudnnGetRNNWeightSpaceSize(handle, desc.rnn, &weight_bytes));
         if (weight_bytes == 0)
         {
             throw std::runtime_error("cuDNN reported an empty GRU weight space");
@@ -225,7 +307,34 @@ struct Gru::Impl
         weight_gradient = dl::Tensor(weights.get_shape(), dl::Device::GPU);
         CHECK_CUDA(cudaMemset(weights.data(), 0, weights.nbytes()));
         CHECK_CUDA(cudaMemset(weight_gradient.data(), 0, weight_gradient.nbytes()));
-        initialize_weights(handle);
+    }
+
+    auto input_gates_match(cudnnHandle_t handle) -> bool
+    {
+        auto matches = [&](int gate, int expect_cols) -> bool
+        {
+            QueryTensor matrix;
+            QueryTensor bias;
+            void* matrix_addr = nullptr;
+            void* bias_addr = nullptr;
+            if (cudnnGetRNNWeightParams(handle, desc.rnn, 0, weight_bytes, weights.data(), gate, matrix.handle,
+                    &matrix_addr, bias.handle, &bias_addr)
+                    != CUDNN_STATUS_SUCCESS
+                || matrix_addr == nullptr)
+            {
+                return false;
+            }
+            cudnnDataType_t data_type = CUDNN_DATA_FLOAT;
+            int rank = 0;
+            int dims[8] = {};
+            int strides[8] = {};
+            if (cudnnGetTensorNdDescriptor(matrix.handle, 8, &data_type, &rank, dims, strides) != CUDNN_STATUS_SUCCESS)
+            {
+                return false;
+            }
+            return rank >= 3 && dims[1] == hidden_size && dims[2] == expect_cols;
+        };
+        return matches(0, input_size) && matches(3, hidden_size);
     }
 
     auto initialize_weights(cudnnHandle_t handle) -> void
@@ -285,11 +394,18 @@ struct Gru::Impl
         {
             throw std::runtime_error("Gru sequence dimensions are out of range");
         }
+
+        if (prepared && batch == next_batch && time == next_time && prepared_training == training)
+        {
+            return;
+        }
         seq_lengths.assign(static_cast<std::size_t>(next_batch), next_time);
-        CHECK_CUDNN(cudnnSetRNNDataDescriptor(desc.x, CUDNN_DATA_FLOAT, CUDNN_RNN_DATA_LAYOUT_BATCH_MAJOR_UNPACKED,
-            next_time, next_batch, input_size, seq_lengths.data(), &padding_fill));
-        CHECK_CUDNN(cudnnSetRNNDataDescriptor(desc.y, CUDNN_DATA_FLOAT, CUDNN_RNN_DATA_LAYOUT_BATCH_MAJOR_UNPACKED,
-            next_time, next_batch, hidden_size, seq_lengths.data(), &padding_fill));
+        const auto layout = time_major ? CUDNN_RNN_DATA_LAYOUT_SEQ_MAJOR_UNPACKED
+                                       : CUDNN_RNN_DATA_LAYOUT_BATCH_MAJOR_UNPACKED;
+        CHECK_CUDNN(cudnnSetRNNDataDescriptor(desc.x, CUDNN_DATA_FLOAT, layout, next_time, next_batch, input_size,
+            seq_lengths.data(), &padding_fill));
+        CHECK_CUDNN(cudnnSetRNNDataDescriptor(desc.y, CUDNN_DATA_FLOAT, layout, next_time, next_batch, hidden_size,
+            seq_lengths.data(), &padding_fill));
 
         const int dims[3] = { 1, next_batch, hidden_size };
         const int strides[3] = { next_batch * hidden_size, hidden_size, 1 };
@@ -299,14 +415,28 @@ struct Gru::Impl
         CHECK_CUDNN(cudnnGetRNNTempSpaceSizes(dl::get_cudnn_handle(), desc.rnn, mode, desc.x, &work_bytes, &reserve_bytes));
         ensure_bytes(workspace, work_bytes);
         ensure_bytes(reserve, reserve_bytes);
-        dl::Tensor::ensure(x, { next_batch, next_time, input_size }, dl::Device::GPU);
-        dl::Tensor::ensure(y, { next_batch, next_time, hidden_size }, dl::Device::GPU);
+        if (time_major)
+        {
+            dl::Tensor::ensure(x, { next_time, next_batch, input_size }, dl::Device::GPU);
+            dl::Tensor::ensure(y, { next_time, next_batch, hidden_size }, dl::Device::GPU);
+            dl::Tensor::ensure(dx, { next_time, next_batch, input_size }, dl::Device::GPU);
+            dl::Tensor::ensure(dx_batch, { next_batch, next_time, input_size }, dl::Device::GPU);
+            dl::Tensor::ensure(dy, { next_time, next_batch, hidden_size }, dl::Device::GPU);
+        }
+        else
+        {
+            dl::Tensor::ensure(x, { next_batch, next_time, input_size }, dl::Device::GPU);
+            dl::Tensor::ensure(y, { next_batch, next_time, hidden_size }, dl::Device::GPU);
+            dl::Tensor::ensure(dx, { next_batch, next_time, input_size }, dl::Device::GPU);
+            dl::Tensor::ensure(dy, { next_batch, next_time, hidden_size }, dl::Device::GPU);
+        }
         dl::Tensor::ensure(hy, { 1, next_batch, hidden_size }, dl::Device::GPU);
         dl::Tensor::ensure(hx, { 1, next_batch, hidden_size }, dl::Device::GPU);
-        dl::Tensor::ensure(dx, { next_batch, next_time, input_size }, dl::Device::GPU);
-        dl::Tensor::ensure(dy, { next_batch, next_time, hidden_size }, dl::Device::GPU);
+
+        CHECK_CUDA(cudaMemsetAsync(hx->data(), 0, hx->nbytes(), dl::current_stream()));
         batch = next_batch;
         time = next_time;
+        prepared_training = training;
         prepared = true;
     }
 
@@ -362,8 +492,14 @@ auto Gru::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Te
     }
 
     impl_->prepare(batch, time, is_training_);
-    CHECK_CUDA(cudaMemsetAsync(impl_->hx->data(), 0, impl_->hx->nbytes(), dl::current_stream()));
-    dl::memcpy_d2d_on_current(impl_->x->data(), input_tensor.data(), input_tensor.nbytes());
+    if (impl_->time_major)
+    {
+        launch_transpose(input_tensor.data(), impl_->x->data(), batch, time, impl_->input_size, true);
+    }
+    else
+    {
+        dl::memcpy_d2d_on_current(impl_->x->data(), input_tensor.data(), input_tensor.nbytes());
+    }
     const cudnnForwardMode_t mode = is_training_ ? CUDNN_FWD_MODE_TRAINING : CUDNN_FWD_MODE_INFERENCE;
     CHECK_CUDNN(cudnnRNNForward(dl::get_cudnn_handle(), impl_->desc.rnn, mode, nullptr, impl_->desc.x, impl_->x->data(),
         impl_->desc.y, impl_->y->data(), impl_->desc.hidden, impl_->hx->data(), impl_->hy->data(), nullptr, nullptr,
@@ -390,8 +526,6 @@ auto Gru::backward(const dl::Tensor& output_error_derivative, cudaStream_t strea
         throw std::runtime_error("Gru::backward expects the final-state gradient [N, H]");
     }
 
-    // The loss reads hy only, so the full-sequence output gradient stays zero.
-    // Weight gradients use ADD, so the buffer has to be cleared first.
     CHECK_CUDA(cudaMemsetAsync(impl_->dy->data(), 0, impl_->dy->nbytes(), dl::current_stream()));
     CHECK_CUDA(cudaMemsetAsync(impl_->weight_gradient.data(), 0, impl_->weight_bytes, dl::current_stream()));
     CHECK_CUDNN(cudnnRNNBackwardData_v8(dl::get_cudnn_handle(), impl_->desc.rnn, nullptr, impl_->desc.y, impl_->y->data(),
@@ -405,7 +539,12 @@ auto Gru::backward(const dl::Tensor& output_error_derivative, cudaStream_t strea
         impl_->buffer_ptr(impl_->workspace, impl_->work_bytes), impl_->reserve_bytes,
         impl_->buffer_ptr(impl_->reserve, impl_->reserve_bytes)));
     impl_->forward_ready = false;
-    return impl_->dx->as_view();
+    if (!impl_->time_major)
+    {
+        return impl_->dx->as_view();
+    }
+    launch_transpose(impl_->dx->data(), impl_->dx_batch->data(), impl_->batch, impl_->time, impl_->input_size, false);
+    return impl_->dx_batch->as_view();
 }
 
 void Gru::step(cudaStream_t stream)

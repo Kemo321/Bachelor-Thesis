@@ -4,22 +4,17 @@
 #include "DeepLearnLib/core/Tensor.hpp"
 
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 
-/**
- * Fully connected layer using cuBLAS GEMM via dl::Tensor::matmul.
- *
- * Weights have shape [input_size, output_size]. Biases have shape [1, output_size].
- * Backward uses logical GEMM transposes (CUBLAS_OP_T) instead of allocating
- * `input^T` / `W^T`, and SGD/weight-decay updates mutate buffers in place.
- */
+struct FullyConnectedGemmBias;
+
 class FullyConnected : public Layer
 {
 public:
-    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-    /** `inertia_val` is GEMM beta when writing dW/db (0 = replace, PyTorch zero_grad). Not SGD momentum. */
     FullyConnected(int input_size, int output_size, float inertia_val = 0.0F);
+    ~FullyConnected() override;
 
     [[nodiscard]] auto forward(const dl::Tensor& input_tensor, cudaStream_t stream = 0) -> dl::Tensor override;
     [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative, cudaStream_t stream = 0)
@@ -56,4 +51,5 @@ private:
     int input_size_;
     int output_size_;
     float inertia_;
+    std::unique_ptr<FullyConnectedGemmBias> gemm_bias_;
 };

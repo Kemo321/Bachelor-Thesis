@@ -2,6 +2,8 @@
 #include "DeepLearnLib/utils/ExperimentSeed.hpp"
 #include "DeepLearnLib/utils/Nvtx.hpp"
 
+#include <cublasLt.h>
+
 #include <cmath>
 #include <cstddef>
 #include <optional>
@@ -14,7 +16,6 @@ namespace
 
 constexpr int kFillThreads = 256;
 
-// Writes a constant other than zero. cudaMemset can zero a buffer, not set another value.
 __global__ void fill_constant_kernel(float* out, int count, float value)
 {
     const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
@@ -24,8 +25,6 @@ __global__ void fill_constant_kernel(float* out, int count, float value)
     }
 }
 
-// Host hash, then one copy. A device evaluation of the same formula is contracted
-// by nvcc and is not bit-identical to the host values copied into LibTorch.
 auto fill_uniform(dl::Tensor& tensor, float low, float high, unsigned long long seed) -> void
 {
     if (tensor.get_size() == 0)
@@ -43,8 +42,6 @@ auto fill_uniform(dl::Tensor& tensor, float low, float high, unsigned long long 
     CHECK_CUDA(cudaStreamSynchronize(dl::current_stream()));
 }
 
-// Zeros the buffer with cudaMemsetAsync, and writes any other constant with the kernel.
-// Gradients start at zero and do not need the kernel.
 auto fill_constant(dl::Tensor& tensor, float value) -> void
 {
     if (tensor.get_size() == 0)
@@ -63,9 +60,6 @@ auto fill_constant(dl::Tensor& tensor, float value) -> void
     CHECK_CUDA(cudaGetLastError());
 }
 
-// Creates or resizes the velocity buffer and zeros it when the shape changes.
-// SGD momentum needs a velocity with the weight's shape; a fresh allocation left
-// unzeroed would be garbage.
 auto ensure_zero_like(std::optional<dl::Tensor>& slot, const dl::Tensor& like) -> dl::Tensor&
 {
     if (!slot.has_value() || slot->get_shape() != like.get_shape() || slot->get_dtype() != like.get_dtype())
@@ -76,8 +70,6 @@ auto ensure_zero_like(std::optional<dl::Tensor>& slot, const dl::Tensor& like) -
     return *slot;
 }
 
-// Rejects a host tensor or a null device pointer. The matrix product stays on the
-// GPU and there is no host-to-device copy here.
 auto require_gpu(const dl::Tensor& tensor, const char* name) -> void
 {
     if (tensor.get_device() != dl::Device::GPU)
@@ -90,8 +82,6 @@ auto require_gpu(const dl::Tensor& tensor, const char* name) -> void
     }
 }
 
-// Copies weights device-to-device, converting on the current stream when the dtype
-// differs. A loader may supply a type other than the layer buffer's.
 auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) -> void
 {
     if (src.get_device() != dl::Device::GPU || dst.get_device() != dl::Device::GPU)
@@ -115,8 +105,28 @@ auto copy_same_size(dl::Tensor& dst, const dl::Tensor& src, const char* name) ->
     dl::memcpy_d2d_on_current(dst.data(), converted.data(), dst.nbytes());
 }
 
-// Requires a [batch, features] matrix with the given column count. The feature
-// dimension is the contract of the product with the weight [input, output].
+constexpr int kSmallGemmMacs = 524288;
+
+__global__ void gemm_bias_small_kernel(const float* input, const float* weight, const float* bias, float* output,
+    int batch, int inputs, int outputs)
+{
+    const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
+    const int total = batch * outputs;
+    if (index >= total)
+    {
+        return;
+    }
+    const int sample = index / outputs;
+    const int column = index - (sample * outputs);
+    const float* row = input + (static_cast<long long>(sample) * inputs);
+    float sum = bias[column];
+    for (int inner = 0; inner < inputs; ++inner)
+    {
+        sum += row[inner] * weight[(static_cast<long long>(inner) * outputs) + column];
+    }
+    output[index] = sum;
+}
+
 auto require_rank2(const dl::Tensor& tensor, int expected_cols, const char* name) -> void
 {
     require_gpu(tensor, name);
@@ -132,8 +142,6 @@ auto require_rank2(const dl::Tensor& tensor, int expected_cols, const char* name
     }
 }
 
-// Checks that the dimensions are positive and returns the weight shape [input, output].
-// The error must fire before the constructor allocates the tensor.
 auto fullyconnected_weight_shape(int input_size, int output_size) -> std::vector<int>
 {
     if (input_size <= 0 || output_size <= 0)
@@ -143,10 +151,155 @@ auto fullyconnected_weight_shape(int input_size, int output_size) -> std::vector
     return { input_size, output_size };
 }
 
-} // namespace
+}
 
-// Draws weights and bias from 1/sqrt(fan_in) and zeros the gradients. inertia_ is
-// stored because backward uses it as the beta that accumulates dW, not as SGD momentum.
+namespace
+{
+
+constexpr std::size_t kGemmBiasWorkspaceBytes = 4ULL * 1024ULL * 1024ULL;
+
+auto destroy_layout(cublasLtMatrixLayout_t& layout) -> void
+{
+    if (layout != nullptr)
+    {
+        cublasLtMatrixLayoutDestroy(layout);
+        layout = nullptr;
+    }
+}
+
+}
+
+struct FullyConnectedGemmBias
+{
+    cublasLtHandle_t handle { nullptr };
+    cublasLtMatmulDesc_t operation { nullptr };
+    cublasLtMatrixLayout_t weights_layout { nullptr };
+    cublasLtMatrixLayout_t input_layout { nullptr };
+    cublasLtMatrixLayout_t output_layout { nullptr };
+    cublasLtMatmulPreference_t preference { nullptr };
+    cublasLtMatmulAlgo_t algorithm {};
+    void* workspace { nullptr };
+    int batch { -1 };
+    int inputs { -1 };
+    int outputs { -1 };
+    bool ready { false };
+    bool rejected { false };
+
+    FullyConnectedGemmBias()
+    {
+        if (cublasLtCreate(&handle) != CUBLAS_STATUS_SUCCESS)
+        {
+            handle = nullptr;
+            return;
+        }
+        if (cudaMalloc(&workspace, kGemmBiasWorkspaceBytes) != cudaSuccess)
+        {
+            workspace = nullptr;
+            return;
+        }
+        cublasLtMatmulDescCreate(&operation, CUBLAS_COMPUTE_32F_FAST_TF32, CUDA_R_32F);
+        const cublasOperation_t identity = CUBLAS_OP_N;
+        cublasLtMatmulDescSetAttribute(operation, CUBLASLT_MATMUL_DESC_TRANSA, &identity, sizeof(identity));
+        cublasLtMatmulDescSetAttribute(operation, CUBLASLT_MATMUL_DESC_TRANSB, &identity, sizeof(identity));
+        const cublasLtEpilogue_t epilogue = CUBLASLT_EPILOGUE_BIAS;
+        cublasLtMatmulDescSetAttribute(operation, CUBLASLT_MATMUL_DESC_EPILOGUE, &epilogue, sizeof(epilogue));
+        cublasLtMatmulPreferenceCreate(&preference);
+        const std::size_t bytes = kGemmBiasWorkspaceBytes;
+        cublasLtMatmulPreferenceSetAttribute(preference, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &bytes, sizeof(bytes));
+    }
+
+    ~FullyConnectedGemmBias()
+    {
+        destroy_layout(weights_layout);
+        destroy_layout(input_layout);
+        destroy_layout(output_layout);
+        if (preference != nullptr)
+        {
+            cublasLtMatmulPreferenceDestroy(preference);
+        }
+        if (operation != nullptr)
+        {
+            cublasLtMatmulDescDestroy(operation);
+        }
+        if (workspace != nullptr)
+        {
+            cudaFree(workspace);
+        }
+        if (handle != nullptr)
+        {
+            cublasLtDestroy(handle);
+        }
+    }
+
+    FullyConnectedGemmBias(const FullyConnectedGemmBias&) = delete;
+    auto operator=(const FullyConnectedGemmBias&) -> FullyConnectedGemmBias& = delete;
+
+    auto prepare(int next_batch, int next_inputs, int next_outputs, const void* bias) -> bool
+    {
+        if (handle == nullptr || operation == nullptr || workspace == nullptr || next_batch < 1)
+        {
+            return false;
+        }
+        cublasLtMatmulDescSetAttribute(operation, CUBLASLT_MATMUL_DESC_BIAS_POINTER, &bias, sizeof(bias));
+        if (ready && batch == next_batch && inputs == next_inputs && outputs == next_outputs)
+        {
+            return true;
+        }
+        if (rejected && batch == next_batch && inputs == next_inputs && outputs == next_outputs)
+        {
+            return false;
+        }
+
+        destroy_layout(weights_layout);
+        destroy_layout(input_layout);
+        destroy_layout(output_layout);
+        ready = false;
+        batch = next_batch;
+        inputs = next_inputs;
+        outputs = next_outputs;
+
+        if (cublasLtMatrixLayoutCreate(&weights_layout, CUDA_R_32F, next_outputs, next_inputs, next_outputs)
+                != CUBLAS_STATUS_SUCCESS
+            || cublasLtMatrixLayoutCreate(&input_layout, CUDA_R_32F, next_inputs, next_batch, next_inputs)
+                != CUBLAS_STATUS_SUCCESS
+            || cublasLtMatrixLayoutCreate(&output_layout, CUDA_R_32F, next_outputs, next_batch, next_outputs)
+                != CUBLAS_STATUS_SUCCESS)
+        {
+            rejected = true;
+            return false;
+        }
+
+        cublasLtMatmulHeuristicResult_t heuristic {};
+        int returned = 0;
+        const cublasStatus_t status = cublasLtMatmulAlgoGetHeuristic(handle, operation, weights_layout, input_layout,
+            output_layout, output_layout, preference, 1, &heuristic, &returned);
+        if (status != CUBLAS_STATUS_SUCCESS || returned < 1 || heuristic.state != CUBLAS_STATUS_SUCCESS)
+        {
+            rejected = true;
+            return false;
+        }
+        algorithm = heuristic.algo;
+        rejected = false;
+        ready = true;
+        return true;
+    }
+
+    auto reject() -> void
+    {
+        ready = false;
+        rejected = true;
+    }
+
+    auto run(const void* weights, const void* input, void* output, cudaStream_t stream) const -> bool
+    {
+        const float alpha = 1.0F;
+        const float beta = 0.0F;
+        return cublasLtMatmul(handle, operation, &alpha, weights, weights_layout, input, input_layout, &beta, output,
+                   output_layout, output, output_layout, &algorithm, workspace, kGemmBiasWorkspaceBytes, stream)
+            == CUBLAS_STATUS_SUCCESS;
+    }
+};
+
 FullyConnected::FullyConnected(int input_size, int output_size, float inertia_val)
     : weights_(fullyconnected_weight_shape(input_size, output_size), dl::Device::GPU)
     , biases_({ 1, output_size }, dl::Device::GPU)
@@ -164,15 +317,14 @@ FullyConnected::FullyConnected(int input_size, int output_size, float inertia_va
     fill_constant(biases_gradient_, 0.0F);
 }
 
-// Computes Y = X W + b and caches the input after a dtype conversion when needed.
-// The output view comes from ensure, so the next forward overwrites the same buffer.
+FullyConnected::~FullyConnected() = default;
+
 auto FullyConnected::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("FullyConnected_Forward");
     const dl::StreamGuard stream_guard(stream);
     require_rank2(input_tensor, input_size_, "FullyConnected::forward input");
 
-    // matmul_into needs one dtype. A different input type is converted to the weight dtype.
     if (input_tensor.get_dtype() != weights_.get_dtype())
     {
         input_cache_ = input_tensor.to_dtype(weights_.get_dtype(), stream);
@@ -185,13 +337,38 @@ auto FullyConnected::forward(const dl::Tensor& input_tensor, cudaStream_t stream
 
     dl::Tensor& output = dl::Tensor::ensure(output_cache_, { input_cache_->get_shape()[0], output_size_ },
         dl::Device::GPU, weights_.get_dtype());
+    const int batch = input_cache_->get_shape()[0];
+    if (weights_.get_dtype() == dl::Dtype::Float32 && batch > 0
+        && static_cast<long long>(batch) * input_size_ * output_size_ <= kSmallGemmMacs)
+    {
+        const int total = batch * output_size_;
+        const int threads = 256;
+        const int blocks = (total + threads - 1) / threads;
+        gemm_bias_small_kernel<<<blocks, threads, 0, stream>>>(input_cache_->data(), weights_.data(), biases_.data(),
+            output.data(), batch, input_size_, output_size_);
+        CHECK_CUDA(cudaGetLastError());
+        return output.as_view();
+    }
+    if (weights_.get_dtype() == dl::Dtype::Float32)
+    {
+        if (gemm_bias_ == nullptr)
+        {
+            gemm_bias_ = std::make_unique<FullyConnectedGemmBias>();
+        }
+        if (gemm_bias_->prepare(batch, input_size_, output_size_, biases_.data()))
+        {
+            if (gemm_bias_->run(weights_.data(), input_cache_->data(), output.data(), stream))
+            {
+                return output.as_view();
+            }
+            gemm_bias_->reject();
+        }
+    }
     input_cache_->matmul_into(weights_, output);
     output.add_row_(biases_);
     return output.as_view();
 }
 
-// Accumulates dW and db and computes dX = dY W^T. inertia_ accumulates the parameter
-// gradients; dX is overwritten because the input-gradient cache is not summed across calls.
 auto FullyConnected::backward(const dl::Tensor& output_error_derivative, cudaStream_t stream) -> dl::Tensor
 {
     const dl::NvtxRange nvtx_range("FullyConnected_Backward");
@@ -214,20 +391,17 @@ auto FullyConnected::backward(const dl::Tensor& output_error_derivative, cudaStr
         grad_output = &converted_grad;
     }
 
-    // inertia_ is the beta of matmul_into, so dW accumulates into the gradient buffer. It is not SGD momentum.
     input_cache_->matmul_into(*grad_output, weights_gradient_, true, false, inertia_);
     biases_gradient_.add_sum_rows_(*grad_output, inertia_);
 
     dl::Tensor& grad_input = dl::Tensor::ensure(grad_input_cache_, input_cache_->get_shape(), dl::Device::GPU,
         weights_.get_dtype());
-    // beta 0 overwrites dX. The input-gradient cache is not summed across calls.
+
     grad_output->matmul_into(weights_, grad_input, false, true, 0.0F);
     input_cache_ready_ = false;
     return grad_input.as_view();
 }
 
-// Updates the weights with SGD, and when momentum > 0 keeps velocity in an optional
-// buffer. A frozen layer returns immediately and does not touch the weights.
 void FullyConnected::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("FullyConnected_Step");
@@ -263,7 +437,6 @@ void FullyConnected::step(cudaStream_t stream)
     biases_.sgd_update_(biases_gradient_, lr, weight_decay, clip);
 }
 
-// Clips the weight and bias gradients to a symmetric range. A bound <= 0 turns clipping off.
 void FullyConnected::clip_gradients(float abs_bound, cudaStream_t stream)
 {
     const dl::StreamGuard stream_guard(stream);
@@ -275,8 +448,6 @@ void FullyConnected::clip_gradients(float abs_bound, cudaStream_t stream)
     biases_gradient_.clamp_(-abs_bound, abs_bound);
 }
 
-// Returns views of the weights and bias for saving the network. Gradients and
-// momentum velocity are not written to the file.
 auto FullyConnected::get_parameters() -> std::map<std::string, dl::Tensor>
 {
     std::map<std::string, dl::Tensor> params;
@@ -285,14 +456,12 @@ auto FullyConnected::get_parameters() -> std::map<std::string, dl::Tensor>
     return params;
 }
 
-// Loads the weights and bias with a device-to-device copy. The buffer shapes stay as they were at construction.
 void FullyConnected::set_parameters(const std::map<std::string, dl::Tensor>& params)
 {
     copy_same_size(weights_, params.at("weights"), "FullyConnected::set_parameters weights");
     copy_same_size(biases_, params.at("bias"), "FullyConnected::set_parameters bias");
 }
 
-// Leaves the parameters on the GPU. The matrix product has no host path.
 auto FullyConnected::to(dl::Device device) -> void
 {
     if (device != dl::Device::GPU)
