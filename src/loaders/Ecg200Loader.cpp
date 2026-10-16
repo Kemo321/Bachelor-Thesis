@@ -56,7 +56,6 @@ auto parse_floats(const std::string& text) -> std::vector<float>
     return values;
 }
 
-// UCR text rows are "label v1 v2 ...". Aeon .ts rows are "v1,v2,...:label".
 auto parse_row(const std::string& raw) -> std::optional<ParsedRow>
 {
     const std::string line = trim(raw);
@@ -113,7 +112,7 @@ auto label_name(double value) -> std::string
     return std::to_string(value);
 }
 
-} // namespace
+}
 
 auto load_ecg200_file(const std::filesystem::path& path) -> Ecg200Data
 {

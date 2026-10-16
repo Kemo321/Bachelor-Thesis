@@ -32,7 +32,7 @@ auto ecg_rows(const Ecg200Data& data, const std::vector<float>& labels) -> HostR
     return rows;
 }
 
-} // namespace
+}
 
 int main(int argc, char** argv)
 {

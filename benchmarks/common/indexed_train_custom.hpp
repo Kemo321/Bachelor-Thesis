@@ -59,11 +59,6 @@ auto measure_custom_rows(const HostRows& table, const std::vector<int>& order, i
     return stats;
 }
 
-/**
- * Row epoch used by the tabular MLP and the GRU classifier.
- * `train_order` is shuffled with seed 42 once per epoch. `test_order` stays fixed.
- * The Torch twin is train_torch_rows.
- */
 template <typename Forward>
 auto train_custom_rows(const nlohmann::json& config, const HostRows& train_rows, const HostRows& test_rows,
     std::vector<int> train_order, std::vector<int> test_order, Forward forward,

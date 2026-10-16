@@ -29,13 +29,8 @@ private:
     cudnnPoolingDescriptor_t desc_ { nullptr };
 };
 
-} // namespace dl
+}
 
-/**
- * 2D max pooling via cuDNN.
- *
- * Forward caches x and y because cudnnPoolingBackward requires both in addition to dy.
- */
 class MaxPool2d : public Layer
 {
 public:

@@ -6,12 +6,6 @@
 #include <memory>
 #include <vector>
 
-/**
- * Two-layer MLP for a table of numeric features.
- *
- * FullyConnected -> LeakyReLU(0.1) -> FullyConnected. The Torch twin is
- * TorchTabularMLP. Cross-entropy is applied to logits from `forward_logits`.
- */
 class TabularMLP
 {
 public:

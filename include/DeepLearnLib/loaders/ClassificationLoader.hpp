@@ -9,16 +9,6 @@
 #include <utility>
 #include <vector>
 
-/**
- * Folder-based image classification loader (root/<split>/<class_name>/*.jpg).
- *
- * Yields Batch tensors: images NCHW float in [0, 1], targets one-hot [N, C]
- * for CrossEntropyLoss. Pass class_names from the train loader so a test split
- * with missing folders still one-hots to the same C.
- *
- * CPU JPEG decode runs on a bounded thread pool and the next host batch is
- * prefetched while the caller trains on the current GPU batch.
- */
 class ClassificationLoader
 {
 public:

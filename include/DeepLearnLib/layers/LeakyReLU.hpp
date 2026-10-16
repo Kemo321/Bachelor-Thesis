@@ -5,9 +5,6 @@
 
 #include <optional>
 
-/**
- * LeakyReLU activation implemented with Thrust on the GPU.
- */
 class LeakyReLU : public Layer
 {
 public:

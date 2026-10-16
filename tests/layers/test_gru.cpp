@@ -25,7 +25,7 @@ auto write_text(const std::filesystem::path& path, const std::string& text) -> v
     stream << text;
 }
 
-} // namespace
+}
 
 TEST(Ecg200Loader, ReadsTextAndTsLabels)
 {
@@ -89,7 +89,7 @@ class GruGpuTest : public GpuTest
 
 TEST_F(GruGpuTest, FinalStateShapeAndWeightGradient)
 {
-    // Given: A tiny cuDNN GRU and a short batch
+
     Gru gru(1, 4);
     gru.weight_decay = 0.0F;
     gru.learning_rate = 1.0F;
@@ -98,7 +98,6 @@ TEST_F(GruGpuTest, FinalStateShapeAndWeightGradient)
     Tensor input = Tensor::from_host({ 2, 3, 1 }, host_input, Device::GPU);
     const auto before = gru.get_parameters().at("weight_space").to_host();
 
-    // When: The loss is the sum of the final hidden state and one SGD step is taken
     Tensor hidden = gru.forward(input);
     synchronize_device();
     ASSERT_EQ(hidden.get_shape(), (std::vector<int> { 2, 4 }));
@@ -112,7 +111,6 @@ TEST_F(GruGpuTest, FinalStateShapeAndWeightGradient)
     synchronize_device();
     const auto after = gru.get_parameters().at("weight_space").to_host();
 
-    // Then: At least one cuDNN weight moved, and that partial matches a centered difference
     ASSERT_EQ(before.size(), after.size());
     int pivot = 0;
     float pivot_grad = 0.0F;

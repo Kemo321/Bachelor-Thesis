@@ -11,10 +11,8 @@
 namespace dl
 {
 
-/** Strict floor for denominators, square roots, and log arguments. */
 constexpr float kSafeEps = 1e-7F;
 
-/** Default element-wise absolute bound; `0` disables clipping (matches Torch). */
 constexpr float kDefaultGradientClip = 0.0F;
 
 DL_HOST_DEVICE inline auto safe_sqrt(float value) -> float
@@ -27,7 +25,6 @@ DL_HOST_DEVICE inline auto safe_div(float numerator, float denominator) -> float
     return numerator / (denominator + kSafeEps);
 }
 
-/** Divide by a non-negative denominator without shifting exact non-zero values. */
 DL_HOST_DEVICE inline auto guarded_div(float numerator, float denominator) -> float
 {
     return numerator / fmaxf(denominator, kSafeEps);
@@ -48,4 +45,4 @@ DL_HOST_DEVICE inline auto safe_log(float probability) -> float
     return logf(clamp_unit(probability));
 }
 
-} // namespace dl
+}

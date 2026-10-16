@@ -16,7 +16,6 @@ struct IndexSplit
     std::vector<int> test;
 };
 
-/** Deterministic hold-out. The same seed yields the same partition on both stacks. */
 inline auto split_train_test(int count, float test_fraction, unsigned seed) -> IndexSplit
 {
     if (count < 2)

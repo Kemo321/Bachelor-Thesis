@@ -34,13 +34,6 @@
 namespace dl
 {
 
-/**
- * RAII NVTX range for Nsight Systems timelines.
- *
- * Pushes `nvtxRangePushA` on construction and `nvtxRangePop` on destruction so
- * CUDA error throws cannot leave the marker stack unbalanced. Compiles to a
- * no-op when NVTX headers are unavailable.
- */
 class NvtxRange
 {
 public:
@@ -66,4 +59,4 @@ public:
     auto operator=(NvtxRange&&) -> NvtxRange& = delete;
 };
 
-} // namespace dl
+}

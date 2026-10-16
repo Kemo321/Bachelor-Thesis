@@ -21,12 +21,6 @@ inline auto parallel_worker_count(int work_items) -> int
     return std::min(work_items, cap);
 }
 
-/**
- * Run `fn(index)` for index in [0, count) on a bounded thread pool.
- *
- * Strides work across workers so JPEG decode of a mini-batch does not spawn
- * one OS thread per sample (which thrashes at CIFAR batch 64).
- */
 template <typename Fn>
 auto parallel_for(int count, Fn&& fn) -> void
 {
@@ -76,4 +70,4 @@ auto parallel_for(int count, Fn&& fn) -> void
     }
 }
 
-} // namespace dl
+}

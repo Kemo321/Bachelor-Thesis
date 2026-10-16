@@ -16,15 +16,8 @@ namespace dl
 auto log_error_message(const std::string& message) -> void;
 auto log_info_message(const std::string& message) -> void;
 
-// Extra info-level file, replaced when the call starts. Benchmarks pass a path inside their results directory.
 auto log_to_file(const std::filesystem::path& path) -> void;
 
-/**
- * Process-wide asynchronous logger: color stdout at INFO, rotating file at TRACE.
- *
- * Logging is queued onto an spdlog thread pool so host/GPU training loops are not
- * blocked by console or disk I/O. Overflow waits instead of dropping messages.
- */
 class Logger
 {
 public:
@@ -43,7 +36,7 @@ private:
     std::shared_ptr<spdlog::logger> logger_;
 };
 
-} // namespace dl
+}
 
 #define LOG_TRACE(...) SPDLOG_LOGGER_TRACE(::dl::Logger::get(), __VA_ARGS__)
 #define LOG_DEBUG(...) SPDLOG_LOGGER_DEBUG(::dl::Logger::get(), __VA_ARGS__)

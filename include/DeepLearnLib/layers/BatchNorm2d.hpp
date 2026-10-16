@@ -10,12 +10,6 @@
 #include <string>
 #include <vector>
 
-/**
- * Spatial BatchNorm2d via cuDNN.
- *
- * Gamma, beta, running stats, and their gradients are GPU tensors [1, C, 1, 1],
- * matching cudnnDeriveBNTensorDescriptor for CUDNN_BATCHNORM_SPATIAL on NCHW inputs.
- */
 class BatchNorm2d : public Layer
 {
 public:

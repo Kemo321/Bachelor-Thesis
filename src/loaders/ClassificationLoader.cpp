@@ -19,7 +19,6 @@ namespace
 constexpr int kChannels = 3;
 constexpr float kNorm = 255.0F;
 
-// Recognizes jpg, jpeg, png, and bmp regardless of the extension's letter case.
 auto is_image_file(const fs::path& path) -> bool
 {
     std::string extension = path.extension().string();
@@ -29,7 +28,6 @@ auto is_image_file(const fs::path& path) -> bool
     return extension == ".jpg" || extension == ".jpeg" || extension == ".png" || extension == ".bmp";
 }
 
-// Splits interleaved OpenCV RGB into three CHW planes, because the network reads NCHW.
 auto hwc_to_chw(const cv::Mat& image, float* destination) -> void
 {
     const int height = image.rows;
@@ -37,7 +35,7 @@ auto hwc_to_chw(const cv::Mat& image, float* destination) -> void
     const std::size_t plane = static_cast<std::size_t>(height) * static_cast<std::size_t>(width);
     for (int row = 0; row < height; ++row)
     {
-        // A CV_32FC3 row: three floats per pixel, channels interleaved.
+
         const auto* pixel = image.ptr<float>(row);
         for (int col = 0; col < width; ++col)
         {
@@ -51,17 +49,15 @@ auto hwc_to_chw(const cv::Mat& image, float* destination) -> void
     }
 }
 
-} // namespace
+}
 
-// Collects images from class directories and fixes the order that later sets the one-hot position.
-// A supplied class_names list keeps the same class index when a split is missing a folder.
 ClassificationLoader::ClassificationLoader(std::string dataset_root, std::string split, int batch_size, int image_size,
     bool shuffle, std::vector<std::string> class_names)
     : batch_size_(batch_size)
     , image_size_(image_size)
     , shuffle_(shuffle)
     , class_names_(std::move(class_names))
-    // Seed 42 matches the Torch process, so both draw one epoch order.
+
     , rng_(dl::kExperimentSeed)
 {
     if (batch_size_ <= 0)
@@ -75,7 +71,7 @@ ClassificationLoader::ClassificationLoader(std::string dataset_root, std::string
 
     fs::path root(dataset_root);
     fs::path split_path = root / split;
-    // When root/split is not a directory, the images live directly in root.
+
     if (!fs::is_directory(split_path))
     {
         split_path = root;
@@ -120,8 +116,7 @@ ClassificationLoader::ClassificationLoader(std::string dataset_root, std::string
         std::sort(files.begin(), files.end());
         for (const fs::path& path : files)
         {
-            // The class-directory index is the one-hot class. Paths are sorted so the
-            // index does not follow directory iteration order.
+
             samples_.emplace_back(path.string(), class_id);
         }
     }
@@ -132,13 +127,11 @@ ClassificationLoader::ClassificationLoader(std::string dataset_root, std::string
     reset();
 }
 
-// Finishes prefetch before the samples used by the decode thread disappear.
 ClassificationLoader::~ClassificationLoader()
 {
     join_prefetch();
 }
 
-// Restarts the epoch and, when shuffle is set, shuffles the indices, then decodes the first batch in the background.
 auto ClassificationLoader::reset() -> void
 {
     join_prefetch();
@@ -152,45 +145,36 @@ auto ClassificationLoader::reset() -> void
     launch_prefetch();
 }
 
-// A batch remains in prefetch, or unread indices remain.
-// The cursor moves when prefetch starts, so it alone does not describe the last batch.
 auto ClassificationLoader::has_next() const -> bool
 {
     return prefetch_.valid() || cursor_ < order_.size();
 }
 
-// Returns the number of images collected in this split.
 auto ClassificationLoader::size() const -> std::size_t
 {
     return samples_.size();
 }
 
-// Returns the requested batch size. The last batch of an epoch can be shorter.
 auto ClassificationLoader::batch_size() const -> int
 {
     return batch_size_;
 }
 
-// Returns the class count, which is the width of the one-hot vector.
 auto ClassificationLoader::num_classes() const -> int
 {
     return static_cast<int>(class_names_.size());
 }
 
-// Returns the side of the square that images are scaled to before upload to the GPU.
 auto ClassificationLoader::image_size() const -> int
 {
     return image_size_;
 }
 
-// Returns class names in the order that sets the one-hot index.
 auto ClassificationLoader::class_names() const -> const std::vector<std::string>&
 {
     return class_names_;
 }
 
-// Loads an image, converts BGR to RGB and, when a side differs, scales to image_size, then divides by 255.
-// Returns the class id from the directory, including when the file read fails and the image stays zeros.
 auto ClassificationLoader::load_sample(std::size_t sample_index, std::vector<float>& image_chw) const -> int
 {
     const std::size_t image_elems = static_cast<std::size_t>(kChannels * image_size_ * image_size_);
@@ -206,7 +190,7 @@ auto ClassificationLoader::load_sample(std::size_t sample_index, std::vector<flo
     {
         cv::resize(image, image, cv::Size(image_size_, image_size_), 0.0, 0.0, cv::INTER_LINEAR);
     }
-    // Pixels are divided by 255.
+
     image.convertTo(image, CV_32FC3, 1.0F / kNorm);
     if (!image.isContinuous())
     {
@@ -216,7 +200,6 @@ auto ClassificationLoader::load_sample(std::size_t sample_index, std::vector<flo
     return samples_[sample_index].second;
 }
 
-// Takes the next index range from order_ and advances the cursor by that batch.
 auto ClassificationLoader::take_indices() -> std::vector<std::size_t>
 {
     std::vector<std::size_t> indices;
@@ -234,7 +217,6 @@ auto ClassificationLoader::take_indices() -> std::vector<std::size_t>
     return indices;
 }
 
-// Decodes images in parallel and places a single 1 in the class vector (one-hot [N, C]).
 auto ClassificationLoader::decode_indices(const std::vector<std::size_t>& indices) const -> HostBatch
 {
     HostBatch host;
@@ -261,13 +243,12 @@ auto ClassificationLoader::decode_indices(const std::vector<std::size_t>& indice
                 std::copy(sample_image.begin(), sample_image.end(), host.images.begin() + image_offset);
             }
             const int clamped = std::clamp(class_id, 0, classes - 1);
-            // A class id outside 0…C-1 does not write past the one-hot row.
+
             host.targets[(static_cast<std::size_t>(batch_idx) * target_elems) + static_cast<std::size_t>(clamped)] = 1.0F;
         });
     return host;
 }
 
-// Uploads NCHW images and the one-hot to the GPU through from_host, on the caller's stream.
 auto ClassificationLoader::upload_host_batch(HostBatch host, cudaStream_t stream) const -> Batch
 {
     return Batch { dl::Tensor::from_host({ host.n, kChannels, image_size_, image_size_ }, host.images, dl::Device::GPU,
@@ -275,7 +256,6 @@ auto ClassificationLoader::upload_host_batch(HostBatch host, cudaStream_t stream
         dl::Tensor::from_host({ host.n, num_classes() }, host.targets, dl::Device::GPU, stream, dl::Dtype::Float32) };
 }
 
-// Starts decoding the next batch in the background so the GPU does not wait on JPEG.
 auto ClassificationLoader::launch_prefetch() -> void
 {
     auto indices = take_indices();
@@ -283,12 +263,11 @@ auto ClassificationLoader::launch_prefetch() -> void
     {
         return;
     }
-    // Prefetch decodes the next batch so the GPU does not wait on JPEG.
+
     prefetch_ = std::async(std::launch::async, [this, indices = std::move(indices)]()
         { return decode_indices(indices); });
 }
 
-// Waits for prefetch and drops the result before reset or destruction of the loader.
 auto ClassificationLoader::join_prefetch() -> void
 {
     if (!prefetch_.valid())
@@ -305,8 +284,6 @@ auto ClassificationLoader::join_prefetch() -> void
     prefetch_ = {};
 }
 
-// Returns the decoded batch and immediately starts the next one, before from_host returns.
-// JPEG prefetch on the CPU overlaps the current step on the GPU.
 auto ClassificationLoader::get_batch(cudaStream_t stream) -> Batch
 {
     const dl::NvtxRange nvtx_range("ClassificationLoader_GetBatch");

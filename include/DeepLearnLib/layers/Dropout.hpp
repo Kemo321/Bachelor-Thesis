@@ -5,12 +5,6 @@
 
 #include <optional>
 
-/**
- * Inverted dropout on the GPU.
- *
- * Training samples a Bernoulli mask (Thrust hash PRNG) and scales by 1 / (1 - p).
- * Evaluation is identity.
- */
 class Dropout : public Layer
 {
 public:

@@ -70,4 +70,4 @@ protected:
         }
     }
 };
-} // namespace dllib_test
+}

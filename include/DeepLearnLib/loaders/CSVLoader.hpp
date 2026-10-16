@@ -5,13 +5,6 @@
 #include <cstddef>
 #include <string>
 
-/**
- * Loads a rectangular float CSV into GPU feature and target tensors.
- *
- * Each non-empty row must have the same column count. The last `target_columns`
- * columns become the target tensor; the rest become features. Tensors are rank-2:
- * features [N, F], targets [N, T].
- */
 class CSVLoader
 {
 public:

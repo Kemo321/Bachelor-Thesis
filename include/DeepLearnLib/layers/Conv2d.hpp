@@ -144,23 +144,16 @@ private:
     size_t bytes_ { 0 };
 };
 
-} // namespace dl
+}
 
 [[nodiscard]] inline auto cudnn_data_type(dl::Dtype) -> cudnnDataType_t
 {
     return CUDNN_DATA_FLOAT;
 }
 
-/**
- * 2D convolution via cuDNN (cross-correlation).
- *
- * Weights are NCHW filters [C_out, C_in, K, K]. Biases are [1, C_out, 1, 1]
- * for cudnnAddTensor.
- */
 class Conv2d : public Layer
 {
 public:
-    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     Conv2d(int in_channels, int out_channels, int kernel_size, int stride_val, int padding_val,
         float inertia_val = 0.0F);
 

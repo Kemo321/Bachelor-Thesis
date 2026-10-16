@@ -6,13 +6,6 @@
 #include <functional>
 #include <optional>
 
-/**
- * Walk a loader with two CUDA streams.
- *
- * The next batch is uploaded on the idle stream while the current batch runs.
- * The weight update is finished before the following forward reads those weights,
- * so the two stacks apply the batches in the same order.
- */
 template <typename Loader>
 auto for_each_prefetched_batch(Loader& loader, const std::function<void(Batch&, int, cudaStream_t)>& step) -> int
 {

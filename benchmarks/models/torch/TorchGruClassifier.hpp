@@ -5,11 +5,6 @@
 
 #include "common/torch_paired_init.hpp"
 
-/**
- * LibTorch twin of GruClassifier.
- *
- * `batch_first` GRU reads `[N, T, F]` and the linear head reads the final hidden state `[N, H]`.
- */
 struct TorchGruClassifierImpl : torch::nn::Module
 {
     torch::nn::GRU gru { nullptr };

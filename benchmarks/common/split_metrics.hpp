@@ -1,12 +1,5 @@
 #pragma once
 
-/**
- * Sample-weighted totals for one split.
- *
- * A batch loss from CrossEntropyLoss (and from torch::nn::CrossEntropyLoss) is the mean
- * over that batch. Weighting by the batch length keeps a short last batch from counting
- * as much as a full one. Accuracy is correct / seen, on both stacks.
- */
 struct SplitMetrics
 {
     double loss_mass = 0.0;

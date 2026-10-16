@@ -39,7 +39,7 @@ auto write_solid_png(const std::filesystem::path& path, unsigned char red, unsig
     }
 }
 
-} // namespace
+}
 
 class ClassificationLoaderTest : public GpuTest
 {
@@ -71,20 +71,17 @@ protected:
     }
 };
 
-// Shape [2, 3, 8, 8] is the constructor batch, three PNG channels, and side 8 from the images in SetUp.
 TEST_F(ClassificationLoaderTest, DiscoversClassesAndYieldsNchwOneHotBatches)
 {
-    // Given: Five PNG images in two class folders
+
     ClassificationLoader loader((root_ / "train").string(), "train", 2, 8, false);
 
-    // When: The first batch is requested
     EXPECT_EQ(loader.size(), 5U);
     EXPECT_EQ(loader.num_classes(), 2);
     EXPECT_EQ(loader.class_names(), (std::vector<std::string> { "cat", "dog" }));
     Batch batch = loader.get_batch();
     synchronize_device();
 
-    // Then: Images are NCHW on the GPU and targets are one-hot rows
     EXPECT_EQ(batch.images.get_shape(), (std::vector<int> { 2, 3, 8, 8 }));
     EXPECT_EQ(batch.targets.get_shape(), (std::vector<int> { 2, 2 }));
     EXPECT_EQ(batch.images.get_device(), Device::GPU);
@@ -95,10 +92,9 @@ TEST_F(ClassificationLoaderTest, DiscoversClassesAndYieldsNchwOneHotBatches)
 
 TEST_F(ClassificationLoaderTest, CoversEverySampleAcrossPrefetchedBatchesWithoutOverlap)
 {
-    // Given: A deterministic (unshuffled) loader with batch size 2
+
     ClassificationLoader loader((root_ / "train").string(), "train", 2, 8, false);
 
-    // When: All batches are drained
     int images_seen = 0;
     int batches = 0;
     while (loader.has_next())
@@ -109,7 +105,6 @@ TEST_F(ClassificationLoaderTest, CoversEverySampleAcrossPrefetchedBatchesWithout
         ++batches;
     }
 
-    // Then: Three batches cover five images exactly once (2 + 2 + 1)
     EXPECT_EQ(batches, 3);
     EXPECT_EQ(images_seen, 5);
     EXPECT_FALSE(loader.has_next());
@@ -118,7 +113,7 @@ TEST_F(ClassificationLoaderTest, CoversEverySampleAcrossPrefetchedBatchesWithout
 
 TEST_F(ClassificationLoaderTest, ResetRestartsEpochAndAllowsReuse)
 {
-    // Given: A loader that has already been exhausted
+
     ClassificationLoader loader((root_ / "train").string(), "train", 4, 8, false);
     while (loader.has_next())
     {
@@ -126,30 +121,25 @@ TEST_F(ClassificationLoaderTest, ResetRestartsEpochAndAllowsReuse)
         synchronize_device();
     }
 
-    // When: reset() is called
     loader.reset();
 
-    // Then: The epoch can be iterated again
     EXPECT_TRUE(loader.has_next());
     Batch batch = loader.get_batch();
     synchronize_device();
     EXPECT_EQ(batch.images.get_shape()[0], 4);
 }
 
-// The dog folder is the second class in the train vocabulary (cat, dog), so the one-hot is [0, 1].
 TEST_F(ClassificationLoaderTest, LockedClassNamesKeepOneHotWidthWhenAFolderIsMissing)
 {
-    // Given: Train has cat+dog, but the test split is missing the cat folder
+
     write_solid_png(root_ / "test" / "dog" / "t.png", 0, 0, 255);
     ClassificationLoader train_loader((root_ / "train").string(), "train", 2, 8, false);
 
-    // When: Test reuses the train class vocabulary
     ClassificationLoader test_loader(
         (root_ / "test").string(), "test", 1, 8, false, train_loader.class_names());
     Batch batch = test_loader.get_batch();
     synchronize_device();
 
-    // Then: Targets stay 2-way one-hot even though only one test folder exists
     EXPECT_EQ(test_loader.num_classes(), 2);
     EXPECT_EQ(test_loader.size(), 1U);
     EXPECT_EQ(batch.targets.get_shape(), (std::vector<int> { 1, 2 }));
@@ -160,24 +150,21 @@ TEST_F(ClassificationLoaderTest, LockedClassNamesKeepOneHotWidthWhenAFolderIsMis
 
 TEST_F(ClassificationLoaderTest, RejectsInvalidConstructorArguments)
 {
-    // Given: A valid dataset root
+
     const std::string root = (root_ / "train").string();
 
-    // When / Then: Non-positive batch or image size throw before I/O
     EXPECT_THROW(ClassificationLoader(root, "train", 0, 8, false), std::runtime_error);
     EXPECT_THROW(ClassificationLoader(root, "train", 2, 0, false), std::runtime_error);
     EXPECT_THROW(ClassificationLoader((root_ / "does-not-exist").string(), "train", 2, 8, false), std::runtime_error);
 }
 
-// parallel_worker_count returns 1 for a single index and caps the pool at min(hardware_concurrency, 16).
 TEST(ParallelForCpuTest, ExecutesEveryIndexExactlyOnce)
 {
-    // Given: A shared histogram protected by a mutex
+
     constexpr int kCount = 64;
     std::vector<int> hits(static_cast<std::size_t>(kCount), 0);
     std::mutex mutex;
 
-    // When: parallel_for visits every index
     dl::parallel_for(kCount,
         [&](int index)
         {
@@ -185,7 +172,6 @@ TEST(ParallelForCpuTest, ExecutesEveryIndexExactlyOnce)
             hits[static_cast<std::size_t>(index)] += 1;
         });
 
-    // Then: Each index ran once and worker count is bounded
     EXPECT_EQ(dl::parallel_worker_count(1), 1);
     EXPECT_LE(dl::parallel_worker_count(128), 16);
     for (int hit : hits)
@@ -196,8 +182,7 @@ TEST(ParallelForCpuTest, ExecutesEveryIndexExactlyOnce)
 
 TEST(ParallelForCpuTest, PropagatesWorkerExceptions)
 {
-    // Given: A functor that throws on one index
-    // When / Then: parallel_for rethrows after joining workers
+
     EXPECT_THROW(
         dl::parallel_for(8,
             [](int index)

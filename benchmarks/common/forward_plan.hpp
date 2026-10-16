@@ -6,10 +6,6 @@
 #include <string>
 #include <vector>
 
-/**
- * Forward-only latency cases. Custom and Torch read the same `forward_latency` block,
- * so the batch, the repeat count, and the CSV columns match.
- */
 inline constexpr const char* kForwardCsvHeader = "Model;Batch;Repeats;Time(s);SamplesPerSec;VRAM_MiB";
 
 struct ForwardCase

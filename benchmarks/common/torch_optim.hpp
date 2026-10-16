@@ -6,10 +6,6 @@
 #include <torch/torch.h>
 #include <vector>
 
-/**
- * One generator seed and the same TF32 math mode the custom stack uses.
- * cuDNN benchmark mode stays off so algorithm choice does not depend on timing.
- */
 inline auto prepare_torch_experiment() -> void
 {
     torch::manual_seed(dl::kExperimentSeed);
@@ -58,7 +54,6 @@ inline auto sync_torch_device() -> void
     }
 }
 
-/** Element-wise |g| clip; `clip <= 0` is a no-op (matches custom Network). */
 inline auto clip_torch_grad_value(torch::nn::Module& model, float clip) -> void
 {
     if (clip <= 0.0F)

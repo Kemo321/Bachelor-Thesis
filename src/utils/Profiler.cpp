@@ -3,7 +3,6 @@
 #include <stdexcept>
 #include <string>
 
-// A pair of CUDA events that times an interval on the GPU.
 Profiler::Profiler()
 {
 #if DEEPLEARNLIB_ENABLE_CUDA
@@ -12,7 +11,6 @@ Profiler::Profiler()
 #endif
 }
 
-// Destroys the events if they were created. A destroy error during shutdown is ignored.
 Profiler::~Profiler()
 {
 #if DEEPLEARNLIB_ENABLE_CUDA
@@ -29,7 +27,6 @@ Profiler::~Profiler()
 #endif
 }
 
-// Records the start mark. Without CUDA there is no timeline, so this throws.
 auto Profiler::start() -> void
 {
 #if !DEEPLEARNLIB_ENABLE_CUDA
@@ -40,7 +37,6 @@ auto Profiler::start() -> void
 #endif
 }
 
-// Records the stop and returns milliseconds. The time between the events is valid only after the GPU synchronizes.
 auto Profiler::stop() -> float
 {
 #if !DEEPLEARNLIB_ENABLE_CUDA
@@ -51,7 +47,7 @@ auto Profiler::stop() -> float
         throw std::runtime_error("Profiler::stop requires a preceding start()");
     }
     CHECK_CUDA(cudaEventRecord(stop_event_));
-    // The host may read the elapsed time only after the GPU reaches stop_event_.
+
     CHECK_CUDA(cudaEventSynchronize(stop_event_));
     float milliseconds = 0.0F;
     CHECK_CUDA(cudaEventElapsedTime(&milliseconds, start_event_, stop_event_));
@@ -60,7 +56,6 @@ auto Profiler::stop() -> float
 #endif
 }
 
-// Used MiB: (total - free) / 1024^2. When total < free, returns 0 instead of wrapping the subtraction.
 auto Profiler::get_vram_usage_mb() -> std::size_t
 {
 #if !DEEPLEARNLIB_ENABLE_CUDA
@@ -71,7 +66,7 @@ auto Profiler::get_vram_usage_mb() -> std::size_t
     CHECK_CUDA(cudaMemGetInfo(&free_bytes, &total_bytes));
     if (total_bytes < free_bytes)
     {
-        // Unsigned subtraction would wrap, so report zero.
+
         return 0;
     }
     constexpr std::size_t kMib = 1024ULL * 1024ULL;

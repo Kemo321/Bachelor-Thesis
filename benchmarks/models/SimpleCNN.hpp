@@ -7,16 +7,6 @@
 #include <memory>
 #include <vector>
 
-/**
- * Compact CIFAR-style CNN assembled from generic DeepLearnLib layers.
- *
- * Lives outside the core library. Topology:
- * Conv2d -> LeakyReLU -> MaxPool2d -> Conv2d -> LeakyReLU -> MaxPool2d ->
- * Flatten -> FullyConnected -> Softmax.
- *
- * Apply CrossEntropyLoss to logits from `forward_logits`; `forward` returns
- * class probabilities after Softmax.
- */
 class SimpleCNN
 {
 public:

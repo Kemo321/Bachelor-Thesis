@@ -13,14 +13,6 @@
 #include <stdexcept>
 #include <string>
 
-/**
- * One CSV schema for every training program, custom and Torch.
- *
- * Epoch;LR;TrainLoss;TestLoss;TrainAcc;TestAcc;Time(s);VRAM_MiB
- *
- * Time(s) is wall time of the epoch, including the test pass, written with
- * microsecond resolution. The decimal point is always '.'.
- */
 inline constexpr const char* kMetricsCsvHeader = "Epoch;LR;TrainLoss;TestLoss;TrainAcc;TestAcc;Time(s);VRAM_MiB";
 
 inline constexpr int kMetricDecimals = 6;

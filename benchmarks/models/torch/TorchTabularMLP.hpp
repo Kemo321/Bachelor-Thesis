@@ -4,9 +4,6 @@
 
 #include "common/torch_paired_init.hpp"
 
-/**
- * LibTorch twin of TabularMLP: Linear, LeakyReLU(0.1), Linear.
- */
 struct TorchTabularMLPImpl : torch::nn::Module
 {
     torch::nn::Linear fc1 { nullptr };

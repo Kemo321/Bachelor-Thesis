@@ -6,12 +6,6 @@
 #include <memory>
 #include <vector>
 
-/**
- * Sequence classifier: one cuDNN GRU, then a linear head on the final hidden state.
- *
- * Input is `[N, T, F]`. Logits are `[N, C]`. The Torch twin is TorchGruClassifier
- * (`batch_first` GRU plus Linear). Softmax is not part of this stack.
- */
 class GruClassifier
 {
 public:

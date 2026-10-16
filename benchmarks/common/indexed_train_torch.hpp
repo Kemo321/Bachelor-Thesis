@@ -84,7 +84,6 @@ auto measure_torch_rows(const HostRows& table, const std::vector<int>& order, in
     return stats;
 }
 
-/** Same schedule, shuffle seed, split, and CSV columns as train_custom_rows. */
 template <typename Module>
 auto train_torch_rows(const nlohmann::json& config, const HostRows& train_rows, const HostRows& test_rows,
     std::vector<int> train_order, std::vector<int> test_order, Module& model, bool adam,

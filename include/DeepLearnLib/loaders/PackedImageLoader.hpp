@@ -9,19 +9,6 @@
 #include <string>
 #include <vector>
 
-/**
- * Mini-batch loader for the packed `DLIMG001` classification format.
- *
- * File layout (little-endian):
- *   bytes 0-7   magic "DLIMG001"
- *   u32 n, channels, height, width, num_classes
- *   u8  pixels[n * channels * height * width]  (NCHW)
- *   u8  labels[n]
- *
- * Yields Batch tensors: images NCHW float in [0, 1], one-hot targets [N, C].
- * The whole split is kept in host RAM (MNIST train is ~47 MiB) so JPEG decode
- * is not on the hot path. Prefetch overlaps uint8→float conversion with GPU work.
- */
 class PackedImageLoader
 {
 public:

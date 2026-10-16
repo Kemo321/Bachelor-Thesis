@@ -17,4 +17,4 @@ enum class Dtype
 
 [[nodiscard]] auto dtype_name(Dtype dtype) -> const char*;
 
-} // namespace dl
+}

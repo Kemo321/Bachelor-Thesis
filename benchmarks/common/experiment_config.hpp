@@ -14,12 +14,6 @@
 
 #include "DeepLearnLib/core/Layer.hpp"
 
-/**
- * @brief Loads config/experiments.json for reproducible pipeline hyperparameters.
- *
- * Search order: EXPERIMENTS_JSON, DEEPLEARN_SOURCE_DIR/config/experiments.json,
- * then a few paths relative to the current working directory.
- */
 inline auto experiments_json_path() -> std::filesystem::path
 {
     if (const char* from_env = std::getenv("EXPERIMENTS_JSON"))
@@ -160,12 +154,6 @@ inline auto class_names_from_config(const nlohmann::json& config, int num_classe
     return names;
 }
 
-/**
- * @brief Piecewise-constant LR from config["lr_schedule"] (ordered by until_epoch).
- *
- * When the schedule is absent, applies StepLR: keep `learning_rate` until 70% of
- * `epochs`, drop 10x until 90%, then drop another 10x.
- */
 inline auto scheduled_learning_rate(const nlohmann::json& config, int epoch) -> float
 {
     const float fallback = config.value("learning_rate", 1.0e-4F);

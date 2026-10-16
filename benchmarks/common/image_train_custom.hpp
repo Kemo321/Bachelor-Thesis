@@ -12,10 +12,6 @@
 #include <string>
 #include <vector>
 
-/**
- * Image classification epoch used by CIFAR, MNIST, and the fused CIFAR run.
- * The Torch twin is train_torch_classifier: same schedule, same sample-weighted metrics, same artefacts.
- */
 template <typename Loader, typename Model>
 auto measure_custom_image_split(Loader& loader, Model& model, const std::vector<std::shared_ptr<Layer>>& layers,
     bool update, int num_classes, std::vector<int>* confusion, std::vector<SamplePrediction>* samples) -> SplitMetrics

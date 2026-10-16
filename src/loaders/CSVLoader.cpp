@@ -19,7 +19,6 @@ struct ParsedCsv
     int target_columns = 0;
 };
 
-// Reads a rectangular numeric CSV. The last target_columns columns become targets; earlier columns become features.
 auto parse_csv(const std::string& csv_path, int target_columns, bool skip_header) -> ParsedCsv
 {
     if (target_columns <= 0)
@@ -49,7 +48,7 @@ auto parse_csv(const std::string& csv_path, int target_columns, bool skip_header
         }
         if (!line.empty() && line.back() == '\r')
         {
-            // getline on Windows leaves a CR, and stof will not accept it at the end of a cell.
+
             line.pop_back();
         }
 
@@ -111,7 +110,7 @@ auto parse_csv(const std::string& csv_path, int target_columns, bool skip_header
         }
         for (int col = 0; col < parsed.target_columns; ++col)
         {
-            // The last columns are the targets.
+
             parsed.targets[(static_cast<std::size_t>(row) * static_cast<std::size_t>(parsed.target_columns))
                 + static_cast<std::size_t>(col)]
                 = rows[static_cast<std::size_t>(row)][static_cast<std::size_t>(parsed.feature_columns + col)];
@@ -120,16 +119,14 @@ auto parse_csv(const std::string& csv_path, int target_columns, bool skip_header
     return parsed;
 }
 
-} // namespace
+}
 
-// Accepts feature and target tensors that already live on the GPU. from_parsed calls this after uploading the table.
 CSVLoader::CSVLoader(dl::Tensor features, dl::Tensor targets)
     : features_(std::move(features))
     , targets_(std::move(targets))
 {
 }
 
-// Parses the file and uploads the whole table to the GPU through from_host, features and targets together.
 auto CSVLoader::from_parsed(const std::string& csv_path, int target_columns, bool skip_header) -> CSVLoader
 {
     const ParsedCsv parsed = parse_csv(csv_path, target_columns, skip_header);
@@ -137,25 +134,21 @@ auto CSVLoader::from_parsed(const std::string& csv_path, int target_columns, boo
         dl::Tensor::from_host({ parsed.batch, parsed.target_columns }, parsed.targets, dl::Device::GPU));
 }
 
-// Delegates to from_parsed, which parses the file and uploads the whole table to the GPU.
 CSVLoader::CSVLoader(std::string csv_path, int target_columns, bool skip_header)
     : CSVLoader(from_parsed(csv_path, target_columns, skip_header))
 {
 }
 
-// Returns the feature tensor [N, F]. It has been on the GPU since construction.
 auto CSVLoader::features() const -> const dl::Tensor&
 {
     return features_;
 }
 
-// Returns the target tensor [N, T] built from the last columns of the file.
 auto CSVLoader::targets() const -> const dl::Tensor&
 {
     return targets_;
 }
 
-// Returns the row count, the first dimension of the feature tensor.
 auto CSVLoader::size() const -> std::size_t
 {
     return static_cast<std::size_t>(features_.get_shape()[0]);

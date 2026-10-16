@@ -5,9 +5,6 @@
 
 #include <vector>
 
-/**
- * Collapses all non-batch dimensions: forward [N, ...] -> [N, F], backward restores the cached shape.
- */
 class Flatten : public Layer
 {
 public:

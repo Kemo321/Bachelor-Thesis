@@ -7,16 +7,6 @@
 #include <string>
 #include <vector>
 
-/**
- * One unidirectional GRU layer backed by cuDNN `CUDNN_GRU`.
- *
- * Input is contiguous `[N, T, F]`. Output is the final hidden state `[N, H]`,
- * which is cuDNN's `hy` with a zero initial state. The cell uses two bias
- * vectors (`CUDNN_RNN_DOUBLE_BIAS`): reset, update, and a candidate whose
- * reset multiplies only the recurrent term. Gate arithmetic and
- * backpropagation through time stay inside `cudnnRNNForward`,
- * `cudnnRNNBackwardData_v8`, and `cudnnRNNBackwardWeights_v8`.
- */
 class Gru : public Layer
 {
 public:
@@ -35,11 +25,6 @@ public:
     void set_parameters(const std::map<std::string, dl::Tensor>& params) override;
     auto to(dl::Device device) -> void override;
 
-    /**
-     * One cuDNN linear layer inside the GRU weight space, in fill order.
-     * `matrix` is row-major `[rows, cols]`. `bias` is empty when that layer has none.
-     * Gates 0..2 are the input matrices (reset, update, candidate). Gates 3..5 are recurrent.
-     */
     struct LinearLayer
     {
         int rows = 0;

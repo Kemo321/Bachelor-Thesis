@@ -5,12 +5,6 @@
 
 #include <torch/torch.h>
 
-/**
- * LibTorch twin of SimpleCNN.
- *
- * Conv  C→16 3×3 pad 1, LeakyReLU 0.1, MaxPool 2,
- * Conv 16→32 3×3 pad 1, LeakyReLU 0.1, MaxPool 2, Linear onto the classes.
- */
 struct TorchSimpleCNNImpl : torch::nn::Module
 {
     torch::nn::Conv2d conv1 { nullptr };

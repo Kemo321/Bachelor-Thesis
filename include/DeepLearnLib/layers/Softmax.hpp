@@ -7,12 +7,6 @@
 #include <optional>
 #include <vector>
 
-/**
- * Softmax layer via cuDNN (`CUDNN_SOFTMAX_ACCURATE`, `MODE_CHANNEL`).
- *
- * `CUDNN_SOFTMAX_ACCURATE` applies the stable max-subtraction form
- * `exp(x - max(x)) / sum(exp(x - max(x)))` to avoid exponential overflow.
- */
 class Softmax : public Layer
 {
 public:

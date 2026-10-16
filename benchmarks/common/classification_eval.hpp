@@ -15,10 +15,6 @@
 #include <utility>
 #include <vector>
 
-/**
- * Shared classification eval helpers (argmax, accuracy, confusion CSV).
- * Vision sample dumps live in classification_vis.hpp (OpenCV).
- */
 inline auto classification_argmax_row(const std::vector<float>& values, int row, int cols) -> int
 {
     const std::size_t offset = static_cast<std::size_t>(row) * static_cast<std::size_t>(cols);
