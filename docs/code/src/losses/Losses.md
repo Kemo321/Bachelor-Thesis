@@ -36,7 +36,7 @@ Sums `(prediction - target)^2` over the elements. A thread gathers its slice, th
 
 ## softmax_probabilities
 
-Allocates a tensor with the shape of the logits and launches `softmax_rows_kernel` with one block per 256 rows. The kernel runs on the default stream (the launch does not pass a stream). Checks `cudaGetLastError`.
+Allocates a tensor with the shape of the logits and launches `softmax_rows_kernel` with one block per 256 rows on `dl::current_stream()`. Checks `cudaGetLastError`.
 
 ## MSELoss::loss
 
@@ -48,7 +48,7 @@ Allocates a tensor with the shape of the logits and launches `softmax_rows_kerne
 
 ## CrossEntropyLoss::loss
 
-`require_same_gpu` and `require_rank2`. Softmax by rows, then `cross_entropy_rows_kernel` (default stream). The sum of the row losses comes to the host through `sum().to_host()` — that waits on the stream — and is divided by the batch. The result is a scalar on the GPU.
+`require_same_gpu` and `require_rank2`. Softmax by rows, then `cross_entropy_rows_kernel`, both on `dl::current_stream()`. `sum().to_host(current_stream())` waits until that stream finishes, including a non-blocking image-training stream, and the total is divided by the batch. The result is a scalar on the GPU.
 
 ## CrossEntropyLoss::loss_derivative
 
