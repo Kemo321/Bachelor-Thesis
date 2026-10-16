@@ -1,6 +1,5 @@
 #include "common/forward_plan.hpp"
 #include "common/torch_optim.hpp"
-#include "models/torch/TorchFusedCbrCNN.hpp"
 #include "models/torch/TorchGruClassifier.hpp"
 #include "models/torch/TorchSimpleCNN.hpp"
 #include "models/torch/TorchTabularMLP.hpp"
@@ -30,7 +29,7 @@ auto time_torch_calls(int warmup, int repeats, Fn step) -> double
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
 }
 
-} // namespace
+}
 
 int main()
 {
@@ -47,16 +46,6 @@ int main()
             if (item.kind == "simplecnn")
             {
                 TorchSimpleCNN model(item.num_classes, item.image_size, item.in_channels);
-                model->to(device);
-                model->eval();
-                auto input = torch::full({ item.batch, item.in_channels, item.image_size, item.image_size }, 0.5,
-                    torch::TensorOptions().device(device));
-                seconds = time_torch_calls(plan.warmup, item.repeats, [&]
-                    { (void)model->forward(input); });
-            }
-            else if (item.kind == "fused")
-            {
-                TorchFusedCbrCNN model(item.num_classes, item.image_size, item.in_channels);
                 model->to(device);
                 model->eval();
                 auto input = torch::full({ item.batch, item.in_channels, item.image_size, item.image_size }, 0.5,

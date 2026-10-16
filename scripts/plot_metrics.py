@@ -30,7 +30,6 @@ except ImportError as exc:  # pragma: no cover
 
 EXPERIMENT_DIRS = (
     "cifar10",
-    "cifar10_fused",
     "mnist",
     "tabular",
     "tabular_iris",
@@ -282,7 +281,6 @@ def plot_sample_grid(directory: Path, title: str, destination: Path) -> None:
 def experiment_title(name: str) -> str:
     mapping = {
         "cifar10": "CIFAR-10",
-        "cifar10_fused": "CIFAR-10 fused CBR",
         "mnist": "MNIST",
         "tabular": "Tabular demo",
         "tabular_iris": "Iris",

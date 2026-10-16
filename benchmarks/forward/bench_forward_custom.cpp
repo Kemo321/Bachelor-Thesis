@@ -2,7 +2,6 @@
 #include "common/forward_plan.hpp"
 
 #include "DeepLearnLib/core/Tensor.hpp"
-#include "models/FusedCbrCNN.hpp"
 #include "models/GruClassifier.hpp"
 #include "models/SimpleCNN.hpp"
 #include "models/TabularMLP.hpp"
@@ -52,7 +51,7 @@ auto time_gpu_calls(int warmup, int repeats, Fn step) -> double
     return elapsed_seconds(started);
 }
 
-} // namespace
+}
 
 int main()
 {
@@ -66,14 +65,6 @@ int main()
             if (item.kind == "simplecnn")
             {
                 SimpleCNN model(item.num_classes, item.image_size, item.in_channels);
-                prepare_eval(model);
-                dl::Tensor input = constant_tensor({ item.batch, item.in_channels, item.image_size, item.image_size });
-                seconds = time_gpu_calls(plan.warmup, item.repeats, [&]
-                    { (void)model.forward_logits(input); });
-            }
-            else if (item.kind == "fused")
-            {
-                FusedCbrCNN model(item.num_classes, item.image_size, item.in_channels);
                 prepare_eval(model);
                 dl::Tensor input = constant_tensor({ item.batch, item.in_channels, item.image_size, item.image_size });
                 seconds = time_gpu_calls(plan.warmup, item.repeats, [&]

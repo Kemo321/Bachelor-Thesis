@@ -6,7 +6,7 @@ The design is intentionally **lightweight**. Application networks (`SimpleCNN`, 
 
 ## Abstract
 
-DeepLearnLib provides a dense `dl::Tensor` with GPU storage, in-place arithmetic, and zero-allocation GEMM (`matmul_into`). Convolution, pooling, and batch-norm use the cuDNN C API; fully-connected layers use `cublasSgemm` with logical transposes. Elementwise kernels (LeakyReLU, Dropout, fused SGD) stay on device. Host synchronisation is reserved for logging, metrics, and checkpoints.
+DeepLearnLib provides a dense `dl::Tensor` with GPU storage, in-place arithmetic, and zero-allocation GEMM (`matmul_into`). Convolution, pooling, and batch-norm use the cuDNN C API. A narrow fully-connected layer is one kernel that adds the bias; wider layers use cuBLASLt with a bias epilogue, and fall back to `matmul_into`. Elementwise kernels (LeakyReLU, Dropout, fused SGD) stay on device. Host synchronisation is reserved for logging, metrics, and checkpoints.
 
 ## Architecture overview
 
@@ -18,13 +18,13 @@ DeepLearnLib provides a dense `dl::Tensor` with GPU storage, in-place arithmetic
                       │ compose layers
 ┌─────────────────────▼───────────────────────┐
 │  DeepLearnLib (src/, include/DeepLearnLib/) │
-│  Tensor, Layer, Conv2d, FC, FusedCBR2d, …   │
+│  Tensor, Layer, Conv2d, FC, GRU, …          │
 │  cuDNN / cuBLAS / CUDA kernels              │
 └─────────────────────────────────────────────┘
 ```
 
 - **Core library** — generic tensors, layers, loaders, and losses. No classifier or sequence topology is linked into `libDeepLearnLib`, except the reusable `Gru` layer.
-- **Models** — `SimpleCNN`, `TabularMLP`, `GruClassifier`, and `FusedCbrCNN` are compiled into `DeepLearnModels` and linked only by apps and tests.
+- **Models** — `SimpleCNN`, `TabularMLP`, and `GruClassifier` are compiled into `DeepLearnModels` and linked only by apps and tests.
 - **Torch baselines** — optional LibTorch binaries (`*_torch`) for apples-to-apples timing. They are not part of the custom stack.
 
 Documentation is split in [docs/README.md](docs/README.md). The library API is [docs/library/](docs/library/README.md). Training binaries, models, and benchmarks are [docs/usage/](docs/usage/README.md).
@@ -101,7 +101,7 @@ Details: [docs/usage/experiments.md](docs/usage/experiments.md). Adding a layer:
 │   └── utils/                # Logger, Profiler, Nvtx, SafeMath
 ├── src/                      # core/, layers/, losses/, loaders/, utils/
 ├── benchmarks/
-│   ├── models/               # SimpleCNN, tabular MLP, GRU, fused CNN
+│   ├── models/               # SimpleCNN, tabular MLP, GRU
 │   ├── train/                # custom and Torch training programs
 │   ├── forward/              # forward-latency programs
 │   ├── micro/                # operator micro-benchmarks

@@ -335,7 +335,7 @@ run_plots() {
 run_all_training() {
   echo
   echo "[menu] === Run all full training pipelines ==="
-  echo "[menu] Custom + Torch on CIFAR-10, the fused CIFAR CNN, MNIST, ECG200, and tabular sets."
+  echo "[menu] Custom + Torch on CIFAR-10, MNIST, ECG200, and tabular sets."
   echo "[menu] Inference, unit tests, and micro-benchmarks are skipped. Failures do not abort."
   echo "[menu] Completed jobs are skipped until results/run_all_progress.json is deleted."
   echo
@@ -356,10 +356,6 @@ run_all_training() {
   echo "[menu] -- Training (CIFAR-10) --"
   run_optional train_cifar_custom
   run_optional train_cifar_torch
-
-  echo "[menu] -- Training (CIFAR-10 fused CBR) --"
-  run_optional train_fused_custom
-  run_optional train_fused_torch
 
   echo "[menu] -- Training (ECG200) --"
   run_optional train_gru_custom ecg200
@@ -403,10 +399,6 @@ run_all() {
   run_optional train_cifar_custom
   run_optional train_cifar_torch
 
-  echo "[menu] -- Training (CIFAR-10 fused CBR) --"
-  run_optional train_fused_custom
-  run_optional train_fused_torch
-
   echo "[menu] -- Training (ECG200) --"
   run_optional train_gru_custom ecg200
   run_optional train_gru_torch ecg200
@@ -414,7 +406,9 @@ run_all() {
   echo "[menu] -- Benchmarks --"
   run_optional bench_forward_custom
   run_optional bench_forward_torch
-  run_optional bench_micro_ops --benchmark_min_time=0.5s --benchmark_counters_tabular=true
+  mkdir -p "${ROOT}/results/micro"
+  run_optional bench_micro_ops --benchmark_min_time=0.5s --benchmark_counters_tabular=true \
+    --benchmark_out="${ROOT}/results/micro/bench_micro.json" --benchmark_out_format=json
 
   echo "[menu] -- Metrics plots --"
   run_plots_optional
@@ -479,28 +473,24 @@ DeepLearnLib
   12) Train custom GRU on ECG200
   13) Train Torch GRU on ECG200
 
-  --- Training (CIFAR-10 fused CBR) ---
-  14) Train custom fused CNN on CIFAR-10
-  15) Train Torch fused CNN on CIFAR-10
-
   --- Benchmarks ---
-  16) Forward latency (custom)
-  17) Forward latency (Torch)
-  18) Micro-benchmarks (custom vs Torch ops)
+  14) Forward latency (custom)
+  15) Forward latency (Torch)
+  16) Micro-benchmarks (custom vs Torch ops)
 
   --- Reports ---
-  19) Plot metrics (CSV → PNG)
-  20) Run all pipelines & generate plots (skips jobs in run_all_progress.json)
-  21) Run all full training pipelines (skips jobs in run_all_progress.json)
-  22) Sanity Check (fast end-to-end via sanity.json)
-  23) Exit
+  17) Plot metrics (CSV → PNG)
+  18) Run all pipelines & generate plots (skips jobs in run_all_progress.json)
+  19) Run all full training pipelines (skips jobs in run_all_progress.json)
+  20) Sanity Check (fast end-to-end via sanity.json)
+  21) Exit
 
 EOF
 }
 
 while true; do
   print_menu
-  read -r -p "Select [0-23]: " choice
+  read -r -p "Select [0-21]: " choice
   case "${choice}" in
     0) run_setup_datasets || true ;;
     1) run_bin dllib_tests || true ;;
@@ -516,16 +506,16 @@ while true; do
     11) run_bin train_tabular_torch tabular_wisconsin || true ;;
     12) run_bin train_gru_custom ecg200 || true ;;
     13) run_bin train_gru_torch ecg200 || true ;;
-    14) run_bin train_fused_custom || true ;;
-    15) run_bin train_fused_torch || true ;;
-    16) run_bin bench_forward_custom || true ;;
-    17) run_bin bench_forward_torch || true ;;
-    18) run_bin bench_micro_ops --benchmark_min_time=0.5s --benchmark_counters_tabular=true || true ;;
-    19) run_plots || true ;;
-    20) run_all ;;
-    21) run_all_training ;;
-    22) run_sanity_check ;;
-    23)
+    14) run_bin bench_forward_custom || true ;;
+    15) run_bin bench_forward_torch || true ;;
+    16) mkdir -p "${ROOT}/results/micro"
+       run_bin bench_micro_ops --benchmark_min_time=0.5s --benchmark_counters_tabular=true \
+         --benchmark_out="${ROOT}/results/micro/bench_micro.json" --benchmark_out_format=json || true ;;
+    17) run_plots || true ;;
+    18) run_all ;;
+    19) run_all_training ;;
+    20) run_sanity_check ;;
+    21)
       echo "[menu] Bye."
       exit 0
       ;;

@@ -25,14 +25,12 @@ set(CUSTOM_BENCH_TARGETS
     train_mnist_custom
     train_tabular_custom
     train_gru_custom
-    train_fused_custom
     bench_forward_custom)
 
 add_executable(train_cifar_custom train/train_cifar_custom.cpp)
 add_executable(train_mnist_custom train/train_mnist_custom.cpp)
 add_executable(train_tabular_custom train/train_tabular_custom.cpp)
 add_executable(train_gru_custom train/train_gru_custom.cpp)
-add_executable(train_fused_custom train/train_fused_custom.cpp)
 add_executable(bench_forward_custom forward/bench_forward_custom.cpp)
 
 foreach(target ${CUSTOM_BENCH_TARGETS})
@@ -48,7 +46,6 @@ set(TORCH_BENCH_TARGETS
     train_mnist_torch
     train_tabular_torch
     train_gru_torch
-    train_fused_torch
     bench_forward_torch
     bench_micro_ops)
 
@@ -57,7 +54,6 @@ if(Torch_FOUND)
   add_executable(train_mnist_torch train/train_mnist_torch.cpp)
   add_executable(train_tabular_torch train/train_tabular_torch.cpp)
   add_executable(train_gru_torch train/train_gru_torch.cpp)
-  add_executable(train_fused_torch train/train_fused_torch.cpp)
   add_executable(bench_forward_torch forward/bench_forward_torch.cpp)
   add_executable(bench_micro_ops micro/bench_micro_ops.cpp micro/bench_micro_more.cpp)
 

@@ -7,11 +7,10 @@ Each dataset has a Custom binary and, when LibTorch was found at configure time,
 | JSON key | Binary | Model | Optimiser |
 | --- | --- | --- | --- |
 | `cifar10_classification` | `train_cifar_*` | `SimpleCNN` / `TorchSimpleCNN` | SGD |
-| `cifar10_fused` | `train_fused_*` | `FusedCbrCNN` / `TorchFusedCbrCNN` | SGD |
 | `mnist_classification` | `train_mnist_*` | `SimpleCNN` / `TorchSimpleCNN` | SGD |
 | `tabular_demo`, `tabular_iris`, `tabular_wisconsin` | `train_tabular_*` | `TabularMLP` / `TorchTabularMLP` | SGD |
 | `ecg200` | `train_gru_*` | `GruClassifier` / `TorchGruClassifier` | Adam |
-| `forward_latency` | `bench_forward_*` | the five models above, eval only | — |
+| `forward_latency` | `bench_forward_*` | the four models above, eval only | — |
 
 Every classifier uses `CrossEntropyLoss`. Tabular holds out `test_fraction` of the rows (default 0.2) with seed 42, so it reports the same test columns as the image and ECG runs. ECG200 already has a train file and a test file.
 

@@ -106,20 +106,6 @@
       }
     ]
   },
-  "cifar10_fused": {
-    "batch_size": 8,
-    "epochs": 2,
-    "learning_rate": 0.001,
-    "momentum": 0.9,
-    "weight_decay": 0.0005,
-    "gradient_clip": 0.0,
-    "dataset_root": "data/cifar10",
-    "train_split": "train",
-    "test_split": "test",
-    "results_dir": "results/cifar10_fused",
-    "num_classes": 10,
-    "image_size": 32
-  },
   "forward_latency": {
     "results_dir": "results/forward",
     "warmup": 1,
@@ -160,15 +146,6 @@
         "input_size": 1,
         "hidden_size": 8,
         "num_classes": 2
-      },
-      {
-        "name": "fused_cbr_cnn",
-        "kind": "fused",
-        "batch": 4,
-        "repeats": 2,
-        "image_size": 32,
-        "in_channels": 3,
-        "num_classes": 10
       }
     ]
   }

@@ -43,7 +43,3 @@ flowchart LR
 ## GRU classifier
 
 `benchmarks/models/GruClassifier.cpp`. One `Gru` then a `FullyConnected` on the final hidden state `[N, H]`. Input is `[N, T, F]`. `TorchGruClassifier` is a `batch_first` GRU plus `Linear`. ECG200 trains it with Adam.
-
-## Fused CBR CNN
-
-`benchmarks/models/FusedCbrCNN.cpp`. Two `FusedCBR2d` blocks (Conv, BatchNorm, LeakyReLU 0.1), each followed by 2×2 max-pool, then Flatten and a linear head. `TorchFusedCbrCNN` is the same graph with separate Conv2d, BatchNorm2d (`eps` 1e-5, momentum 0.1), and LeakyReLU. CIFAR-10 `cifar10_fused` trains it.

@@ -17,7 +17,3 @@ Y = XW + b matches torch::linear after transposing LibTorch weights from layout 
 ## BatchNorm2dTrainForwardAndBackwardMatchLibTorch
 
 Train BatchNorm with eps 1e-5 and momentum 0.1 matches torch::batch_norm at those same constants, within the LibTorch tolerance 1e-3.
-
-## FusedCBR2dEvalForwardMatchesLibTorch
-
-Eval fused matches conv, batch_norm (eps 1e-5), and leaky_relu(0.1), within the LibTorch tolerance 1e-3.

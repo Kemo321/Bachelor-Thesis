@@ -8,7 +8,7 @@ Headers and sources use the same folders: `core/` (tensor, layer contract, netwo
 
 | Kind | Spelling | Examples |
 | --- | --- | --- |
-| Types | `PascalCase` | `Conv2d`, `FusedCBR2d`, `CrossEntropyLoss`, `Tensor` |
+| Types | `PascalCase` | `Conv2d`, `BatchNorm2d`, `CrossEntropyLoss`, `Tensor` |
 | Functions and methods | `snake_case` | `get_shape`, `matmul_into`, `to_host` |
 | In-place tensor methods | `snake_case` plus a trailing underscore | `add_`, `clamp_`, `sgd_update_` |
 | Private data members | trailing underscore | `weights_`, `is_training_`, `output_cache_` |
@@ -23,7 +23,7 @@ Headers and sources use the same folders: `core/` (tensor, layer contract, netwo
 
 Constructor parameters that would shadow a member take a `_val` suffix (`inertia_val`, `stride_val`, `slope_val`). The member itself has no suffix beyond the private underscore.
 
-SGD momentum is `Layer::momentum`. Batch-norm's running-stat blend is a different number. `BatchNorm2d` stores it as `momentum_bn_`. `FusedCBR2d` stores the same concept as `bn_momentum_`. New code should use `momentum_bn_`.
+SGD momentum is `Layer::momentum`. Batch-norm's running-stat blend is a different number. `BatchNorm2d` stores it as `momentum_bn_`.
 
 `FullyConnected`'s `inertia` argument is GEMM beta for the gradient write. It is not `Layer::momentum`.
 

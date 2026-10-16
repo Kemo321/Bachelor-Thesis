@@ -36,7 +36,7 @@ auto metrics_temp_dir() -> std::filesystem::path
         / ("deeplearn_metrics_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
 }
 
-} // namespace
+}
 
 TEST(SplitMetrics, WeightsLossAndAccuracyBySampleCount)
 {
@@ -205,11 +205,11 @@ TEST(SupervisedEpochs, WritesOneWeightedRowPerEpoch)
 TEST(ForwardPlan, BothStacksReadTheSameCases)
 {
     const ForwardPlan plan = load_forward_plan();
-    ASSERT_EQ(plan.cases.size(), 5U);
+    ASSERT_EQ(plan.cases.size(), 4U);
     EXPECT_EQ(plan.warmup, 10);
     const std::vector<std::string> names
-        = { "simplecnn_cifar", "simplecnn_mnist", "tabular_mlp", "gru_classifier", "fused_cbr_cnn" };
-    const std::vector<std::string> kinds = { "simplecnn", "simplecnn", "tabular", "gru", "fused" };
+        = { "simplecnn_cifar", "simplecnn_mnist", "tabular_mlp", "gru_classifier" };
+    const std::vector<std::string> kinds = { "simplecnn", "simplecnn", "tabular", "gru" };
     for (std::size_t index = 0; index < plan.cases.size(); ++index)
     {
         EXPECT_EQ(plan.cases[index].name, names[index]);

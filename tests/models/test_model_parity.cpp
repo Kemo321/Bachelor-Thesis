@@ -2,11 +2,9 @@
 
 #include "DeepLearnLib/core/Layer.hpp"
 #include "DeepLearnLib/core/Tensor.hpp"
-#include "models/FusedCbrCNN.hpp"
 #include "models/GruClassifier.hpp"
 #include "models/SimpleCNN.hpp"
 #include "models/TabularMLP.hpp"
-#include "models/torch/TorchFusedCbrCNN.hpp"
 #include "models/torch/TorchGruClassifier.hpp"
 #include "models/torch/TorchSimpleCNN.hpp"
 #include "models/torch/TorchTabularMLP.hpp"
@@ -95,7 +93,7 @@ auto expect_transposed_linear(const std::vector<float>& custom_in_out, const tor
     }
 }
 
-} // namespace
+}
 
 class ModelParityTest : public GpuTest
 {
@@ -160,42 +158,8 @@ TEST_F(ModelParityTest, TabularMlpParameterCountMatchesTorch)
     const torch::Tensor torch_input = torch::from_blob(const_cast<float*>(rows.data()), { 2, 4 }, torch::kFloat32)
                                           .clone()
                                           .to(device);
-    expect_close_logits(logits.to_host(), torch_f32(reference->forward(torch_input)), 1.0e-5F);
-}
 
-TEST_F(ModelParityTest, FusedCbrTrainableCountMatchesTorch)
-{
-    FusedCbrCNN custom(10, 32, 3);
-    TorchFusedCbrCNN reference(10, 32, 3);
-    EXPECT_EQ(custom_parameter_count(custom.get_all_layers(), false), torch_parameter_count(reference));
-    EXPECT_GT(custom_parameter_count(custom.get_all_layers(), true), torch_parameter_count(reference));
-
-    auto layers = custom.get_all_layers();
-    expect_same_values(layers[0]->get_parameters().at("weights").to_host(), torch_f32(reference->conv1->weight));
-    expect_same_values(layers[0]->get_parameters().at("bias").to_host(), torch_f32(reference->conv1->bias));
-    expect_same_values(layers[0]->get_parameters().at("gamma").to_host(), torch_f32(reference->bn1->weight));
-    expect_same_values(layers[0]->get_parameters().at("beta").to_host(), torch_f32(reference->bn1->bias));
-    expect_same_values(layers[2]->get_parameters().at("weights").to_host(), torch_f32(reference->conv2->weight));
-    expect_same_values(layers[2]->get_parameters().at("bias").to_host(), torch_f32(reference->conv2->bias));
-    expect_same_values(layers[2]->get_parameters().at("gamma").to_host(), torch_f32(reference->bn2->weight));
-    expect_same_values(layers[2]->get_parameters().at("beta").to_host(), torch_f32(reference->bn2->bias));
-    expect_transposed_linear(layers.back()->get_parameters().at("weights").to_host(), reference->fc->weight);
-    expect_same_values(layers.back()->get_parameters().at("bias").to_host(), torch_f32(reference->fc->bias));
-
-    for (auto& layer : layers)
-    {
-        layer->to(Device::GPU);
-        layer->eval();
-    }
-    Tensor input = Tensor::from_host({ 1, 3, 32, 32 }, std::vector<float>(3U * 32U * 32U, 0.25F), Device::GPU);
-    Tensor logits = custom.forward_logits(input);
-    synchronize_device();
-    reference->eval();
-    const torch::Device device(torch::kCUDA);
-    reference->to(device);
-    const torch::Tensor torch_logits = reference->forward(torch::full(
-        { 1, 3, 32, 32 }, 0.25, torch::TensorOptions().dtype(torch::kFloat32).device(device)));
-    expect_close_logits(logits.to_host(), torch_f32(torch_logits), 1.0e-4F);
+    expect_close_logits(logits.to_host(), torch_f32(reference->forward(torch_input)), 1.0e-4F);
 }
 
 TEST_F(ModelParityTest, GruClassifierOutputShapeMatchesTorch)

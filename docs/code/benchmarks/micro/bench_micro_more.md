@@ -90,14 +90,6 @@ Once per process, opens a `ClassificationLoader` on `data/cifar10/train` with ba
 
 `BM_Softmax_Bwd_Custom` and `BM_Softmax_Bwd_Torch` measure the softmax gradient for the vector `[kMicroBatch, 10]`.
 
-## BM_FusedCBR_Fwd_Custom, BM_FusedCBR_Fwd_Torch
-
-`BM_FusedCBR_Fwd_Custom` and `BM_FusedCBR_Fwd_Torch` measure the `64→192` block, kernel `3×3`, padding 1, LeakyReLU `0.1`, on the input `[kMicroBatch, 64, 112, 112]`. Custom calls `FusedCBR2d`. LibTorch builds the same block from `Conv2d`, `BatchNorm2d`, and `LeakyReLU` and turns on `setBenchmarkCuDNN`. Both variants are in train mode.
-
-## BM_FusedCBR_Bwd_Custom, BM_FusedCBR_Bwd_Torch
-
-`BM_FusedCBR_Bwd_Custom` and `BM_FusedCBR_Bwd_Torch` measure the gradient of that `64→192` block on the `112×112` map. On the LibTorch side the gradient passes through the three separate layers of the sequence.
-
 ## BM_MSE_Fwd_Custom, BM_MSE_Fwd_Torch
 
 `BM_MSE_Fwd_Custom` and `BM_MSE_Fwd_Torch` measure the mean squared error of a prediction `[kMicroBatch, 10]` against a target of the same shape. Custom calls `MSELoss::loss`; LibTorch calls `torch::mse_loss`.

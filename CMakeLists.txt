@@ -266,8 +266,7 @@ add_subdirectory(src)
 add_library(DeepLearnModels STATIC
   benchmarks/models/SimpleCNN.cpp
   benchmarks/models/TabularMLP.cpp
-  benchmarks/models/GruClassifier.cpp
-  benchmarks/models/FusedCbrCNN.cpp)
+  benchmarks/models/GruClassifier.cpp)
 target_include_directories(DeepLearnModels PUBLIC "${CMAKE_SOURCE_DIR}/benchmarks/models")
 target_link_libraries(DeepLearnModels PUBLIC DeepLearnLib)
 set_target_properties(DeepLearnModels PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)

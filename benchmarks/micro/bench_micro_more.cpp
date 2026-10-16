@@ -6,7 +6,6 @@
 #include "DeepLearnLib/layers/Dropout.hpp"
 #include "DeepLearnLib/layers/Flatten.hpp"
 #include "DeepLearnLib/layers/FullyConnected.hpp"
-#include "DeepLearnLib/layers/FusedCBR2d.hpp"
 #include "DeepLearnLib/layers/LeakyReLU.hpp"
 #include "DeepLearnLib/layers/MaxPool2d.hpp"
 #include "DeepLearnLib/layers/Softmax.hpp"
@@ -21,15 +20,11 @@
 #include <string>
 #include <vector>
 
-// Microbenchmarks of tensor ops, layers, losses, SimpleCNN, and loaders. Manual time is the Profiler GPU interval, not the Google Benchmark wall clock; the unit is milliseconds.
-// On the custom backward path the measured interval starts at the backward call. LibTorch in that interval calls backward, zeroes the gradient, and synchronizes CUDA.
-
 namespace fs = std::filesystem;
 
 namespace
 {
 
-// Repository root: the CMake macro, or two levels above the working directory.
 auto repo_root() -> fs::path
 {
 #ifdef DEEPLEARN_SOURCE_DIR
@@ -39,13 +34,11 @@ auto repo_root() -> fs::path
 #endif
 }
 
-// Float32 tensor size in bytes, used as the throughput-counter denominator.
 auto bytes_of(const dl::Tensor& tensor) -> std::size_t
 {
     return micro_numel(tensor.get_shape()) * sizeof(float);
 }
 
-// CIFAR-10 loader created once: train split, batch kMicroBatch, side 32, shuffle off.
 auto cifar_loader() -> ClassificationLoader*
 {
     static std::unique_ptr<ClassificationLoader> loader;
@@ -69,7 +62,6 @@ auto cifar_loader() -> ClassificationLoader*
     return loader.get();
 }
 
-// BM_Tensor_Add_Custom / BM_Tensor_Add_Torch: elementwise add of the map [kMicroBatch, 512, 28, 28].
 static void BM_Tensor_Add_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -105,7 +97,6 @@ static void BM_Tensor_Add_Torch(benchmark::State& state)
         });
 }
 
-// BM_Tensor_Mul_Custom / BM_Tensor_Mul_Torch: elementwise multiply of the same map [kMicroBatch, 512, 28, 28].
 static void BM_Tensor_Mul_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -141,14 +132,13 @@ static void BM_Tensor_Mul_Torch(benchmark::State& state)
         });
 }
 
-// BM_Tensor_Matmul_FCGrad_Custom / BM_Tensor_Matmul_FCGrad_Torch: product (7*7*1024, batch) Ă— (batch, 4096), the weight-gradient GEMM of the first head FC layer.
 static void BM_Tensor_Matmul_FCGrad_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
     {
         return;
     }
-    // Head weight-gradient GEMM: 50176 x 16 x 4096, (7*7*1024, kMicroBatch) times (kMicroBatch, 4096).
+
     const dl::Tensor left = micro_gpu_tensor({ 7 * 7 * 1024, kMicroBatch }, 0.05F);
     const dl::Tensor right = micro_gpu_tensor({ kMicroBatch, 4096 }, 0.05F);
     dl::Tensor out = left.matmul(right);
@@ -166,7 +156,7 @@ static void BM_Tensor_Matmul_FCGrad_Torch(benchmark::State& state)
     {
         return;
     }
-    // Head weight-gradient GEMM: 50176 x 16 x 4096, (7*7*1024, kMicroBatch) times (kMicroBatch, 4096).
+
     auto left = micro_torch_cuda({ 7 * 7 * 1024, kMicroBatch }, 0.05F);
     auto right = micro_torch_cuda({ kMicroBatch, 4096 }, 0.05F);
     torch::Tensor out = torch::matmul(left, right);
@@ -179,7 +169,6 @@ static void BM_Tensor_Matmul_FCGrad_Torch(benchmark::State& state)
         });
 }
 
-// BM_Tensor_Transpose_Custom / BM_Tensor_Transpose_Torch: transpose of the flattened map [kMicroBatch, 7*7*1024], the left factor of the FCGrad product.
 static void BM_Tensor_Transpose_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -213,7 +202,6 @@ static void BM_Tensor_Transpose_Torch(benchmark::State& state)
         });
 }
 
-// BM_Tensor_Sum_Custom / BM_Tensor_Sum_Torch: reduction of the whole map [kMicroBatch, 512, 28, 28] to a scalar.
 static void BM_Tensor_Sum_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -246,7 +234,6 @@ static void BM_Tensor_Sum_Torch(benchmark::State& state)
         });
 }
 
-// BM_Tensor_Clamp_Custom / BM_Tensor_Clamp_Torch: clamp of the map [kMicroBatch, 1024, 7, 7] to [-1, 1].
 static void BM_Tensor_Clamp_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -279,7 +266,6 @@ static void BM_Tensor_Clamp_Torch(benchmark::State& state)
         });
 }
 
-// BM_BN_Fwd_Custom / BM_BN_Fwd_Torch: BatchNorm2d in train mode on 192 channels and a 112Ă—112 map (the 64â†’192 block before the second pooling).
 static void BM_BN_Fwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -316,7 +302,6 @@ static void BM_BN_Fwd_Torch(benchmark::State& state)
         });
 }
 
-// BM_BN_Bwd_Custom / BM_BN_Bwd_Torch: BatchNorm2d gradient for the map [kMicroBatch, 192, 112, 112] in train mode.
 static void BM_BN_Bwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -360,7 +345,6 @@ static void BM_BN_Bwd_Torch(benchmark::State& state)
         });
 }
 
-// BM_MaxPool_Fwd_Custom / BM_MaxPool_Fwd_Torch: 2Ă—2 pooling with stride 2 on the input [kMicroBatch, 192, 112, 112].
 static void BM_MaxPool_Fwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -395,7 +379,6 @@ static void BM_MaxPool_Fwd_Torch(benchmark::State& state)
         });
 }
 
-// BM_MaxPool_Bwd_Custom / BM_MaxPool_Bwd_Torch: 2Ă—2 pooling gradient for a 192Ă—112Ă—112 input.
 static void BM_MaxPool_Bwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -435,7 +418,6 @@ static void BM_MaxPool_Bwd_Torch(benchmark::State& state)
         });
 }
 
-// BM_LeakyReLU_Fwd_Custom / BM_LeakyReLU_Fwd_Torch: LeakyReLU with slope 0.1 on the map [kMicroBatch, 192, 112, 112].
 static void BM_LeakyReLU_Fwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -467,7 +449,6 @@ static void BM_LeakyReLU_Fwd_Torch(benchmark::State& state)
         });
 }
 
-// BM_LeakyReLU_Bwd_Custom / BM_LeakyReLU_Bwd_Torch: LeakyReLU 0.1 gradient for the same 192Ă—112Ă—112 map.
 static void BM_LeakyReLU_Bwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -507,7 +488,6 @@ static void BM_LeakyReLU_Bwd_Torch(benchmark::State& state)
         });
 }
 
-// BM_Dropout_Fwd_Custom / BM_Dropout_Fwd_Torch: dropout p = 0.5 in train mode on the vector [kMicroBatch, 4096] (head hidden layer).
 static void BM_Dropout_Fwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -540,7 +520,6 @@ static void BM_Dropout_Fwd_Torch(benchmark::State& state)
         });
 }
 
-// BM_Dropout_Bwd_Custom / BM_Dropout_Bwd_Torch: dropout 0.5 gradient on the vector [kMicroBatch, 4096] in train mode.
 static void BM_Dropout_Bwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -582,7 +561,6 @@ static void BM_Dropout_Bwd_Torch(benchmark::State& state)
         });
 }
 
-// BM_Flatten_Fwd_Custom / BM_Flatten_Fwd_Torch: flatten [kMicroBatch, 1024, 7, 7] to a vector before the first FC layer; LibTorch does this with view.
 static void BM_Flatten_Fwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -610,7 +588,6 @@ static void BM_Flatten_Fwd_Torch(benchmark::State& state)
         });
 }
 
-// BM_Flatten_Bwd_Custom: flatten gradient back to the shape [kMicroBatch, 1024, 7, 7].
 static void BM_Flatten_Bwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -621,7 +598,6 @@ static void BM_Flatten_Bwd_Custom(benchmark::State& state)
     micro_custom_bwd(state, layer, micro_gpu_tensor({ kMicroBatch, 1024, 7, 7 }, 0.1F));
 }
 
-// BM_Softmax_Fwd_Custom / BM_Softmax_Fwd_Torch: softmax along 10 classes, shape [kMicroBatch, 10], matching the SimpleCNN head.
 static void BM_Softmax_Fwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -649,7 +625,6 @@ static void BM_Softmax_Fwd_Torch(benchmark::State& state)
         });
 }
 
-// BM_Softmax_Bwd_Custom / BM_Softmax_Bwd_Torch: softmax gradient for the vector [kMicroBatch, 10].
 static void BM_Softmax_Bwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -687,92 +662,6 @@ static void BM_Softmax_Bwd_Torch(benchmark::State& state)
         });
 }
 
-// BM_FusedCBR_Fwd_Custom / BM_FusedCBR_Fwd_Torch: 64â†’192 block, 3Ă—3 kernel, padding 1, LeakyReLU 0.1, input [kMicroBatch, 64, 112, 112]; LibTorch builds it from three layers.
-static void BM_FusedCBR_Fwd_Custom(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    FusedCBR2d layer(64, 192, 3, 1, 1, 0.1F);
-    layer.train();
-    micro_custom_fwd(state, layer, micro_gpu_tensor({ kMicroBatch, 64, 112, 112 }, 0.1F));
-}
-
-static void BM_FusedCBR_Fwd_Torch(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    at::globalContext().setBenchmarkCuDNN(true);
-    torch::nn::Sequential layer(torch::nn::Conv2d(torch::nn::Conv2dOptions(64, 192, 3).padding(1)),
-        torch::nn::BatchNorm2d(192), torch::nn::LeakyReLU(torch::nn::LeakyReLUOptions().negative_slope(0.1)));
-    layer->to(torch::kCUDA);
-    layer->train();
-    auto input = micro_torch_cuda({ kMicroBatch, 64, 112, 112 }, 0.1F);
-    torch::Tensor output;
-    torch::NoGradGuard no_grad;
-    for (int index = 0; index < kMicroWarmup; ++index)
-    {
-        output = layer->forward(input);
-    }
-    torch::cuda::synchronize();
-    micro_gpu_loop(state, static_cast<std::size_t>(input.numel()) * sizeof(float),
-        [&]
-        {
-            output = layer->forward(input);
-            torch::cuda::synchronize();
-        });
-}
-
-// BM_FusedCBR_Bwd_Custom / BM_FusedCBR_Bwd_Torch: gradient of the convâ€“batch-normâ€“LeakyReLU block 64â†’192 on the 112Ă—112 map.
-static void BM_FusedCBR_Bwd_Custom(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    FusedCBR2d layer(64, 192, 3, 1, 1, 0.1F);
-    layer.train();
-    micro_custom_bwd(state, layer, micro_gpu_tensor({ kMicroBatch, 64, 112, 112 }, 0.1F));
-}
-
-static void BM_FusedCBR_Bwd_Torch(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    at::globalContext().setBenchmarkCuDNN(true);
-    torch::nn::Sequential layer(torch::nn::Conv2d(torch::nn::Conv2dOptions(64, 192, 3).padding(1)),
-        torch::nn::BatchNorm2d(192), torch::nn::LeakyReLU(torch::nn::LeakyReLUOptions().negative_slope(0.1)));
-    layer->to(torch::kCUDA);
-    layer->train();
-    auto input = micro_torch_cuda({ kMicroBatch, 64, 112, 112 }, 0.1F, true);
-    auto output = layer->forward(input);
-    auto grad = torch::ones_like(output);
-    output.backward(grad, true);
-    layer->zero_grad();
-    if (input.grad().defined())
-    {
-        input.grad().zero_();
-    }
-    torch::cuda::synchronize();
-    micro_gpu_loop(state, static_cast<std::size_t>(output.numel()) * sizeof(float),
-        [&]
-        {
-            output.backward(grad, true);
-            layer->zero_grad();
-            if (input.grad().defined())
-            {
-                input.grad().zero_();
-            }
-            torch::cuda::synchronize();
-        });
-}
-
-// BM_MSE_Fwd_Custom / BM_MSE_Fwd_Torch: mean squared error of the prediction [kMicroBatch, 10].
 static void BM_MSE_Fwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -808,7 +697,6 @@ static void BM_MSE_Fwd_Torch(benchmark::State& state)
         });
 }
 
-// BM_MSE_Bwd_Custom: MSE derivative with respect to the prediction [kMicroBatch, 10].
 static void BM_MSE_Bwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -826,7 +714,6 @@ static void BM_MSE_Bwd_Custom(benchmark::State& state)
         });
 }
 
-// BM_CE_Fwd_Custom / BM_CE_Fwd_Torch: cross-entropy of logits [kMicroBatch, 10] for class 3; Custom receives a one-hot, LibTorch a class index.
 static void BM_CE_Fwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -867,7 +754,6 @@ static void BM_CE_Fwd_Torch(benchmark::State& state)
         });
 }
 
-// BM_CE_Bwd_Custom: cross-entropy derivative for the class-3 one-hot, shape [kMicroBatch, 10].
 static void BM_CE_Bwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -890,7 +776,6 @@ static void BM_CE_Bwd_Custom(benchmark::State& state)
         });
 }
 
-// BM_ClipGrad_Custom / BM_ClipGrad_Torch: clamp of a loss gradient [kMicroBatch, 7, 7, 30] to a threshold of 10.
 static void BM_ClipGrad_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -924,7 +809,6 @@ static void BM_ClipGrad_Torch(benchmark::State& state)
         });
 }
 
-// BM_SimpleCNN_Fwd_Custom / BM_SimpleCNN_Fwd_Torch: forward of the 10-class network on the image [kMicroBatch, 3, 32, 32]; Custom calls forward_logits, so Softmax is excluded.
 static void BM_SimpleCNN_Fwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -982,7 +866,6 @@ static void BM_SimpleCNN_Fwd_Torch(benchmark::State& state)
         });
 }
 
-// BM_Loader_CIFAR_Custom: time to fetch a 32Ă—32 CIFAR-10 batch; a missing train directory skips the case.
 static void BM_Loader_CIFAR_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -1009,14 +892,13 @@ static void BM_Loader_CIFAR_Custom(benchmark::State& state)
         profiler.start();
         batch = loader->get_batch();
         const float milliseconds = profiler.stop();
-        // Iteration time is the Profiler GPU interval, not the Google Benchmark wall clock.
+
         state.SetIterationTime(static_cast<double>(milliseconds) / 1000.0);
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) * static_cast<int64_t>(bytes));
     state.counters["VRAM_MiB"] = static_cast<double>(Profiler::get_vram_usage_mb());
 }
 
-// BM_Loader_CSV_Custom: time to construct CSVLoader on data/tabular/demo.csv (one target column, with a header).
 static void BM_Loader_CSV_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -1036,14 +918,14 @@ static void BM_Loader_CSV_Custom(benchmark::State& state)
         CSVLoader loader(csv.string(), 1, true);
         CHECK_CUDA(cudaDeviceSynchronize());
         const float milliseconds = profiler.stop();
-        // Iteration time is the Profiler GPU interval, not the Google Benchmark wall clock.
+
         state.SetIterationTime(static_cast<double>(milliseconds) / 1000.0);
         state.counters["VRAM_MiB"] = static_cast<double>(Profiler::get_vram_usage_mb());
         (void)loader.size();
     }
 }
 
-} // namespace
+}
 
 #define MICRO_BENCH(name) BENCHMARK(name)->UseManualTime()->Unit(benchmark::kMillisecond)
 
@@ -1082,10 +964,6 @@ MICRO_BENCH(BM_Softmax_Fwd_Custom);
 MICRO_BENCH(BM_Softmax_Fwd_Torch);
 MICRO_BENCH(BM_Softmax_Bwd_Custom);
 MICRO_BENCH(BM_Softmax_Bwd_Torch);
-MICRO_BENCH(BM_FusedCBR_Fwd_Custom);
-MICRO_BENCH(BM_FusedCBR_Fwd_Torch);
-MICRO_BENCH(BM_FusedCBR_Bwd_Custom);
-MICRO_BENCH(BM_FusedCBR_Bwd_Torch);
 MICRO_BENCH(BM_MSE_Fwd_Custom);
 MICRO_BENCH(BM_MSE_Fwd_Torch);
 MICRO_BENCH(BM_MSE_Bwd_Custom);

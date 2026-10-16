@@ -17,7 +17,6 @@ set(DEEPLEARN_SOURCES
     loaders/PackedImageLoader.cpp
     utils/Logger.cpp
     core/Precision.cpp
-    layers/FusedCBR2d.cpp
 )
 
 if(OpenCV_FOUND)
@@ -43,7 +42,6 @@ set(DEEPLEARN_CUDA_SOURCES
     utils/Profiler.cpp
     losses/Losses.cpp
     layers/Softmax.cpp
-    layers/FusedCBR2d.cpp
 )
 
 foreach(_cuda_src IN LISTS DEEPLEARN_CUDA_SOURCES)
@@ -88,6 +86,7 @@ target_link_libraries(
   DeepLearnLib
   PUBLIC CUDA::cudart
          CUDA::cublas
+         CUDA::cublasLt
          CUDA::cudnn
          spdlog::spdlog
          Threads::Threads)

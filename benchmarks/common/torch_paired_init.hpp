@@ -11,12 +11,6 @@
 #include <string>
 #include <vector>
 
-/**
- * Copies the custom layer's deterministic initialisation into the LibTorch twin.
- * Conv and linear layers share `paired_uniform`. The GRU copies the cuDNN weight
- * space, because that layout is not a plain torch::nn::GRU parameter tensor.
- */
-
 inline auto torch_parameter(torch::nn::Module& module, const std::string& name) -> torch::Tensor
 {
     for (auto& item : module.named_parameters())
@@ -64,7 +58,7 @@ inline auto align_torch_linear(torch::nn::Linear& linear) -> void
     {
         host[static_cast<std::size_t>(index)] = dl::paired_uniform(index, -bound, bound, dl::kLinearWeightSeed);
     }
-    // Custom FullyConnected stores [in, out]. Torch stores [out, in].
+
     const torch::Tensor custom_layout
         = torch::from_blob(host.data(), { in_features, out_features }, torch::kFloat32).clone();
     linear->weight.copy_(custom_layout.transpose(0, 1).contiguous());
@@ -76,19 +70,6 @@ inline auto align_torch_linear(torch::nn::Linear& linear) -> void
     }
     const torch::Tensor bias_values = torch::from_blob(bias.data(), { out_features }, torch::kFloat32).clone();
     linear->bias.copy_(bias_values);
-}
-
-inline auto align_torch_batchnorm(torch::nn::BatchNorm2d& norm) -> void
-{
-    torch::NoGradGuard guard;
-    norm->weight.fill_(1.0);
-    norm->bias.zero_();
-    norm->running_mean.zero_();
-    norm->running_var.fill_(1.0);
-    if (norm->num_batches_tracked.defined())
-    {
-        norm->num_batches_tracked.zero_();
-    }
 }
 
 inline auto copy_rows(torch::Tensor destination, int row, const std::vector<float>& values, int rows, int cols) -> void
@@ -138,7 +119,6 @@ inline auto align_torch_gru(torch::nn::GRU& gru, int input_size, int hidden_size
         }
     };
 
-    // cuDNN linLayerID 0..2 are reset, update, candidate. That is PyTorch's row order.
     for (int gate = 0; gate < 3; ++gate)
     {
         install(gate, gate, weight_ih, bias_ih, input_size);

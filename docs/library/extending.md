@@ -39,7 +39,7 @@ Convolution-style work uses the cuDNN C API. Dense products use `matmul_into`. W
 
 If `backward` depends on the forward input, store it during `forward`. `backward` cannot recompute from a tensor the caller has overwritten.
 
-An elementwise op that always follows another op belongs in one kernel, or in a composite of the same kind as `FusedCBR2d`, rather than in a second global-memory pass.
+An elementwise op that always follows another op belongs in one kernel rather than in a second global-memory pass.
 
 ## Tests
 

@@ -185,7 +185,6 @@ jobs:
             --target train_mnist_custom \
             --target train_tabular_custom \
             --target train_gru_custom \
-            --target train_fused_custom \
             --target bench_forward_custom
 
       - name: Verify benchmark binaries
@@ -195,7 +194,6 @@ jobs:
           test -x build_release/benchmarks/train_cifar_custom
           test -x build_release/benchmarks/train_mnist_custom
           test -x build_release/benchmarks/train_gru_custom
-          test -x build_release/benchmarks/train_fused_custom
           test -x build_release/benchmarks/bench_forward_custom
           ls -l build_release/benchmarks/
           echo "::notice::Benchmark binaries compiled. Not executed: GitHub-hosted runners have no NVIDIA GPU."

@@ -10,14 +10,12 @@ add_executable(
   layers/test_fullyconnected.cpp
   layers/test_activations.cpp
   layers/test_flatten.cpp
-  layers/test_fused_cbr2d.cpp
   losses/test_numerics.cpp
   core/test_network.cpp
   losses/test_generic.cpp
   models/test_simplecnn.cpp
   models/test_tabular_mlp.cpp
   models/test_gru_classifier.cpp
-  models/test_fused_cbr_cnn.cpp
   benchmarks/test_train_metrics.cpp
   layers/test_gru.cpp
   loaders/test_packed_image_loader.cpp)

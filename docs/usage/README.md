@@ -10,7 +10,7 @@ Applications live in `benchmarks/`. They construct layers, run epoch loops, and 
 | [Measurements](measurements.md) | Thesis table copied from a local GPU run |
 | [Running](running.md) | Docker, the menu, plots |
 
-`DeepLearnModels` is a static library of the application models (`SimpleCNN`, `TabularMLP`, `GruClassifier`, `FusedCbrCNN`). Training binaries link it plus `DeepLearnLib`. The LibTorch twins live in `benchmarks/models/torch/` and are compiled only into the `*_torch` programs.
+`DeepLearnModels` is a static library of the application models (`SimpleCNN`, `TabularMLP`, `GruClassifier`). Training binaries link it plus `DeepLearnLib`. The LibTorch twins live in `benchmarks/models/torch/` and are compiled only into the `*_torch` programs.
 
 Optional `*_torch` binaries link LibTorch directly. They are the timing baseline. They are not part of `DeepLearnLib`.
 
@@ -24,7 +24,6 @@ flowchart TB
         cnn[SimpleCNN]
         mlp[TabularMLP]
         gru[GruClassifier]
-        fused[FusedCbrCNN]
     end
     lib[DeepLearnLib]
     torch["*_torch and TorchBaseline"]
@@ -32,7 +31,6 @@ flowchart TB
     train --> cnn
     train --> mlp
     train --> gru
-    train --> fused
     train --> lib
     bench --> lib
     torch -.-> train

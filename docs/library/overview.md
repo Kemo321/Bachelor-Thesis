@@ -9,12 +9,12 @@ It does not build a computation graph. Each operation is a class with `forward` 
 | Area | Headers | Role |
 | --- | --- | --- |
 | `core/` | `Tensor.hpp`, `Precision.hpp`, `Layer.hpp`, `Network.hpp`, `Batch.hpp` | Storage, the layer contract, the stack, a batch |
-| `layers/` | `Conv2d.hpp`, `BatchNorm2d.hpp`, `FusedCBR2d.hpp`, `MaxPool2d.hpp`, `FullyConnected.hpp`, `Gru.hpp`, `LeakyReLU.hpp`, `Dropout.hpp`, `Flatten.hpp`, `Softmax.hpp` | Trainable and activation blocks |
+| `layers/` | `Conv2d.hpp`, `BatchNorm2d.hpp`, `MaxPool2d.hpp`, `FullyConnected.hpp`, `Gru.hpp`, `LeakyReLU.hpp`, `Dropout.hpp`, `Flatten.hpp`, `Softmax.hpp` | Trainable and activation blocks |
 | `losses/` | `Losses.hpp` | `CrossEntropyLoss` and `MSELoss` |
 | `loaders/` | `ClassificationLoader.hpp`, `PackedImageLoader.hpp`, `CSVLoader.hpp`, `Ecg200Loader.hpp` | Host samples to a GPU batch |
 | `utils/` | `SafeMath.hpp`, `Profiler.hpp`, `Logger.hpp`, `Nvtx.hpp`, `ParallelFor.hpp` | Numeric guards, timers, logs |
 
-cuBLAS and cuDNN are used as the GEMM and convolution implementations. The library's own code is buffer ownership, descriptor setup, fusion, and the kernels that sit beside cuDNN and cuBLAS.
+cuBLAS and cuDNN are used as the GEMM and convolution implementations. The library's own code is buffer ownership, descriptor setup, and the kernels that sit beside cuDNN and cuBLAS.
 
 ## Class diagram
 
@@ -52,21 +52,18 @@ classDiagram
     Layer <|-- Conv2d
     Layer <|-- BatchNorm2d
     Layer <|-- MaxPool2d
-    Layer <|-- FusedCBR2d
     Layer <|-- FullyConnected
     Layer <|-- LeakyReLU
     Layer <|-- Dropout
     Layer <|-- Flatten
     Layer <|-- Softmax
 
-    FusedCBR2d *-- Conv2d
     Network o-- Layer
     Conv2d --> Tensor
     FullyConnected --> Tensor
-    FusedCBR2d --> Tensor
 ```
 
-`FusedCBR2d` owns a `Conv2d` and adds batch-norm scale and shift plus LeakyReLU. `BatchNorm2d` remains available on its own.
+`BatchNorm2d` is its own layer. A network that wants convolution, normalisation, and LeakyReLU stacks those three.
 
 ## Handles and errors
 

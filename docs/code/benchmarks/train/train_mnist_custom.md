@@ -1,6 +1,6 @@
 # train_mnist_custom.cpp
 
-Trains `SimpleCNN` on the packed MNIST files. The epoch driver is `train_custom_classifier`, shared with CIFAR-10 and the fused CIFAR run.
+Trains `SimpleCNN` on the packed MNIST files. The epoch driver is `train_custom_classifier`, shared with CIFAR-10.
 
 ## main
 
