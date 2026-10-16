@@ -86,3 +86,10 @@ extern/
 
 # Machine-specific Windows helpers (hardcoded local paths)
 /build_*.bat
+
+# Local working notes (not part of the thesis repo)
+/raport-stanu.md
+/combined.cpp
+/wyniki.md
+/wyniki.pdf
+/wyniki.html
