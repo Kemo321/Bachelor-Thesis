@@ -62,7 +62,7 @@ auto measure_custom_rows(const HostRows& table, const std::vector<int>& order, i
 template <typename Forward>
 auto train_custom_rows(const nlohmann::json& config, const HostRows& train_rows, const HostRows& test_rows,
     std::vector<int> train_order, std::vector<int> test_order, Forward forward,
-    const std::vector<std::shared_ptr<Layer>>& layers, bool adam, const std::filesystem::path& results_dir,
+    const std::vector<std::shared_ptr<Layer>>& layers, const std::filesystem::path& results_dir,
     const std::string& weight_filename, const std::vector<std::string>& class_names, int num_classes,
     int default_batch, int default_epochs, float default_lr, float default_weight_decay) -> void
 {
@@ -74,7 +74,7 @@ auto train_custom_rows(const nlohmann::json& config, const HostRows& train_rows,
     }
 
     Network checkpoint(layers, opt.learning_rate, opt.gradient_clip);
-    configure_custom_layers(layers, opt.learning_rate, opt.momentum, opt.weight_decay, opt.gradient_clip, adam);
+    configure_custom_layers(layers, opt.learning_rate, opt.momentum, opt.weight_decay, opt.gradient_clip);
 
     write_class_names(results_dir / "class_names.txt", class_names);
     std::ofstream csv = open_metrics_csv(results_dir, "metrics_custom.csv", kMetricsCsvHeader);
@@ -86,7 +86,7 @@ auto train_custom_rows(const nlohmann::json& config, const HostRows& train_rows,
         [&](int epoch)
         {
             const float learning_rate = scheduled_learning_rate(config, epoch);
-            apply_sgd_hyperparameters(layers, learning_rate, adam ? 0.0F : opt.momentum, opt.weight_decay);
+            apply_sgd_hyperparameters(layers, learning_rate, opt.momentum, opt.weight_decay);
             for (const auto& layer : layers)
             {
                 layer->train();

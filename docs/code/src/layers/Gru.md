@@ -30,7 +30,7 @@ Rejects a tensor that is not a contiguous GPU rank-3 matrix. The RNN data descri
 
 ## ensure_zero_like
 
-Creates or resizes an Adam or SGD buffer to the weight shape and zeros it when the shape changes.
+Creates or resizes the SGD velocity buffer to the weight shape and zeros it when the shape changes.
 
 ## copy_same_size
 
@@ -66,7 +66,7 @@ Requires a training forward. The upstream gradient is `[N, H]` on the final stat
 
 ## Gru::step
 
-Updates the packed weight space with Adam when `use_adam` is set, otherwise SGD with optional momentum.
+Updates the packed weight space with SGD, and when momentum is non-zero keeps velocity in an optional buffer.
 
 ## Gru::clip_gradients
 

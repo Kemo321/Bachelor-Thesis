@@ -55,7 +55,7 @@ auto train_custom_classifier(const nlohmann::json& config, TrainLoader& train_lo
 
     auto layers = model.get_all_layers();
     Network checkpoint(layers, opt.learning_rate, opt.gradient_clip);
-    configure_custom_layers(layers, opt.learning_rate, opt.momentum, opt.weight_decay, opt.gradient_clip, false);
+    configure_custom_layers(layers, opt.learning_rate, opt.momentum, opt.weight_decay, opt.gradient_clip);
 
     write_class_names(results_dir / "class_names.txt", class_names);
     std::ofstream csv = open_metrics_csv(results_dir, "metrics_custom.csv", kMetricsCsvHeader);

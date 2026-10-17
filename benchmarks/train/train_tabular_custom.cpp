@@ -19,7 +19,7 @@ int main(int argc, char** argv)
         train_custom_rows(
             table.config, rows, rows, table.split.train, table.split.test,
             [&](const dl::Tensor& input)
-            { return model.forward_logits(input); }, layers, false, table.results_dir,
+            { return model.forward_logits(input); }, layers, table.results_dir,
             "tabular_mlp_final.bin", table.class_names, table.num_classes, 32, 20, 0.05F, 0.0005F);
         return 0;
     }

@@ -20,10 +20,9 @@ With `momentum == 0` the update is vanilla SGD. `gradient_clip == 0` disables cl
 | --- | --- | --- | --- |
 | `Conv2d` | cuDNN convolution | weight, bias | same math |
 | `MaxPool2d` | cuDNN max pooling | none | same math |
-| `FullyConnected` | small kernel or cuBLASLt, else `matmul_into` | weight `[F_in, F_out]`, bias `[1, F_out]` | same math |
+| `FullyConnected` | `matmul_into` plus `add_row_` | weight `[F_in, F_out]`, bias `[1, F_out]` | same math |
 | `LeakyReLU` | device kernel | none | same math |
 | `Flatten` | `Tensor::view` | none | same |
-| `Softmax` | cuDNN accurate softmax, channel mode | none | same math |
 
 ## `Conv2d`
 
@@ -42,7 +41,7 @@ Y = X W + b
 X is [N, F_in], W is [F_in, F_out], b is [1, F_out]
 ```
 
-A narrow product (`batch * F_in * F_out` at most 524288) is one kernel that writes `X W + b`. Wider products use a cached cuBLASLt GEMM with a bias epilogue. If that path is unavailable, forward falls back to `matmul_into` and `add_row_(b)`.
+Forward is `matmul_into` for `X W`, then `add_row_(b)`.
 
 Backward uses logical transposes:
 
@@ -61,9 +60,3 @@ The third constructor argument, `inertia`, is the GEMM `beta` used when writing 
 ## `Flatten`
 
 View from `[N, ...]` to `[N, F]` and back. No kernel and no parameters.
-
-## `Softmax`
-
-`CUDNN_SOFTMAX_ACCURATE` subtracts the max before the exponential. `CUDNN_SOFTMAX_MODE_CHANNEL` normalises across the channel dimension.
-
-`CrossEntropyLoss` already applies softmax inside the loss and the gradient. A training step that uses that loss passes logits and does not backpropagate through this layer.

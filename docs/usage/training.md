@@ -27,7 +27,7 @@ At the start of an epoch the binary calls `scheduled_learning_rate` and then cop
 
 `lr_schedule` entries `{ "until_epoch": N, "learning_rate": r }` apply while `epoch <= N`. If the key is absent, the base `learning_rate` holds until 70% of `epochs`, then drops by 10× until 90%, then by another 10×.
 
-`gradient_clip` from JSON is stored on the layers. `0` leaves clipping off. `step()` clamps the parameter gradient inside the update. The Torch twin clamps `.grad` once before `optimizer.step()`. The loss gradient itself is not clipped. Image and tabular runs use SGD with momentum and L2 added to the gradient, dampening 0, and Nesterov off. ECG200 uses Adam with betas 0.9 and 0.999 and epsilon 1e-8. Those are the same constants on the custom layers. Weights allocate as FP32.
+`gradient_clip` from JSON is stored on the layers. `0` leaves clipping off. `step()` clamps the parameter gradient inside the update. The Torch twin clamps `.grad` once before `optimizer.step()`. The loss gradient itself is not clipped. Every measured run uses SGD with momentum and L2 added to the gradient, dampening 0, and Nesterov off. The momentum and the learning rate come from the experiment file. Weights allocate as FP32.
 
 Both stacks draw from seed 42. Loaders and the tabular hold-out use `portable_shuffle`. Conv and linear weights use `paired_uniform` with the same per-tensor seeds, and the Torch modules copy those values (the linear weight is transposed into Torch's `[out, in]` layout). The GRU copies the six cuDNN gate matrices into `torch::nn::GRU`. Batch-norm scale starts at 1, shift at 0, running mean at 0, and running variance at 1. Torch enables TF32 for cuDNN and cuBLAS and leaves cuDNN benchmark mode off, matching the custom math mode.
 

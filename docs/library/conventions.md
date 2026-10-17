@@ -12,7 +12,7 @@ Headers and sources use the same folders: `core/` (tensor, layer contract, netwo
 | Functions and methods | `snake_case` | `get_shape`, `matmul_into`, `to_host` |
 | In-place tensor methods | `snake_case` plus a trailing underscore | `add_`, `clamp_`, `sgd_update_` |
 | Private data members | trailing underscore | `weights_`, `is_training_`, `output_cache_` |
-| Public data members | no underscore | `Layer::learning_rate`, `Layer::use_adam` |
+| Public data members | no underscore | `Layer::learning_rate`, `Layer::momentum` |
 | Constants | `k` prefix, camel tail | `dl::kSafeEps`, `dl::kDefaultGradientClip` |
 | Local variables and parameters | `snake_case` | `batch_size`, `num_classes` |
 | Macros | `SCREAMING_SNAKE` | `CHECK_CUDA`, `CHECK_CUDNN` |

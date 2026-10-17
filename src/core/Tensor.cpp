@@ -180,28 +180,6 @@ namespace
         weights[index] -= lr * velocity_value;
     }
 
-    __global__ void adam_update_f32_kernel(float* weights, const float* grad, float* moment, float* second, float lr,
-        float beta1, float beta2, float decay, float epsilon, float bias1, float bias2, float clip, int count)
-    {
-        const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
-        if (index >= count)
-        {
-            return;
-        }
-        float update = grad[index] + (decay * weights[index]);
-        if (clip > 0.0F)
-        {
-            update = update < -clip ? -clip : (update > clip ? clip : update);
-        }
-        const float moment_value = (beta1 * moment[index]) + ((1.0F - beta1) * update);
-        const float second_value = (beta2 * second[index]) + ((1.0F - beta2) * update * update);
-        moment[index] = moment_value;
-        second[index] = second_value;
-        const float corrected_moment = moment_value / bias1;
-        const float corrected_second = second_value / bias2;
-        weights[index] -= lr * corrected_moment / (sqrtf(corrected_second) + epsilon);
-    }
-
     __global__ void add_row_f32_kernel(float* dst, const float* bias, int count, int features)
     {
         const int index = static_cast<int>((blockIdx.x * blockDim.x) + threadIdx.x);
@@ -933,34 +911,6 @@ auto Tensor::sgd_momentum_update_(const Tensor& grad, Tensor& velocity, float lr
     sgd_momentum_update_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(
         data(), grad.data(), velocity.data(), lr, momentum, decay, clip, count);
 
-    CHECK_CUDA(cudaGetLastError());
-    return *this;
-#endif
-}
-
-auto Tensor::adam_update_(const Tensor& grad, Tensor& moment, Tensor& second, float lr, float beta1, float beta2,
-    float decay, float epsilon, int step, float clip) -> Tensor&
-{
-#if !DEEPLEARNLIB_ENABLE_CUDA
-    throw std::runtime_error("adam_update_ requires CUDA support");
-#else
-    ensure_binary_op(grad, "adam_update_");
-    ensure_binary_op(moment, "adam_update_");
-    ensure_binary_op(second, "adam_update_");
-    if (step < 1)
-    {
-        throw std::runtime_error("adam_update_ requires a 1-based step");
-    }
-    if (size_ == 0)
-    {
-        return *this;
-    }
-
-    const float bias1 = 1.0F - std::pow(beta1, static_cast<float>(step));
-    const float bias2 = 1.0F - std::pow(beta2, static_cast<float>(step));
-    const int count = static_cast<int>(size_);
-    adam_update_f32_kernel<<<conversion_launch(count), kInplaceThreads, 0, current_stream()>>>(data(), grad.data(),
-        moment.data(), second.data(), lr, beta1, beta2, decay, epsilon, bias1, bias2, clip, count);
     CHECK_CUDA(cudaGetLastError());
     return *this;
 #endif

@@ -4,17 +4,13 @@
 #include "DeepLearnLib/core/Tensor.hpp"
 
 #include <map>
-#include <memory>
 #include <optional>
 #include <string>
-
-struct FullyConnectedGemmBias;
 
 class FullyConnected : public Layer
 {
 public:
     FullyConnected(int input_size, int output_size, float inertia_val = 0.0F);
-    ~FullyConnected() override;
 
     [[nodiscard]] auto forward(const dl::Tensor& input_tensor, cudaStream_t stream = 0) -> dl::Tensor override;
     [[nodiscard]] auto backward(const dl::Tensor& output_error_derivative, cudaStream_t stream = 0)
@@ -46,10 +42,7 @@ private:
     dl::Tensor biases_gradient_;
     std::optional<dl::Tensor> weights_velocity_;
     std::optional<dl::Tensor> biases_velocity_;
-    std::optional<dl::Tensor> weights_second_;
-    std::optional<dl::Tensor> biases_second_;
     int input_size_;
     int output_size_;
     float inertia_;
-    std::unique_ptr<FullyConnectedGemmBias> gemm_bias_;
 };

@@ -93,7 +93,6 @@ TEST_F(GruGpuTest, FinalStateShapeAndWeightGradient)
     Gru gru(1, 4);
     gru.weight_decay = 0.0F;
     gru.learning_rate = 1.0F;
-    gru.use_adam = false;
     const std::vector<float> host_input { 0.2F, -0.4F, 0.6F, 0.1F, -0.2F, 0.3F };
     Tensor input = Tensor::from_host({ 2, 3, 1 }, host_input, Device::GPU);
     const auto before = gru.get_parameters().at("weight_space").to_host();

@@ -9,16 +9,15 @@
 #include <vector>
 
 inline auto configure_custom_layers(const std::vector<std::shared_ptr<Layer>>& layers, float learning_rate,
-    float momentum, float weight_decay, float gradient_clip, bool adam) -> void
+    float momentum, float weight_decay, float gradient_clip) -> void
 {
     for (const auto& layer : layers)
     {
         layer->to(dl::Device::GPU);
-        layer->use_adam = adam;
         layer->gradient_clip = gradient_clip;
         layer->train();
     }
-    apply_sgd_hyperparameters(layers, learning_rate, adam ? 0.0F : momentum, weight_decay);
+    apply_sgd_hyperparameters(layers, learning_rate, momentum, weight_decay);
 }
 
 inline auto backward_and_step(const std::vector<std::shared_ptr<Layer>>& layers, dl::Tensor grad, cudaStream_t stream)

@@ -70,7 +70,7 @@ int main(int argc, char** argv)
             pipeline.config, ecg_rows(train_data, train_labels), ecg_rows(test_data, test_labels),
             identity_order(train_data.size()), identity_order(test_data.size()),
             [&](const dl::Tensor& input)
-            { return model.forward_logits(input); }, layers, true, pipeline.results_dir,
+            { return model.forward_logits(input); }, layers, pipeline.results_dir,
             "gru_classifier_final.bin", class_names, num_classes, 16, 80, 0.001F, 0.0F);
         return 0;
     }

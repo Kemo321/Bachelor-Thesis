@@ -197,8 +197,6 @@ private:
     dl::Tensor biases_gradient_;
     std::optional<dl::Tensor> weights_velocity_;
     std::optional<dl::Tensor> biases_velocity_;
-    std::optional<dl::Tensor> weights_second_;
-    std::optional<dl::Tensor> biases_second_;
 
     std::vector<int> input_shape_cache_;
     std::vector<int> output_shape_cache_;

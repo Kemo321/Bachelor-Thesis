@@ -28,19 +28,6 @@ inline auto set_sgd_lr(torch::optim::Optimizer& optimizer, double learning_rate)
     }
 }
 
-inline auto make_adam(torch::nn::Module& model, double learning_rate, double weight_decay) -> torch::optim::Adam
-{
-    return torch::optim::Adam(model.parameters(), torch::optim::AdamOptions(learning_rate).betas(std::make_tuple(0.9, 0.999)).eps(1.0e-8).weight_decay(weight_decay));
-}
-
-inline auto set_adam_lr(torch::optim::Optimizer& optimizer, double learning_rate) -> void
-{
-    for (auto& group : optimizer.param_groups())
-    {
-        static_cast<torch::optim::AdamOptions&>(group.options()).lr(learning_rate);
-    }
-}
-
 inline auto torch_device() -> torch::Device
 {
     return torch::Device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);

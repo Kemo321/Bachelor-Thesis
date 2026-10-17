@@ -86,8 +86,8 @@ auto measure_torch_rows(const HostRows& table, const std::vector<int>& order, in
 
 template <typename Module>
 auto train_torch_rows(const nlohmann::json& config, const HostRows& train_rows, const HostRows& test_rows,
-    std::vector<int> train_order, std::vector<int> test_order, Module& model, bool adam,
-    const torch::Device& device, const std::filesystem::path& results_dir, const std::string& weight_filename,
+    std::vector<int> train_order, std::vector<int> test_order, Module& model, const torch::Device& device,
+    const std::filesystem::path& results_dir, const std::string& weight_filename,
     const std::vector<std::string>& class_names, int num_classes, int default_batch, int default_epochs,
     float default_lr, float default_weight_decay) -> void
 {
@@ -101,15 +101,7 @@ auto train_torch_rows(const nlohmann::json& config, const HostRows& train_rows, 
 
     model->to(device);
     const float initial_lr = scheduled_learning_rate(config, 1);
-    std::unique_ptr<torch::optim::Optimizer> optimizer;
-    if (adam)
-    {
-        optimizer = std::make_unique<torch::optim::Adam>(make_adam(*model, initial_lr, opt.weight_decay));
-    }
-    else
-    {
-        optimizer = std::make_unique<torch::optim::SGD>(make_sgd(*model, initial_lr, opt.momentum, opt.weight_decay));
-    }
+    torch::optim::SGD optimizer = make_sgd(*model, initial_lr, opt.momentum, opt.weight_decay);
 
     write_class_names(results_dir / "class_names.txt", class_names);
     std::ofstream csv = open_metrics_csv(results_dir, "metrics_torch.csv", kMetricsCsvHeader);
@@ -121,21 +113,14 @@ auto train_torch_rows(const nlohmann::json& config, const HostRows& train_rows, 
         [&](int epoch)
         {
             const float learning_rate = scheduled_learning_rate(config, epoch);
-            if (adam)
-            {
-                set_adam_lr(*optimizer, learning_rate);
-            }
-            else
-            {
-                set_sgd_lr(*optimizer, learning_rate);
-            }
+            set_sgd_lr(optimizer, learning_rate);
             model->train();
             dl::portable_shuffle(train_order, rng);
             return learning_rate;
         },
         [&](int)
         {
-            return measure_torch_rows(train_rows, train_order, opt.batch_size, num_classes, true, model, optimizer.get(),
+            return measure_torch_rows(train_rows, train_order, opt.batch_size, num_classes, true, model, &optimizer,
                 opt.gradient_clip, device, nullptr);
         },
         [&](int epoch)

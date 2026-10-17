@@ -709,19 +709,6 @@ void Conv2d::step(cudaStream_t stream)
     const dl::StreamGuard stream_guard(stream);
     const float clip = parameter_clip_bound();
     const float lr = step_learning_rate();
-    if (use_adam)
-    {
-        ++adam_step;
-        dl::Tensor& weight_moment = ensure_zero_like(weights_velocity_, weights_);
-        dl::Tensor& weight_second = ensure_zero_like(weights_second_, weights_);
-        dl::Tensor& bias_moment = ensure_zero_like(biases_velocity_, biases_);
-        dl::Tensor& bias_second = ensure_zero_like(biases_second_, biases_);
-        weights_.adam_update_(weights_gradient_, weight_moment, weight_second, lr, 0.9F, 0.999F, weight_decay, 1.0e-8F,
-            adam_step, clip);
-        biases_.adam_update_(biases_gradient_, bias_moment, bias_second, lr, 0.9F, 0.999F, weight_decay, 1.0e-8F,
-            adam_step, clip);
-        return;
-    }
     if (momentum > 0.0F)
     {
         dl::Tensor& weight_velocity = ensure_zero_like(weights_velocity_, weights_);

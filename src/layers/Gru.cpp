@@ -213,8 +213,7 @@ struct Gru::Impl
     Descriptor desc;
     dl::Tensor weights;
     dl::Tensor weight_gradient;
-    std::optional<dl::Tensor> weight_moment;
-    std::optional<dl::Tensor> weight_second;
+    std::optional<dl::Tensor> weight_velocity;
     std::optional<dl::Tensor> x;
     std::optional<dl::Tensor> y;
     std::optional<dl::Tensor> hy;
@@ -553,18 +552,9 @@ void Gru::step(cudaStream_t stream)
     const dl::StreamGuard stream_guard(stream);
     const float clip = parameter_clip_bound();
     const float lr = step_learning_rate();
-    if (use_adam)
-    {
-        ++adam_step;
-        dl::Tensor& moment = ensure_zero_like(impl_->weight_moment, impl_->weights);
-        dl::Tensor& second = ensure_zero_like(impl_->weight_second, impl_->weights);
-        impl_->weights.adam_update_(impl_->weight_gradient, moment, second, lr, 0.9F, 0.999F, weight_decay, 1.0e-8F,
-            adam_step, clip);
-        return;
-    }
     if (momentum > 0.0F)
     {
-        dl::Tensor& velocity = ensure_zero_like(impl_->weight_moment, impl_->weights);
+        dl::Tensor& velocity = ensure_zero_like(impl_->weight_velocity, impl_->weights);
         impl_->weights.sgd_momentum_update_(impl_->weight_gradient, velocity, lr, momentum, weight_decay, clip);
         return;
     }

@@ -239,9 +239,6 @@ public:
     auto sgd_momentum_update_(const Tensor& grad, Tensor& velocity, float lr, float momentum, float decay,
         float clip = 0.0F) -> Tensor&;
 
-    auto adam_update_(const Tensor& grad, Tensor& moment, Tensor& second, float lr, float beta1, float beta2,
-        float decay, float epsilon, int step, float clip = 0.0F) -> Tensor&;
-
     auto add_row_(const Tensor& bias) -> Tensor&;
 
     auto add_sum_rows_(const Tensor& matrix, float beta = 0.0F) -> Tensor&;

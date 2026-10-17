@@ -1,6 +1,6 @@
 # train_gru_torch.cpp
 
-Trains `TorchGruClassifier` on ECG200 with Adam. The splits, the shuffle seed, the gradient clip, and the CSV columns match `train_gru_custom`.
+Trains `TorchGruClassifier` on ECG200 with SGD and the momentum from the experiment file. The splits, the shuffle seed, the gradient clip, and the CSV columns match `train_gru_custom`.
 
 ## main
 

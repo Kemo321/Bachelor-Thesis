@@ -18,10 +18,6 @@ public:
 
     float weight_decay = 0.0005F;
 
-    bool use_adam = false;
-
-    int adam_step = 0;
-
     virtual ~Layer() = default;
 
     virtual void train()

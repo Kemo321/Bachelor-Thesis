@@ -82,7 +82,6 @@ target_link_libraries(
   DeepLearnLib
   PUBLIC CUDA::cudart
          CUDA::cublas
-         CUDA::cublasLt
          CUDA::cudnn
          spdlog::spdlog
          Threads::Threads)

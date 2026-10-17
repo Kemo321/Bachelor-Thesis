@@ -66,7 +66,7 @@ int main(int argc, char** argv)
 
         TorchGruClassifier model(1, hidden_size, num_classes);
         train_torch_rows(pipeline.config, ecg_rows(train_data, train_labels), ecg_rows(test_data, test_labels),
-            identity_order(train_data.size()), identity_order(test_data.size()), model, true, torch_device(),
+            identity_order(train_data.size()), identity_order(test_data.size()), model, torch_device(),
             pipeline.results_dir, "gru_classifier_torch_final.pt", class_names, num_classes, 16, 80, 0.001F, 0.0F);
         return 0;
     }

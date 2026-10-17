@@ -1,6 +1,6 @@
 # train_gru_custom.cpp
 
-Trains `GruClassifier` on ECG200 with Adam. The epoch driver is `train_custom_rows`, the same one the tabular MLP uses. The Torch twin is `train_gru_torch`.
+Trains `GruClassifier` on ECG200 with SGD and the momentum from the experiment file. The epoch driver is `train_custom_rows`, the same one the tabular MLP uses. The Torch twin is `train_gru_torch`.
 
 ## main
 

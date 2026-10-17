@@ -6,7 +6,7 @@ The design is intentionally **lightweight**. Application networks (`SimpleCNN`, 
 
 ## Abstract
 
-DeepLearnLib provides a dense `dl::Tensor` with GPU storage, in-place arithmetic, and zero-allocation GEMM (`matmul_into`). Convolution, pooling, and the GRU use the cuDNN C API. A narrow fully-connected layer is one kernel that adds the bias; wider layers use cuBLASLt with a bias epilogue, and fall back to `matmul_into`. Elementwise kernels (LeakyReLU, fused SGD) stay on device. Host synchronisation is reserved for logging, metrics, and checkpoints.
+DeepLearnLib provides a dense `dl::Tensor` with GPU storage, in-place arithmetic, and zero-allocation GEMM (`matmul_into`). Convolution, pooling, and the GRU use the cuDNN C API. A fully-connected layer is `matmul_into` plus a bias add, both through cuBLAS. Elementwise kernels (LeakyReLU, SGD) stay on device. Host synchronisation is reserved for logging, metrics, and checkpoints.
 
 ## Architecture overview
 
