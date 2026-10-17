@@ -180,4 +180,3 @@ TEST_F(TorchEquivalenceTest, FullyConnectedForwardAndBackwardMatchLibTorch)
     expect_near_vector(dl_output.to_host(), torch_to_host(torch_output), kTorchTol);
     expect_near_vector(dl_grad_input.to_host(), torch_to_host(torch_input.grad()), kTorchTol);
 }
-

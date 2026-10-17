@@ -113,7 +113,6 @@ __global__ void cross_entropy_rows_kernel(const float* probabilities, const floa
     row_loss[row] = loss;
 }
 
-
 __global__ void softmax_minus_target_kernel(
     const float* probabilities, const float* target, float* gradient, int count, float inv_batch)
 {
@@ -138,7 +137,6 @@ auto softmax_probabilities(const dl::Tensor& logits) -> dl::Tensor
 }
 
 }
-
 
 auto CrossEntropyLoss::loss(const dl::Tensor& target, const dl::Tensor& prediction) -> dl::Tensor
 {

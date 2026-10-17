@@ -72,4 +72,3 @@ TEST_F(ActivationTest, LeakyReLURejectsCpuAndMismatchedBackward)
     EXPECT_THROW(relu.backward(wrong_grad), std::runtime_error);
     EXPECT_THROW(idle.backward(input), std::runtime_error);
 }
-
