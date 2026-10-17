@@ -14,7 +14,6 @@ SimpleCNN::SimpleCNN(int num_classes, int image_size, int in_channels)
     : num_classes_(num_classes)
     , image_size_(image_size)
     , in_channels_(in_channels)
-    , softmax_(std::make_shared<Softmax>())
 {
     if (num_classes_ <= 0)
     {
@@ -50,11 +49,6 @@ auto SimpleCNN::forward_logits(const dl::Tensor& input_tensor, cudaStream_t stre
         current = current.view(current.get_shape());
     }
     return current;
-}
-
-auto SimpleCNN::forward(const dl::Tensor& input_tensor, cudaStream_t stream) -> dl::Tensor
-{
-    return softmax_->forward(forward_logits(input_tensor, stream), stream);
 }
 
 auto SimpleCNN::get_all_layers() -> std::vector<std::shared_ptr<Layer>>

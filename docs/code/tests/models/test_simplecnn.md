@@ -4,7 +4,7 @@ SimpleCNN: logits sized to the class count, stack depth, and a single-channel in
 
 ## ForwardLogitsMatchClassCount
 
-A CIFAR batch of 2×3×32×32 and 10 classes yields finite logits and probabilities [2, 10] on the GPU.
+A CIFAR batch of 2×3×32×32 and 10 classes yields finite logits [2, 10] on the GPU.
 
 ## TrainableStackHasExpectedDepth
 

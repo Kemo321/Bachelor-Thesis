@@ -49,7 +49,6 @@ A file counts as covered when a test names it. Training and forward programs are
 | `include/DeepLearnLib/layers/Gru.hpp` | `tests/benchmarks/test_train_metrics.cpp`, `tests/layers/test_gru.cpp`, `tests/models/test_gru_classifier.cpp`, `tests/models/test_model_parity.cpp` | — |
 | `include/DeepLearnLib/layers/LeakyReLU.hpp` | `tests/layers/test_activations.cpp` | — |
 | `include/DeepLearnLib/layers/MaxPool2d.hpp` | `tests/layers/test_maxpool2d.cpp`, `tests/layers/test_torch_equivalence.cpp` | — |
-| `include/DeepLearnLib/layers/Softmax.hpp` | `tests/losses/test_generic.cpp` | — |
 | `include/DeepLearnLib/loaders/ClassificationLoader.hpp` | `tests/loaders/test_classification_loader.cpp` | — |
 | `include/DeepLearnLib/loaders/CSVLoader.hpp` | `tests/losses/test_generic.cpp` | — |
 | `include/DeepLearnLib/loaders/Ecg200Loader.hpp` | `tests/layers/test_gru.cpp` | — |
@@ -70,7 +69,6 @@ A file counts as covered when a test names it. Training and forward programs are
 | `src/layers/Gru.cpp` | `tests/benchmarks/test_train_metrics.cpp`, `tests/layers/test_gru.cpp`, `tests/models/test_gru_classifier.cpp`, `tests/models/test_model_parity.cpp` | — |
 | `src/layers/LeakyReLU.cpp` | `tests/layers/test_activations.cpp` | — |
 | `src/layers/MaxPool2d.cpp` | `tests/layers/test_maxpool2d.cpp`, `tests/layers/test_torch_equivalence.cpp` | — |
-| `src/layers/Softmax.cpp` | `tests/losses/test_generic.cpp` | — |
 | `src/loaders/ClassificationLoader.cpp` | `tests/loaders/test_classification_loader.cpp` | — |
 | `src/loaders/CSVLoader.cpp` | `tests/losses/test_generic.cpp` | — |
 | `src/loaders/Ecg200Loader.cpp` | `tests/layers/test_gru.cpp` | — |

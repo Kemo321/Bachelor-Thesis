@@ -9,7 +9,7 @@ It does not build a computation graph. Each operation is a class with `forward` 
 | Area | Headers | Role |
 | --- | --- | --- |
 | `core/` | `Tensor.hpp`, `Precision.hpp`, `Layer.hpp`, `Network.hpp`, `Batch.hpp` | Storage, the layer contract, the stack, a batch |
-| `layers/` | `Conv2d.hpp`, `MaxPool2d.hpp`, `FullyConnected.hpp`, `Gru.hpp`, `LeakyReLU.hpp`, `Flatten.hpp`, `Softmax.hpp` | Trainable and activation blocks |
+| `layers/` | `Conv2d.hpp`, `MaxPool2d.hpp`, `FullyConnected.hpp`, `Gru.hpp`, `LeakyReLU.hpp`, `Flatten.hpp` | Trainable and activation blocks |
 | `losses/` | `Losses.hpp` | `CrossEntropyLoss` |
 | `loaders/` | `ClassificationLoader.hpp`, `PackedImageLoader.hpp`, `CSVLoader.hpp`, `Ecg200Loader.hpp` | Host samples to a GPU batch |
 | `utils/` | `SafeMath.hpp`, `Profiler.hpp`, `Logger.hpp`, `Nvtx.hpp`, `ParallelFor.hpp` | Numeric guards, timers, logs |
@@ -55,7 +55,6 @@ classDiagram
     Layer <|-- LeakyReLU
     Layer <|-- Gru
     Layer <|-- Flatten
-    Layer <|-- Softmax
 
     Network o-- Layer
     Conv2d --> Tensor

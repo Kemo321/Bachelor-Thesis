@@ -28,14 +28,11 @@ TEST_F(SimpleCnnTest, ForwardLogitsMatchClassCount)
         std::vector<float>(static_cast<std::size_t>(batch * 3 * image_size * image_size), 0.25F), Device::GPU);
 
     Tensor logits = model.forward_logits(input);
-    Tensor probabilities = model.forward(input);
     synchronize_device();
 
     EXPECT_EQ(logits.get_shape(), (std::vector<int> { batch, num_classes }));
-    EXPECT_EQ(probabilities.get_shape(), (std::vector<int> { batch, num_classes }));
     EXPECT_EQ(logits.get_device(), Device::GPU);
     expect_all_finite(logits.to_host());
-    expect_all_finite(probabilities.to_host());
 }
 
 TEST_F(SimpleCnnTest, TrainableStackHasExpectedDepth)

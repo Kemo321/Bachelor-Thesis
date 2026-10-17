@@ -1,7 +1,6 @@
 #include "test_helpers.hpp"
 
 #include "DeepLearnLib/core/Tensor.hpp"
-#include "DeepLearnLib/layers/Softmax.hpp"
 #include "DeepLearnLib/loaders/CSVLoader.hpp"
 #include "DeepLearnLib/losses/Losses.hpp"
 
@@ -44,36 +43,6 @@ TEST_F(GenericComponentTest, CrossEntropyGradientIsSoftmaxMinusTargetOverBatch)
     synchronize_device();
 
     expect_near_vector(gradient.to_host(), { -0.5F, 0.5F });
-}
-
-TEST_F(GenericComponentTest, SoftmaxRowsSumToOneAndBackwardIsFinite)
-{
-
-    Tensor logits = Tensor::from_host({ 2, 3 }, { 1.0F, 2.0F, 3.0F, -1.0F, 0.0F, 1.0F }, Device::GPU);
-    Softmax softmax;
-
-    Tensor probabilities = softmax.forward(logits);
-    synchronize_device();
-    Tensor grad_output = Tensor::from_host({ 2, 3 }, std::vector<float>(6, 1.0F), Device::GPU);
-    Tensor grad_input = softmax.backward(grad_output);
-    synchronize_device();
-
-    const std::vector<float> host = probabilities.to_host();
-    EXPECT_NEAR(host[0] + host[1] + host[2], 1.0F, kEpsilon);
-    EXPECT_NEAR(host[3] + host[4] + host[5], 1.0F, kEpsilon);
-    expect_all_finite(grad_input.to_host());
-}
-
-TEST_F(GenericComponentTest, SoftmaxRejectsCpuInputAndBackwardWithoutForward)
-{
-
-    Tensor cpu_input = Tensor::from_host({ 1, 2 }, { 0.0F, 1.0F }, Device::CPU);
-    Softmax softmax;
-
-    EXPECT_THROW(static_cast<void>(softmax.forward(cpu_input)), std::runtime_error);
-
-    Tensor grad = Tensor::from_host({ 1, 2 }, { 1.0F, 0.0F }, Device::GPU);
-    EXPECT_THROW(static_cast<void>(softmax.backward(grad)), std::runtime_error);
 }
 
 TEST_F(GenericComponentTest, CsvLoaderReadsFeaturesAndTargets)

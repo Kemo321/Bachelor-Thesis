@@ -1,6 +1,6 @@
 # SimpleCNN.cpp
 
-A small classification network built from DeepLearnLib layers. `forward` and `get_all_layers` keep those names. Softmax is a separate object: cross-entropy training takes logits from `forward_logits`, and `get_all_layers` does not include it.
+A small classification network built from DeepLearnLib layers. Training takes logits from `forward_logits`. Cross-entropy applies softmax inside the loss.
 
 ## conv_out
 
@@ -23,23 +23,17 @@ Checks that the class count, side, and input channel count are positive. Then it
 7. `Flatten`.
 8. `FullyConnected` from `flatten_features(image_size)` to `num_classes`.
 
-`Softmax` is created beside this list and is not appended to it.
-
 ## SimpleCNN::forward_logits
 
-Binds cuDNN to the stream and walks `layers_` in constructor order. After every layer, `view` keeps the shape. The result is logits, without Softmax.
-
-## SimpleCNN::forward
-
-Calls `forward_logits`, then `Softmax::forward` on the same stream. Returns class probabilities.
+Binds cuDNN to the stream and walks `layers_` in constructor order. After every layer, `view` keeps the shape. The result is logits.
 
 ## SimpleCNN::get_all_layers
 
-Returns `layers_` in `forward_logits` order. Softmax stays off the list, so the optimizer step and the weight save do not include it.
+Returns `layers_` in `forward_logits` order.
 
 ## SimpleCNN::num_classes
 
-Returns the class count given to the constructor. The last linear layer and the softmax axis have this width.
+Returns the class count given to the constructor. The last linear layer has this width.
 
 ## SimpleCNN::image_size
 

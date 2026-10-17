@@ -6,7 +6,6 @@
 #include "DeepLearnLib/layers/FullyConnected.hpp"
 #include "DeepLearnLib/layers/LeakyReLU.hpp"
 #include "DeepLearnLib/layers/MaxPool2d.hpp"
-#include "DeepLearnLib/layers/Softmax.hpp"
 #include "DeepLearnLib/loaders/CSVLoader.hpp"
 #include "DeepLearnLib/loaders/ClassificationLoader.hpp"
 #include "DeepLearnLib/losses/Losses.hpp"
@@ -444,70 +443,6 @@ static void BM_Flatten_Bwd_Custom(benchmark::State& state)
     micro_custom_bwd(state, layer, micro_gpu_tensor({ kMicroBatch, 1024, 7, 7 }, 0.1F));
 }
 
-static void BM_Softmax_Fwd_Custom(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    Softmax layer;
-    micro_custom_fwd(state, layer, micro_gpu_tensor({ kMicroBatch, 10 }, 0.1F));
-}
-
-static void BM_Softmax_Fwd_Torch(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    auto input = micro_torch_cuda({ kMicroBatch, 10 }, 0.1F);
-    torch::Tensor output = torch::softmax(input, 1);
-    torch::cuda::synchronize();
-    micro_gpu_loop(state, static_cast<std::size_t>(input.numel()) * sizeof(float),
-        [&]
-        {
-            output = torch::softmax(input, 1);
-            torch::cuda::synchronize();
-        });
-}
-
-static void BM_Softmax_Bwd_Custom(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    Softmax layer;
-    micro_custom_bwd(state, layer, micro_gpu_tensor({ kMicroBatch, 10 }, 0.1F));
-}
-
-static void BM_Softmax_Bwd_Torch(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    auto input = micro_torch_cuda({ kMicroBatch, 10 }, 0.1F, true);
-    auto output = torch::softmax(input, 1);
-    auto grad = torch::ones_like(output);
-    output.backward(grad, true);
-    if (input.grad().defined())
-    {
-        input.grad().zero_();
-    }
-    torch::cuda::synchronize();
-    micro_gpu_loop(state, static_cast<std::size_t>(output.numel()) * sizeof(float),
-        [&]
-        {
-            output.backward(grad, true);
-            if (input.grad().defined())
-            {
-                input.grad().zero_();
-            }
-            torch::cuda::synchronize();
-        });
-}
-
 static void BM_CE_Fwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -746,10 +681,6 @@ MICRO_BENCH(BM_LeakyReLU_Bwd_Torch);
 MICRO_BENCH(BM_Flatten_Fwd_Custom);
 MICRO_BENCH(BM_Flatten_Fwd_Torch);
 MICRO_BENCH(BM_Flatten_Bwd_Custom);
-MICRO_BENCH(BM_Softmax_Fwd_Custom);
-MICRO_BENCH(BM_Softmax_Fwd_Torch);
-MICRO_BENCH(BM_Softmax_Bwd_Custom);
-MICRO_BENCH(BM_Softmax_Bwd_Torch);
 MICRO_BENCH(BM_CE_Fwd_Custom);
 MICRO_BENCH(BM_CE_Fwd_Torch);
 MICRO_BENCH(BM_CE_Bwd_Custom);

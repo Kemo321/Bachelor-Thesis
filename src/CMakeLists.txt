@@ -9,7 +9,6 @@ set(DEEPLEARN_SOURCES
     core/Network.cpp
     utils/Profiler.cpp
     losses/Losses.cpp
-    layers/Softmax.cpp
     loaders/CSVLoader.cpp
     loaders/Ecg200Loader.cpp
     loaders/PackedImageLoader.cpp
@@ -37,7 +36,6 @@ set(DEEPLEARN_CUDA_SOURCES
     core/Network.cpp
     utils/Profiler.cpp
     losses/Losses.cpp
-    layers/Softmax.cpp
 )
 
 foreach(_cuda_src IN LISTS DEEPLEARN_CUDA_SOURCES)

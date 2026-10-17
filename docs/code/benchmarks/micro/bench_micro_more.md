@@ -66,14 +66,6 @@ Once per process, opens a `ClassificationLoader` on `data/cifar10/train` with ba
 
 `BM_Flatten_Bwd_Custom` measures the flatten gradient back to the shape `[kMicroBatch, 1024, 7, 7]`. This file has no LibTorch pair for flatten backward alone.
 
-## BM_Softmax_Fwd_Custom, BM_Softmax_Fwd_Torch
-
-`BM_Softmax_Fwd_Custom` and `BM_Softmax_Fwd_Torch` measure softmax along 10 classes, shape `[kMicroBatch, 10]`. The `SimpleCNN` head built in this file with 10 classes has that width. LibTorch calls `torch::softmax` on axis 1.
-
-## BM_Softmax_Bwd_Custom, BM_Softmax_Bwd_Torch
-
-`BM_Softmax_Bwd_Custom` and `BM_Softmax_Bwd_Torch` measure the softmax gradient for the vector `[kMicroBatch, 10]`.
-
 ## BM_CE_Fwd_Custom, BM_CE_Fwd_Torch
 
 `BM_CE_Fwd_Custom` and `BM_CE_Fwd_Torch` measure the cross-entropy of logits `[kMicroBatch, 10]` for class 3. Custom receives a one-hot float tensor and calls `CrossEntropyLoss::loss`. LibTorch receives `long` indices and calls `cross_entropy`.
@@ -88,7 +80,7 @@ Once per process, opens a `ClassificationLoader` on `data/cifar10/train` with ba
 
 ## BM_SimpleCNN_Fwd_Custom, BM_SimpleCNN_Fwd_Torch
 
-`BM_SimpleCNN_Fwd_Custom` and `BM_SimpleCNN_Fwd_Torch` measure the forward of a 10-class network on the image `[kMicroBatch, 3, 32, 32]` (CIFAR side). Custom calls `forward_logits`, so Softmax is outside the measurement. LibTorch rebuilds the same stack in `Sequential`: two `3×3` convolution blocks (16, then 32 channels), LeakyReLU `0.1`, `2×2` pooling, `Flatten`, and a linear layer `32*8*8 → 10`.
+`BM_SimpleCNN_Fwd_Custom` and `BM_SimpleCNN_Fwd_Torch` measure the forward of a 10-class network on the image `[kMicroBatch, 3, 32, 32]` (CIFAR side). Custom calls `forward_logits`. LibTorch rebuilds the same stack in `Sequential`: two `3×3` convolution blocks (16, then 32 channels), LeakyReLU `0.1`, `2×2` pooling, `Flatten`, and a linear layer `32*8*8 → 10`.
 
 ## BM_Loader_CIFAR_Custom
 
