@@ -1,12 +1,7 @@
 #pragma once
 
-#ifndef SPDLOG_ACTIVE_LEVEL
-#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
-#endif
-
 #include <spdlog/spdlog.h>
 
-#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -14,9 +9,6 @@ namespace dl
 {
 
 auto log_error_message(const std::string& message) -> void;
-auto log_info_message(const std::string& message) -> void;
-
-auto log_to_file(const std::filesystem::path& path) -> void;
 
 class Logger
 {
@@ -37,11 +29,3 @@ private:
 };
 
 }
-
-#define LOG_TRACE(...) SPDLOG_LOGGER_TRACE(::dl::Logger::get(), __VA_ARGS__)
-#define LOG_DEBUG(...) SPDLOG_LOGGER_DEBUG(::dl::Logger::get(), __VA_ARGS__)
-#define LOG_INFO(...) SPDLOG_LOGGER_INFO(::dl::Logger::get(), __VA_ARGS__)
-#define LOG_WARN(...) SPDLOG_LOGGER_WARN(::dl::Logger::get(), __VA_ARGS__)
-#define LOG_ERROR(...) SPDLOG_LOGGER_ERROR(::dl::Logger::get(), __VA_ARGS__)
-#define LOG_CRITICAL(...) SPDLOG_LOGGER_CRITICAL(::dl::Logger::get(), __VA_ARGS__)
-#define LOG_FLUSH() ::dl::Logger::get()->flush()

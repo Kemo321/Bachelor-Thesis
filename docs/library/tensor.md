@@ -58,4 +58,4 @@ These methods write through the existing pointer:
 
 The trailing underscore means the tensor is modified. That is the same spelling PyTorch uses for in-place ops. `Layer::step` calls one of the SGD methods. It does not allocate `w - lr * g`.
 
-`dl::safe_sqrt`, `safe_div`, and `guarded_div` keep square roots and divisions off exact zero. `DEBUG_NUMERICS` scans for NaN and Inf after layer passes. The scan synchronises, so the CMake option stays off for timing runs.
+`dl::safe_div`, `safe_inv`, and `clamp_unit` keep the cross-entropy mean and the log argument off exact zero. `DEBUG_NUMERICS` scans for NaN and Inf after layer passes. The scan synchronises, so the CMake option stays off for timing runs.

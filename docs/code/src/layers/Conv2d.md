@@ -200,7 +200,7 @@ Computes dX and accumulates dW and db. inertia_ is the beta of the weight-gradie
 
 ## Conv2d::step
 
-Updates the weights and bias with SGD, and when momentum > 0 keeps velocity in an optional buffer. A frozen layer returns immediately and does not touch the filter.
+Updates the weights and bias with SGD, and when momentum > 0 keeps velocity in an optional buffer.
 
 ## Conv2d::clip_gradients
 

@@ -1,6 +1,6 @@
 # Logger.cpp
 
-Builds one asynchronous spdlog logger: a color stdout sink and an optional rotating file. `log_to_file` can add a third sink for the current run.
+Builds one asynchronous spdlog logger: a color stdout sink and an optional rotating file.
 
 ## Logger::Logger
 
@@ -16,24 +16,8 @@ Returns the only instance. The function-local static object is created on the fi
 
 ## Logger::get
 
-Returns a `shared_ptr` to the logger from `instance()`. The `log_*` functions and the `LOG_*` macros use that handle.
+Returns a `shared_ptr` to the logger from `instance()`. `log_error_message` uses that handle.
 
 ## log_error_message
 
-Passes the text to the logger at error level.
-
-## log_info_message
-
-Passes the text to the logger at info level.
-
-## log_to_file
-
-Creates the parent directory and adds a file sink at info level. The file is truncated, so it holds the current run. The pattern is time, level, and message, without the source location used by `logs/framework.log`. Queue records already buffered are flushed before the sink is attached. Training programs do not call this; their record is the metrics CSV.
-
-## log_debug_message
-
-Passes the text to the logger at debug level.
-
-## log_flush
-
-Pushes the logger buffer out to the sinks. Needed before something reads the log file from disk.
+Passes the text to the logger at error level. `CHECK_CUDA` and `CHECK_CUDNN` call it when a driver call fails.

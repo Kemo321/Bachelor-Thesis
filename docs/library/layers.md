@@ -6,7 +6,6 @@
 - `backward(dy)` returns `dx`. Parameterised layers also write `dW` and `db` into members.
 - `step()` reads those gradients and updates parameters. Layers without parameters leave it empty.
 - `train()` / `eval()` select the cuDNN GRU mode: training or inference.
-- `freeze()` makes `step()` a no-op for that layer.
 - `get_parameters()` / `set_parameters()` expose named tensors for `Network::save` and `Network::load`.
 
 Optimiser fields live on the layer: `learning_rate`, `momentum`, `weight_decay`, `gradient_clip`. `step_learning_rate()` returns `learning_rate`. `parameter_clip_bound()` returns `gradient_clip` when clipping is on.

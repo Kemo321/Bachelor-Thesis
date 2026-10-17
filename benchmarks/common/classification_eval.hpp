@@ -67,14 +67,6 @@ inline auto count_correct_labels(const std::vector<float>& logits, const std::ve
     return correct;
 }
 
-inline auto batch_accuracy_one_hot(const dl::Tensor& logits, const dl::Tensor& one_hot, cudaStream_t stream = 0)
-    -> float
-{
-    const int batch = logits.get_shape()[0];
-    return static_cast<float>(count_correct_one_hot(logits, one_hot, stream))
-        / static_cast<float>(std::max(1, batch));
-}
-
 inline auto accumulate_confusion_one_hot(std::vector<int>& matrix, const dl::Tensor& logits, const dl::Tensor& one_hot,
     int num_classes, cudaStream_t stream = 0) -> void
 {

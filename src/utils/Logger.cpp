@@ -1,13 +1,11 @@
 #include "DeepLearnLib/utils/Logger.hpp"
 
 #include <spdlog/async.h>
-#include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <exception>
 #include <filesystem>
-#include <stdexcept>
 #include <vector>
 
 namespace dl
@@ -77,40 +75,6 @@ auto Logger::get() -> std::shared_ptr<spdlog::logger>
 auto log_error_message(const std::string& message) -> void
 {
     Logger::get()->error("{}", message);
-}
-
-auto log_info_message(const std::string& message) -> void
-{
-    Logger::get()->info("{}", message);
-}
-
-auto log_to_file(const std::filesystem::path& path) -> void
-{
-    std::filesystem::create_directories(path.parent_path());
-    std::shared_ptr<spdlog::sinks::basic_file_sink_mt> file_sink;
-    try
-    {
-        file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(path.string(), true);
-    }
-    catch (const std::exception& error)
-    {
-        throw std::runtime_error("Failed to open results log " + path.string() + ": " + error.what());
-    }
-    file_sink->set_level(spdlog::level::info);
-    file_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
-    const auto logger = Logger::get();
-    logger->flush();
-    logger->sinks().push_back(std::move(file_sink));
-}
-
-auto log_debug_message(const std::string& message) -> void
-{
-    Logger::get()->debug("{}", message);
-}
-
-auto log_flush() -> void
-{
-    Logger::get()->flush();
 }
 
 }

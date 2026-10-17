@@ -24,21 +24,6 @@ public:
 
     virtual ~Layer() = default;
 
-    void freeze()
-    {
-        frozen_ = true;
-    }
-
-    void unfreeze()
-    {
-        frozen_ = false;
-    }
-
-    [[nodiscard]] auto frozen() const -> bool
-    {
-        return frozen_;
-    }
-
     virtual void train()
     {
         is_training_ = true;
@@ -92,6 +77,5 @@ public:
 
 protected:
     bool is_training_ = true;
-    bool frozen_ { false };
     dl::Device device_ = dl::Device::GPU;
 };

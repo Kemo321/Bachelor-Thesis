@@ -15,7 +15,7 @@ Headers and sources use the same folders: `core/` (tensor, layer contract, netwo
 | Public data members | no underscore | `Layer::learning_rate`, `Layer::use_adam` |
 | Constants | `k` prefix, camel tail | `dl::kSafeEps`, `dl::kDefaultGradientClip` |
 | Local variables and parameters | `snake_case` | `batch_size`, `num_classes` |
-| Macros | `SCREAMING_SNAKE` | `CHECK_CUDA`, `LOG_INFO` |
+| Macros | `SCREAMING_SNAKE` | `CHECK_CUDA`, `CHECK_CUDNN` |
 | Layer headers | file name equals the type, under `layers/` | `layers/FullyConnected.hpp` |
 | Training binaries | `{role}_{dataset}_{stack}` | `train_cifar_custom`, `train_gru_torch` |
 | JSON keys | `snake_case` | `learning_rate`, `batch_size`, `ecg200` |

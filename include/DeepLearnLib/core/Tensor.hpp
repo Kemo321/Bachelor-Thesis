@@ -22,9 +22,6 @@ namespace dl
 {
 
 auto log_error_message(const std::string& message) -> void;
-auto log_info_message(const std::string& message) -> void;
-auto log_debug_message(const std::string& message) -> void;
-auto log_flush() -> void;
 
 enum class Device
 {

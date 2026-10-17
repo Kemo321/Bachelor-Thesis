@@ -551,10 +551,6 @@ void Gru::step(cudaStream_t stream)
 {
     const dl::NvtxRange nvtx_range("Gru_Step");
     const dl::StreamGuard stream_guard(stream);
-    if (frozen())
-    {
-        return;
-    }
     const float clip = parameter_clip_bound();
     const float lr = step_learning_rate();
     if (use_adam)

@@ -64,7 +64,7 @@ Accumulates dW and db and computes dX = dY W^T. inertia_ accumulates the paramet
 
 ## FullyConnected::step
 
-Updates the weights with SGD, and when momentum > 0 keeps velocity in an optional buffer. A frozen layer returns immediately and does not touch the weights.
+Updates the weights with SGD, and when momentum > 0 keeps velocity in an optional buffer.
 
 ## FullyConnected::clip_gradients
 

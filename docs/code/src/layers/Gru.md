@@ -66,7 +66,7 @@ Requires a training forward. The upstream gradient is `[N, H]` on the final stat
 
 ## Gru::step
 
-Updates the packed weight space with Adam when `use_adam` is set, otherwise SGD with optional momentum. A frozen layer returns immediately.
+Updates the packed weight space with Adam when `use_adam` is set, otherwise SGD with optional momentum.
 
 ## Gru::clip_gradients
 
