@@ -42,14 +42,6 @@ Once per process, opens a `ClassificationLoader` on `data/cifar10/train` with ba
 
 `BM_Tensor_Clamp_Custom` and `BM_Tensor_Clamp_Torch` measure clamping the map `[kMicroBatch, 1024, 7, 7]` to `[-1, 1]`. Clamping the `7×7×30` loss gradient is the separate `ClipGrad` pair.
 
-## BM_BN_Fwd_Custom, BM_BN_Fwd_Torch
-
-`BM_BN_Fwd_Custom` and `BM_BN_Fwd_Torch` measure the `BatchNorm2d` forward on 192 channels and a `112×112` map, in train mode (batch statistics). The shape `[kMicroBatch, 192, 112, 112]` is the output of the `64→192` block before the second pooling.
-
-## BM_BN_Bwd_Custom, BM_BN_Bwd_Torch
-
-`BM_BN_Bwd_Custom` and `BM_BN_Bwd_Torch` measure the gradient of the same `BatchNorm2d` (192 channels, `112×112`, train mode). The timer range is described at the top of the file.
-
 ## BM_MaxPool_Fwd_Custom, BM_MaxPool_Fwd_Torch
 
 `BM_MaxPool_Fwd_Custom` and `BM_MaxPool_Fwd_Torch` measure `2×2` pooling with stride 2 on the input `[kMicroBatch, 192, 112, 112]`. That is the pooling after the 192-channel block.
@@ -66,14 +58,6 @@ Once per process, opens a `ClassificationLoader` on `data/cifar10/train` with ba
 
 `BM_LeakyReLU_Bwd_Custom` and `BM_LeakyReLU_Bwd_Torch` measure the LeakyReLU `0.1` gradient for the same `192×112×112` map.
 
-## BM_Dropout_Fwd_Custom, BM_Dropout_Fwd_Torch
-
-`BM_Dropout_Fwd_Custom` and `BM_Dropout_Fwd_Torch` measure dropout `p = 0.5` in train mode on the vector `[kMicroBatch, 4096]`.
-
-## BM_Dropout_Bwd_Custom, BM_Dropout_Bwd_Torch
-
-`BM_Dropout_Bwd_Custom` and `BM_Dropout_Bwd_Torch` measure the gradient of that dropout (`p = 0.5`, train mode, vector of 4096).
-
 ## BM_Flatten_Fwd_Custom, BM_Flatten_Fwd_Torch
 
 `BM_Flatten_Fwd_Custom` and `BM_Flatten_Fwd_Torch` measure flattening `[kMicroBatch, 1024, 7, 7]` to a vector of length `7*7*1024`. That is the last backbone map before the first FC layer. Custom goes through the `Flatten` layer; LibTorch uses `view`.
@@ -89,14 +73,6 @@ Once per process, opens a `ClassificationLoader` on `data/cifar10/train` with ba
 ## BM_Softmax_Bwd_Custom, BM_Softmax_Bwd_Torch
 
 `BM_Softmax_Bwd_Custom` and `BM_Softmax_Bwd_Torch` measure the softmax gradient for the vector `[kMicroBatch, 10]`.
-
-## BM_MSE_Fwd_Custom, BM_MSE_Fwd_Torch
-
-`BM_MSE_Fwd_Custom` and `BM_MSE_Fwd_Torch` measure the mean squared error of a prediction `[kMicroBatch, 10]` against a target of the same shape. Custom calls `MSELoss::loss`; LibTorch calls `torch::mse_loss`.
-
-## BM_MSE_Bwd_Custom
-
-`BM_MSE_Bwd_Custom` measures the MSE derivative with respect to the prediction `[kMicroBatch, 10]` (`MSELoss::loss_derivative`). This file has no LibTorch pair for the MSE derivative alone.
 
 ## BM_CE_Fwd_Custom, BM_CE_Fwd_Torch
 

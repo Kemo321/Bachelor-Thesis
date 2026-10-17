@@ -1,6 +1,6 @@
 # Losses.cpp
 
-MSE and cross-entropy on the GPU: shape checks, row-wise softmax, and reductions to a scalar.
+Cross-entropy on the GPU: shape checks, row-wise softmax, and a reduction to a scalar.
 
 ## require_same_gpu
 
@@ -22,14 +22,6 @@ One thread per row. Subtracts the row maximum before `exp`, so the result stays 
 
 One thread per row. Computes the sum of `-target * log(p)` over the classes. `clamp_unit` clamps `p` to `[eps, 1]` before the log. The result is stored in `row_loss[row]`.
 
-## mse_sqdiff_sum_kernel
-
-Sums `(prediction - target)^2` over the elements. A thread gathers its slice, the block reduces it in shared memory (`kReduceThreads` = 256), and thread 0 does `atomicAdd` into `out`.
-
-## mse_grad_kernel
-
-`gradient[i] = (prediction - target) * scale`. The host computes the `2/N` scale in `MSELoss::loss_derivative`.
-
 ## softmax_minus_target_kernel
 
 `gradient[i] = (probability - target) * inv_batch`. This is the cross-entropy derivative with respect to the logits, already divided by the batch.
@@ -37,14 +29,6 @@ Sums `(prediction - target)^2` over the elements. A thread gathers its slice, th
 ## softmax_probabilities
 
 Allocates a tensor with the shape of the logits and launches `softmax_rows_kernel` with one block per 256 rows on `dl::current_stream()`. Checks `cudaGetLastError`.
-
-## MSELoss::loss
-
-`require_same_gpu`. Size 0 returns the scalar 0 without a kernel. Otherwise zeroes a scalar on the current stream, sums the squared differences (`mse_sqdiff_sum_kernel`, at most 1024 blocks), and divides the sum by the element count. `to_host` synchronizes the stream, because the mean is a number on the CPU; the scalar goes back to the GPU through `scalar_from_host`.
-
-## MSELoss::loss_derivative
-
-`require_same_gpu`. Allocates a gradient with the shape of the prediction. Size 0 returns it immediately. Otherwise the scale is `2 / N`, and `mse_grad_kernel` on the current stream fills the buffer.
 
 ## CrossEntropyLoss::loss
 

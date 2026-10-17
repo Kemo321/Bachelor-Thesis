@@ -2,8 +2,6 @@
 
 #include "DeepLearnLib/core/Batch.hpp"
 #include "DeepLearnLib/core/Network.hpp"
-#include "DeepLearnLib/layers/BatchNorm2d.hpp"
-#include "DeepLearnLib/layers/Dropout.hpp"
 #include "DeepLearnLib/layers/Flatten.hpp"
 #include "DeepLearnLib/layers/FullyConnected.hpp"
 #include "DeepLearnLib/layers/LeakyReLU.hpp"
@@ -266,85 +264,6 @@ static void BM_Tensor_Clamp_Torch(benchmark::State& state)
         });
 }
 
-static void BM_BN_Fwd_Custom(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    BatchNorm2d layer(192);
-    layer.train();
-    micro_custom_fwd(state, layer, micro_gpu_tensor({ kMicroBatch, 192, 112, 112 }, 0.1F));
-}
-
-static void BM_BN_Fwd_Torch(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    torch::nn::BatchNorm2d layer(192);
-    layer->to(torch::kCUDA);
-    layer->train();
-    auto input = micro_torch_cuda({ kMicroBatch, 192, 112, 112 }, 0.1F);
-    torch::Tensor output;
-    torch::NoGradGuard no_grad;
-    for (int index = 0; index < kMicroWarmup; ++index)
-    {
-        output = layer->forward(input);
-    }
-    torch::cuda::synchronize();
-    micro_gpu_loop(state, static_cast<std::size_t>(input.numel()) * sizeof(float),
-        [&]
-        {
-            output = layer->forward(input);
-            torch::cuda::synchronize();
-        });
-}
-
-static void BM_BN_Bwd_Custom(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    BatchNorm2d layer(192);
-    layer.train();
-    micro_custom_bwd(state, layer, micro_gpu_tensor({ kMicroBatch, 192, 112, 112 }, 0.1F));
-}
-
-static void BM_BN_Bwd_Torch(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    torch::nn::BatchNorm2d layer(192);
-    layer->to(torch::kCUDA);
-    layer->train();
-    auto input = micro_torch_cuda({ kMicroBatch, 192, 112, 112 }, 0.1F, true);
-    auto output = layer->forward(input);
-    auto grad = torch::ones_like(output);
-    output.backward(grad, true);
-    layer->zero_grad();
-    if (input.grad().defined())
-    {
-        input.grad().zero_();
-    }
-    torch::cuda::synchronize();
-    micro_gpu_loop(state, static_cast<std::size_t>(output.numel()) * sizeof(float),
-        [&]
-        {
-            output.backward(grad, true);
-            layer->zero_grad();
-            if (input.grad().defined())
-            {
-                input.grad().zero_();
-            }
-            torch::cuda::synchronize();
-        });
-}
-
 static void BM_MaxPool_Fwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -488,79 +407,6 @@ static void BM_LeakyReLU_Bwd_Torch(benchmark::State& state)
         });
 }
 
-static void BM_Dropout_Fwd_Custom(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    Dropout layer(0.5F);
-    layer.train();
-    micro_custom_fwd(state, layer, micro_gpu_tensor({ kMicroBatch, 4096 }, 0.1F));
-}
-
-static void BM_Dropout_Fwd_Torch(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    torch::nn::Dropout layer(torch::nn::DropoutOptions(0.5));
-    layer->to(torch::kCUDA);
-    layer->train();
-    auto input = micro_torch_cuda({ kMicroBatch, 4096 }, 0.1F);
-    torch::Tensor output;
-    output = layer->forward(input);
-    torch::cuda::synchronize();
-    micro_gpu_loop(state, static_cast<std::size_t>(input.numel()) * sizeof(float),
-        [&]
-        {
-            output = layer->forward(input);
-            torch::cuda::synchronize();
-        });
-}
-
-static void BM_Dropout_Bwd_Custom(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    Dropout layer(0.5F);
-    layer.train();
-    micro_custom_bwd(state, layer, micro_gpu_tensor({ kMicroBatch, 4096 }, 0.1F));
-}
-
-static void BM_Dropout_Bwd_Torch(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    torch::nn::Dropout layer(torch::nn::DropoutOptions(0.5));
-    layer->to(torch::kCUDA);
-    layer->train();
-    auto input = micro_torch_cuda({ kMicroBatch, 4096 }, 0.1F, true);
-    auto output = layer->forward(input);
-    auto grad = torch::ones_like(output);
-    output.backward(grad, true);
-    if (input.grad().defined())
-    {
-        input.grad().zero_();
-    }
-    torch::cuda::synchronize();
-    micro_gpu_loop(state, static_cast<std::size_t>(output.numel()) * sizeof(float),
-        [&]
-        {
-            output.backward(grad, true);
-            if (input.grad().defined())
-            {
-                input.grad().zero_();
-            }
-            torch::cuda::synchronize();
-        });
-}
-
 static void BM_Flatten_Fwd_Custom(benchmark::State& state)
 {
     if (!micro_require_cuda(state))
@@ -659,58 +505,6 @@ static void BM_Softmax_Bwd_Torch(benchmark::State& state)
                 input.grad().zero_();
             }
             torch::cuda::synchronize();
-        });
-}
-
-static void BM_MSE_Fwd_Custom(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    const std::vector<int> shape { kMicroBatch, 10 };
-    const dl::Tensor pred = micro_gpu_tensor(shape, 0.2F);
-    const dl::Tensor target = micro_gpu_tensor(shape, 0.1F);
-    dl::Tensor loss = MSELoss::loss(target, pred);
-    micro_gpu_loop(state, bytes_of(pred),
-        [&]
-        {
-            loss = MSELoss::loss(target, pred);
-        });
-}
-
-static void BM_MSE_Fwd_Torch(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    auto pred = micro_torch_cuda({ kMicroBatch, 10 }, 0.2F);
-    auto target = micro_torch_cuda({ kMicroBatch, 10 }, 0.1F);
-    torch::Tensor loss = torch::mse_loss(pred, target);
-    torch::cuda::synchronize();
-    micro_gpu_loop(state, static_cast<std::size_t>(pred.numel()) * sizeof(float),
-        [&]
-        {
-            loss = torch::mse_loss(pred, target);
-            torch::cuda::synchronize();
-        });
-}
-
-static void BM_MSE_Bwd_Custom(benchmark::State& state)
-{
-    if (!micro_require_cuda(state))
-    {
-        return;
-    }
-    const std::vector<int> shape { kMicroBatch, 10 };
-    const dl::Tensor pred = micro_gpu_tensor(shape, 0.2F);
-    const dl::Tensor target = micro_gpu_tensor(shape, 0.1F);
-    dl::Tensor grad = MSELoss::loss_derivative(target, pred);
-    micro_gpu_loop(state, bytes_of(pred),
-        [&]
-        {
-            grad = MSELoss::loss_derivative(target, pred);
         });
 }
 
@@ -941,10 +735,6 @@ MICRO_BENCH(BM_Tensor_Sum_Custom);
 MICRO_BENCH(BM_Tensor_Sum_Torch);
 MICRO_BENCH(BM_Tensor_Clamp_Custom);
 MICRO_BENCH(BM_Tensor_Clamp_Torch);
-MICRO_BENCH(BM_BN_Fwd_Custom);
-MICRO_BENCH(BM_BN_Fwd_Torch);
-MICRO_BENCH(BM_BN_Bwd_Custom);
-MICRO_BENCH(BM_BN_Bwd_Torch);
 MICRO_BENCH(BM_MaxPool_Fwd_Custom);
 MICRO_BENCH(BM_MaxPool_Fwd_Torch);
 MICRO_BENCH(BM_MaxPool_Bwd_Custom);
@@ -953,10 +743,6 @@ MICRO_BENCH(BM_LeakyReLU_Fwd_Custom);
 MICRO_BENCH(BM_LeakyReLU_Fwd_Torch);
 MICRO_BENCH(BM_LeakyReLU_Bwd_Custom);
 MICRO_BENCH(BM_LeakyReLU_Bwd_Torch);
-MICRO_BENCH(BM_Dropout_Fwd_Custom);
-MICRO_BENCH(BM_Dropout_Fwd_Torch);
-MICRO_BENCH(BM_Dropout_Bwd_Custom);
-MICRO_BENCH(BM_Dropout_Bwd_Torch);
 MICRO_BENCH(BM_Flatten_Fwd_Custom);
 MICRO_BENCH(BM_Flatten_Fwd_Torch);
 MICRO_BENCH(BM_Flatten_Bwd_Custom);
@@ -964,9 +750,6 @@ MICRO_BENCH(BM_Softmax_Fwd_Custom);
 MICRO_BENCH(BM_Softmax_Fwd_Torch);
 MICRO_BENCH(BM_Softmax_Bwd_Custom);
 MICRO_BENCH(BM_Softmax_Bwd_Torch);
-MICRO_BENCH(BM_MSE_Fwd_Custom);
-MICRO_BENCH(BM_MSE_Fwd_Torch);
-MICRO_BENCH(BM_MSE_Bwd_Custom);
 MICRO_BENCH(BM_CE_Fwd_Custom);
 MICRO_BENCH(BM_CE_Fwd_Torch);
 MICRO_BENCH(BM_CE_Bwd_Custom);

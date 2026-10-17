@@ -6,7 +6,7 @@ The design is intentionally **lightweight**. Application networks (`SimpleCNN`, 
 
 ## Abstract
 
-DeepLearnLib provides a dense `dl::Tensor` with GPU storage, in-place arithmetic, and zero-allocation GEMM (`matmul_into`). Convolution, pooling, and batch-norm use the cuDNN C API. A narrow fully-connected layer is one kernel that adds the bias; wider layers use cuBLASLt with a bias epilogue, and fall back to `matmul_into`. Elementwise kernels (LeakyReLU, Dropout, fused SGD) stay on device. Host synchronisation is reserved for logging, metrics, and checkpoints.
+DeepLearnLib provides a dense `dl::Tensor` with GPU storage, in-place arithmetic, and zero-allocation GEMM (`matmul_into`). Convolution, pooling, and the GRU use the cuDNN C API. A narrow fully-connected layer is one kernel that adds the bias; wider layers use cuBLASLt with a bias epilogue, and fall back to `matmul_into`. Elementwise kernels (LeakyReLU, fused SGD) stay on device. Host synchronisation is reserved for logging, metrics, and checkpoints.
 
 ## Architecture overview
 
@@ -96,7 +96,7 @@ Details: [docs/usage/experiments.md](docs/usage/experiments.md). Adding a layer:
 ├── include/DeepLearnLib/     # Public headers, same folders as src/
 │   ├── core/                 # Tensor, Layer, Network, Batch, Precision
 │   ├── layers/               # Conv2d, Gru, FullyConnected, …
-│   ├── losses/               # CrossEntropyLoss, MSELoss
+│   ├── losses/               # CrossEntropyLoss
 │   ├── loaders/              # images, CSV, ECG200
 │   └── utils/                # Logger, Profiler, Nvtx, SafeMath
 ├── src/                      # core/, layers/, losses/, loaders/, utils/

@@ -6,7 +6,6 @@ add_executable(
   core/test_tensor.cpp
   layers/test_conv2d.cpp
   layers/test_maxpool2d.cpp
-  layers/test_batchnorm2d.cpp
   layers/test_fullyconnected.cpp
   layers/test_activations.cpp
   layers/test_flatten.cpp

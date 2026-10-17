@@ -7,7 +7,7 @@ Public API of the library (`include/DeepLearnLib/`, `src/`). Both trees use `cor
 | [Overview](overview.md) | What the library owns, and the class diagram |
 | [Tensor](tensor.md) | Storage, views, `ensure`, GEMM |
 | [Layers](layers.md) | `Layer` and every subclass |
-| [Losses](losses.md) | `CrossEntropyLoss`, `MSELoss` |
+| [Losses](losses.md) | `CrossEntropyLoss` |
 | [Loaders](loaders.md) | How a `Batch` is produced |
 | [Utilities](utilities.md) | `Network`, precision, profiler, logging |
 | [Extending](extending.md) | Adding a layer |

@@ -76,7 +76,7 @@ Returns the raw tensor-descriptor handle for cuDNN calls.
 
 ## CudnnTensorDescriptor::set_nchw
 
-Writes NCHW layout and the data type into the descriptor. Convolution and batch-norm read the dimensions from here, not from the tensor metadata.
+Writes NCHW layout and the data type into the descriptor. Convolution reads the dimensions from here, not from the tensor metadata.
 
 ## CudnnFilterDescriptor::CudnnFilterDescriptor()
 

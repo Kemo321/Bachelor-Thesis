@@ -2,9 +2,7 @@ set(DEEPLEARN_SOURCES
     core/Tensor.cpp
     layers/Conv2d.cpp
     layers/MaxPool2d.cpp
-    layers/BatchNorm2d.cpp
     layers/LeakyReLU.cpp
-    layers/Dropout.cpp
     layers/FullyConnected.cpp
     layers/Gru.cpp
     layers/Flatten.cpp
@@ -33,9 +31,7 @@ endif()
 set(DEEPLEARN_CUDA_SOURCES
     core/Tensor.cpp
     layers/Conv2d.cpp
-    layers/BatchNorm2d.cpp
     layers/LeakyReLU.cpp
-    layers/Dropout.cpp
     layers/FullyConnected.cpp
     layers/Gru.cpp
     core/Network.cpp

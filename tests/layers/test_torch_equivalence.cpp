@@ -1,7 +1,6 @@
 #include "test_helpers.hpp"
 
 #include "DeepLearnLib/core/Tensor.hpp"
-#include "DeepLearnLib/layers/BatchNorm2d.hpp"
 #include "DeepLearnLib/layers/Conv2d.hpp"
 #include "DeepLearnLib/layers/FullyConnected.hpp"
 #include "DeepLearnLib/layers/MaxPool2d.hpp"
@@ -182,45 +181,3 @@ TEST_F(TorchEquivalenceTest, FullyConnectedForwardAndBackwardMatchLibTorch)
     expect_near_vector(dl_grad_input.to_host(), torch_to_host(torch_input.grad()), kTorchTol);
 }
 
-namespace
-{
-
-auto channel_vector(int channels, float value) -> std::vector<float>
-{
-    return std::vector<float>(static_cast<std::size_t>(channels), value);
-}
-
-}
-
-TEST_F(TorchEquivalenceTest, BatchNorm2dTrainForwardAndBackwardMatchLibTorch)
-{
-    const int channels = 4;
-    const std::vector<int> input_shape = { 2, channels, 6, 6 };
-    const std::vector<float> input_host = random_host(2 * channels * 6 * 6, 121U);
-    Tensor dl_input = Tensor::from_host(input_shape, input_host, Device::GPU);
-    BatchNorm2d batch_norm(channels);
-    batch_norm.train();
-    batch_norm.weight_decay = 0.0F;
-
-    const std::vector<float> gamma_host = channel_vector(channels, 1.0F);
-    const std::vector<float> beta_host = channel_vector(channels, 0.0F);
-    const std::vector<float> mean_host = channel_vector(channels, 0.0F);
-    const std::vector<float> var_host = channel_vector(channels, 1.0F);
-    auto torch_input = torch_from_host(shape_to_int64(input_shape), input_host, true);
-    auto torch_gamma = torch_from_host({ channels }, gamma_host, true);
-    auto torch_beta = torch_from_host({ channels }, beta_host, true);
-    auto torch_mean = torch_from_host({ channels }, mean_host, false);
-    auto torch_var = torch_from_host({ channels }, var_host, false);
-
-    Tensor dl_output = batch_norm.forward(dl_input);
-    synchronize_device();
-    auto torch_output = torch::batch_norm(
-        torch_input, torch_gamma, torch_beta, torch_mean, torch_var, true, 0.1, 1.0e-5, true);
-    const std::vector<float> grad_host = random_host(dl_output.get_size(), 131U);
-    Tensor dl_grad_input = batch_norm.backward(Tensor::from_host(dl_output.get_shape(), grad_host, Device::GPU));
-    synchronize_device();
-    torch_output.backward(torch_from_host(shape_to_int64(dl_output.get_shape()), grad_host, false));
-
-    expect_near_vector(dl_output.to_host(), torch_to_host(torch_output), kTorchTol);
-    expect_near_vector(dl_grad_input.to_host(), torch_to_host(torch_input.grad()), kTorchTol);
-}

@@ -8,7 +8,7 @@ Headers and sources use the same folders: `core/` (tensor, layer contract, netwo
 
 | Kind | Spelling | Examples |
 | --- | --- | --- |
-| Types | `PascalCase` | `Conv2d`, `BatchNorm2d`, `CrossEntropyLoss`, `Tensor` |
+| Types | `PascalCase` | `Conv2d`, `CrossEntropyLoss`, `Tensor` |
 | Functions and methods | `snake_case` | `get_shape`, `matmul_into`, `to_host` |
 | In-place tensor methods | `snake_case` plus a trailing underscore | `add_`, `clamp_`, `sgd_update_` |
 | Private data members | trailing underscore | `weights_`, `is_training_`, `output_cache_` |
@@ -23,7 +23,7 @@ Headers and sources use the same folders: `core/` (tensor, layer contract, netwo
 
 Constructor parameters that would shadow a member take a `_val` suffix (`inertia_val`, `stride_val`, `slope_val`). The member itself has no suffix beyond the private underscore.
 
-SGD momentum is `Layer::momentum`. Batch-norm's running-stat blend is a different number. `BatchNorm2d` stores it as `momentum_bn_`.
+SGD momentum is `Layer::momentum`.
 
 `FullyConnected`'s `inertia` argument is GEMM beta for the gradient write. It is not `Layer::momentum`.
 
@@ -31,7 +31,7 @@ SGD momentum is `Layer::momentum`. Batch-norm's running-stat blend is a differen
 
 `dl` contains storage and process-wide CUDA state: `Tensor`, `Device`, `Dtype`, precision, logger, `SafeMath`, `parallel_for`, NVTX, cuBLAS/cuDNN handles, and the cuDNN descriptor wrappers.
 
-`Layer`, every layer subclass, `Network`, `CrossEntropyLoss`, `MSELoss`, the loaders, and `Profiler` are in the global namespace.
+`Layer`, every layer subclass, `Network`, `CrossEntropyLoss`, the loaders, and `Profiler` are in the global namespace.
 
 A new layer stays global, next to `Conv2d`. A new helper that only touches CUDA lifetime or numeric policy goes in `dl`. Do not invent a third namespace.
 
@@ -42,7 +42,7 @@ These are real. New parameters stay in `snake_case`.
 | Location | What differs |
 | --- | --- |
 | `Tensor` | Metadata uses a `get_` prefix (`get_shape`, `get_device`, `get_dtype`). The pointer is both `data()` and `get_data()` (`get_data` is const-only). New code should call `data()`. |
-| Header file names | Layer types match the file. `Losses.hpp` is plural because it holds `MSELoss` and `CrossEntropyLoss`. `ParallelFor.hpp`, `Precision.hpp`, `SafeMath.hpp`, `Nvtx.hpp`, and `Logger.hpp` are `PascalCase` even though they are not a single class of that name. |
+| Header file names | Layer types match the file. `Losses.hpp` is plural because it holds the loss helpers and `CrossEntropyLoss`. `ParallelFor.hpp`, `Precision.hpp`, `SafeMath.hpp`, `Nvtx.hpp`, and `Logger.hpp` are `PascalCase` even though they are not a single class of that name. |
 | CMake project | `project(MiniC_DL ...)`. The target, the include directory, and the docs say `DeepLearnLib`. |
 
 Application names are `train_` or `bench_`, then the dataset, then `_custom` or `_torch`. Pipeline keys in `config/experiments.json` use the dataset name (`cifar10_classification`, `tabular_iris`, `ecg200`).

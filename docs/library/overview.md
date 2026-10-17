@@ -1,6 +1,6 @@
 # Overview
 
-DeepLearnLib is a C++17 / CUDA library. It allocates device memory, runs convolution, pooling, and batch-norm through cuDNN, runs dense products through cuBLAS, and implements elementwise work and the classification losses as its own kernels.
+DeepLearnLib is a C++17 / CUDA library. It allocates device memory, runs convolution, pooling, and the GRU through cuDNN, runs dense products through cuBLAS, and implements elementwise work and cross-entropy as its own kernels.
 
 It does not build a computation graph. Each operation is a class with `forward` and `backward`. Classifier and sequence programs are assembled by applications from the layer types below. `Gru` is a reusable cuDNN layer in `layers/`.
 
@@ -9,8 +9,8 @@ It does not build a computation graph. Each operation is a class with `forward` 
 | Area | Headers | Role |
 | --- | --- | --- |
 | `core/` | `Tensor.hpp`, `Precision.hpp`, `Layer.hpp`, `Network.hpp`, `Batch.hpp` | Storage, the layer contract, the stack, a batch |
-| `layers/` | `Conv2d.hpp`, `BatchNorm2d.hpp`, `MaxPool2d.hpp`, `FullyConnected.hpp`, `Gru.hpp`, `LeakyReLU.hpp`, `Dropout.hpp`, `Flatten.hpp`, `Softmax.hpp` | Trainable and activation blocks |
-| `losses/` | `Losses.hpp` | `CrossEntropyLoss` and `MSELoss` |
+| `layers/` | `Conv2d.hpp`, `MaxPool2d.hpp`, `FullyConnected.hpp`, `Gru.hpp`, `LeakyReLU.hpp`, `Flatten.hpp`, `Softmax.hpp` | Trainable and activation blocks |
+| `losses/` | `Losses.hpp` | `CrossEntropyLoss` |
 | `loaders/` | `ClassificationLoader.hpp`, `PackedImageLoader.hpp`, `CSVLoader.hpp`, `Ecg200Loader.hpp` | Host samples to a GPU batch |
 | `utils/` | `SafeMath.hpp`, `Profiler.hpp`, `Logger.hpp`, `Nvtx.hpp`, `ParallelFor.hpp` | Numeric guards, timers, logs |
 
@@ -50,11 +50,10 @@ classDiagram
     }
 
     Layer <|-- Conv2d
-    Layer <|-- BatchNorm2d
     Layer <|-- MaxPool2d
     Layer <|-- FullyConnected
     Layer <|-- LeakyReLU
-    Layer <|-- Dropout
+    Layer <|-- Gru
     Layer <|-- Flatten
     Layer <|-- Softmax
 
@@ -63,7 +62,7 @@ classDiagram
     FullyConnected --> Tensor
 ```
 
-`BatchNorm2d` is its own layer. A network that wants convolution, normalisation, and LeakyReLU stacks those three.
+A network that wants convolution and LeakyReLU stacks those layers.
 
 ## Handles and errors
 

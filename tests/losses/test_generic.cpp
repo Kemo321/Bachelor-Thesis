@@ -20,31 +20,6 @@ class GenericComponentTest : public GpuTest
 {
 };
 
-TEST_F(GenericComponentTest, MseLossIsZeroWhenPredictionMatchesTarget)
-{
-
-    const std::vector<float> values = { 1.0F, -2.0F, 0.5F, 3.0F };
-    Tensor target = Tensor::from_host({ 2, 2 }, values, Device::GPU);
-    Tensor prediction = Tensor::from_host({ 2, 2 }, values, Device::GPU);
-
-    Tensor loss = MSELoss::loss(target, prediction);
-    synchronize_device();
-
-    expect_near_vector(loss.to_host(), { 0.0F });
-}
-
-TEST_F(GenericComponentTest, MseLossDerivativeScalesByTwoOverN)
-{
-
-    Tensor target = Tensor::from_host({ 2 }, { 0.0F, 0.0F }, Device::GPU);
-    Tensor prediction = Tensor::from_host({ 2 }, { 1.0F, 1.0F }, Device::GPU);
-
-    Tensor gradient = MSELoss::loss_derivative(target, prediction);
-    synchronize_device();
-
-    expect_near_vector(gradient.to_host(), { 1.0F, 1.0F });
-}
-
 TEST_F(GenericComponentTest, CrossEntropyPrefersTheCorrectOneHotClass)
 {
 
