@@ -1,0 +1,84 @@
+{
+  "jobs": {
+    "train_tabular_custom tabular_demo": {
+      "status": "done",
+      "finished_at": "2026-10-17T18:28:56Z",
+      "run": "run_all"
+    },
+    "train_tabular_torch tabular_demo": {
+      "status": "done",
+      "finished_at": "2026-10-17T18:29:42Z",
+      "run": "run_all"
+    },
+    "train_tabular_custom tabular_iris": {
+      "status": "done",
+      "finished_at": "2026-10-17T18:29:43Z",
+      "run": "run_all"
+    },
+    "train_tabular_torch tabular_iris": {
+      "status": "done",
+      "finished_at": "2026-10-17T18:29:45Z",
+      "run": "run_all"
+    },
+    "train_tabular_custom tabular_wisconsin": {
+      "status": "done",
+      "finished_at": "2026-10-17T18:29:46Z",
+      "run": "run_all"
+    },
+    "train_tabular_torch tabular_wisconsin": {
+      "status": "done",
+      "finished_at": "2026-10-17T18:29:48Z",
+      "run": "run_all"
+    },
+    "train_mnist_custom": {
+      "status": "done",
+      "finished_at": "2026-10-17T18:30:13Z",
+      "run": "run_all"
+    },
+    "train_mnist_torch": {
+      "status": "done",
+      "finished_at": "2026-10-17T18:31:14Z",
+      "run": "run_all"
+    },
+    "train_cifar_custom": {
+      "status": "done",
+      "finished_at": "2026-10-17T18:57:46Z",
+      "run": "run_all"
+    },
+    "train_cifar_torch": {
+      "status": "done",
+      "finished_at": "2026-10-17T19:25:02Z",
+      "run": "run_all"
+    },
+    "train_gru_custom ecg200": {
+      "status": "done",
+      "finished_at": "2026-10-17T19:25:09Z",
+      "run": "run_all"
+    },
+    "train_gru_torch ecg200": {
+      "status": "done",
+      "finished_at": "2026-10-17T19:25:55Z",
+      "run": "run_all"
+    },
+    "bench_forward_custom": {
+      "status": "done",
+      "finished_at": "2026-10-17T19:26:00Z",
+      "run": "run_all"
+    },
+    "bench_forward_torch": {
+      "status": "done",
+      "finished_at": "2026-10-17T19:26:43Z",
+      "run": "run_all"
+    },
+    "bench_micro_ops --benchmark_min_time=0.5s --benchmark_counters_tabular=true --benchmark_out=/app/results/micro/bench_micro.json --benchmark_out_format=json": {
+      "status": "done",
+      "finished_at": "2026-10-17T19:28:49Z",
+      "run": "run_all"
+    },
+    "plot_metrics run_all": {
+      "status": "done",
+      "finished_at": "2026-10-17T19:28:57Z",
+      "run": "run_all"
+    }
+  }
+}

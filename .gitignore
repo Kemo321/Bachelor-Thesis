@@ -29,7 +29,6 @@ dllib_test_network_*.bin
 compute_prof_log.txt
 
 # Runtime outputs and datasets
-results/
 data/
 logs/
 ccache_data/
@@ -43,13 +42,19 @@ ccache_data/
 *.exe
 *.app
 
+# The measurements quoted in the thesis are versioned.
+!results/**/*.csv
+!results/**/*.png
+!results/**/*.pt
+
 # Python
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+scripts/latex_to_text.py
 node_modules/
 
-# LaTeX stays on the machine. The thesis and the seminar are not part of this repo.
+# LaTeX stays on the machine. The thesis (praca, artykuł, prezentacja) is not part of this repo.
 *.tex
 *.bib
 *.cls
@@ -69,7 +74,9 @@ node_modules/
 *.vrb
 *.xdv
 thesis/
-seminar/
+
+# Local thesis-style checker (not part of the library repo)
+tools/
 
 # IDE / editor
 .vscode/
@@ -93,3 +100,5 @@ extern/
 /wyniki.md
 /wyniki.pdf
 /wyniki.html
+
+/knowledge

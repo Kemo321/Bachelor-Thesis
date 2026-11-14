@@ -1,0 +1,5 @@
+Model;Batch;Repeats;Time(s);SamplesPerSec;VRAM_MiB
+simplecnn_cifar;128;30;0.002951;1301102.582790;1481
+simplecnn_mnist;128;30;0.003134;1225306.797358;1483
+tabular_mlp;256;50;0.010713;1194768.668050;1483
+gru_classifier;32;30;0.002954;324944.683245;1483
