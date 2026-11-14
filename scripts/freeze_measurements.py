@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Copy the last row of each results/**/metrics_*.csv into docs/usage/measurements.md.
 
-results/ is gitignored. This script does not invent numbers. With no CSV files
+results/ holds the CSV files from the thesis run. This script does not invent numbers. With no CSV files
 it writes a page that says the table is empty. GitHub Actions has no GPU and
 does not produce these files.
 """
@@ -51,7 +51,7 @@ def markdown_table(header: list[str], rows: list[list[str]]) -> str:
 def render(files: list[Path]) -> str:
     intro = """# Measurements
 
-`results/` is gitignored. This page is the copy that can go into the thesis. Refresh it after a local GPU run:
+This page lists the last row of each CSV file in `results/`, which holds the measurements quoted in the thesis. Refresh it after a local GPU run:
 
 ```bash
 python scripts/freeze_measurements.py
